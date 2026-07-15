@@ -47,8 +47,8 @@
   },
   "readiness": {
     "target_state": "HISTORICAL_RESEARCH_READY",
-    "current_state": "REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING",
-    "ready": false,
+    "current_state": "HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY",
+    "ready": true,
     "readiness_is_execution_authority": false,
     "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
     "candidate_eligibility": "BLOCKED_PENDING_PROSPECTIVE_PIT",
@@ -71,7 +71,7 @@
     "trial_census_exact_status": "INDETERMINATE_BLOCKS_TRUSTED_GATE",
     "eligibility_census_materializer_status": "NOT_IMPLEMENTED_BLOCKS_PRODUCTION",
     "holdout_access_receipt_status": "DESIGN_ONLY_BLOCKS_PRODUCTION",
-    "readiness_receipt_status": "NOT_ISSUED_BLOCKS_PRODUCTION",
+    "readiness_receipt_status": "ISSUED_NON_AUTHORIZING_MECHANICAL_RECEIPT",
     "statistical_array_binding_required": true,
     "local_hash_chain_or_local_anchor_is_external_immutability_proof": false,
     "synthetic_fixture_evidence_is_production_evidence": false

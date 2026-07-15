@@ -430,12 +430,11 @@ membership, identity, action, delisting, and outcome evidence. It emits price
 inputs but no matured return, and it is not the active research sample schema
 while those evidence fields remain unresolved.
 
-Mechanical `HISTORICAL_RESEARCH_READY` additionally requires a clean committed
-code/config/test closure and a verified non-authorizing readiness receipt. It
-does not require pretending the legacy-trial census is exact: that census
-remains an indeterminate conservative floor and continues to block the trusted
-historical gate. Reaching the mechanical milestone authorizes no real-history
-execution.
+Mechanical `HISTORICAL_RESEARCH_READY` is now bound to a clean committed
+code/config/test closure by a verified non-authorizing readiness receipt. It
+does not pretend the legacy-trial census is exact: that census remains an
+indeterminate conservative floor and continues to block the trusted historical
+gate. The mechanical milestone authorizes no real-history execution.
 
 While PIT truth remains unresolved, the historical evidence scope remains
 `LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED`, candidate eligibility remains

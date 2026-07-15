@@ -129,6 +129,31 @@ def test_assessment_and_two_receipts_are_mechanical_only_and_idempotent(
     assert repeated == result
 
 
+def test_publication_reuses_the_verified_assessment_once(
+    readiness_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permit, accepted, foundation = _foundation(readiness_tmp)
+    original = readiness_module.assess_stock_mechanical_readiness
+    calls = 0
+
+    def counted_assessment(**kwargs):
+        nonlocal calls
+        calls += 1
+        return original(**kwargs)
+
+    monkeypatch.setattr(
+        readiness_module, "assess_stock_mechanical_readiness", counted_assessment
+    )
+    publish_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        readiness_work_root=readiness_tmp / "ready-work-single-assessment",
+        created_at=CREATED_AT,
+        synthetic_permit=permit,
+    )
+    assert calls == 1
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

@@ -9,7 +9,7 @@ forecasts when making discretionary option trades.
 
 ## Status
 
-`REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING`
+`HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`
 
 Historical modeling, WFA, candidate sealing, bulk provider acquisition, and
 cutover remain unauthorized. The exact approved local data copy and bounded
@@ -30,10 +30,11 @@ public Nasdaq qualification are complete.
      two physical HFDL epochs, pinned XNYS calendar, separate feature/outcome
      bridges, and aggregate non-active release were validated. Nasdaq identity
      evidence is qualified; Alpaca remains a guarded prospective lane.
-3. **Historical research ready (receipt pending)**: registered nested-WFA
+3. **Historical research ready (mechanical only)**: registered nested-WFA
    executor, dependence-aware statistics, costs, benchmarks, negative controls,
-   and finite gates are mechanically implemented. A clean committed closure and
-   non-authorizing receipts are still required.
+   and finite gates are mechanically implemented and bound by non-authorizing
+   receipts to a clean commit. This does not authorize real-history execution or
+   establish trusted PIT evidence.
 4. **Candidate research**: separately authorized hypothesis and counted
    historical evaluation.
 5. **Prospective confirmation**: sealed prediction protocol, blinded outcome

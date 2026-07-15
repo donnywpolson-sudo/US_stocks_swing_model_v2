@@ -417,7 +417,9 @@ def test_unimplemented_external_anchors_and_census_materialization_block_product
     assert anchors["eligibility_census_materializer_status"] == (
         "NOT_IMPLEMENTED_BLOCKS_PRODUCTION"
     )
-    assert anchors["readiness_receipt_status"] == "NOT_ISSUED_BLOCKS_PRODUCTION"
+    assert anchors["readiness_receipt_status"] == (
+        "ISSUED_NON_AUTHORIZING_MECHANICAL_RECEIPT"
+    )
     assert anchors["statistical_array_binding_required"] is True
     assert anchors["local_hash_chain_or_local_anchor_is_external_immutability_proof"] is False
     assert anchors["synthetic_fixture_evidence_is_production_evidence"] is False

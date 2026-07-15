@@ -47,6 +47,12 @@ physical epochs. See `config/migration_allowlist.json`,
 `config/migration_approval.json`, and `config/sources.json` for the fail-closed
 contracts.
 
+`REBUILD_COMPLETE` and mechanical `HISTORICAL_RESEARCH_READY` are represented
+by content-addressed, non-authorizing receipts under the ignored accepted-data
+vault. A receipt is current only when its repository HEAD/tree and all release
+bindings match the clean checkout. These milestones leave the historical PIT
+and exact-census blockers in force.
+
 ## Local validation
 
 The exact Python 3.11.9 runtime and numerical/data dependencies are pinned in

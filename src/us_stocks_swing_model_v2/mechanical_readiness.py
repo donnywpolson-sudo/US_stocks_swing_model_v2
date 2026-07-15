@@ -1101,12 +1101,12 @@ def publish_stock_mechanical_readiness(
         rebuild_complete_release_directory=rebuild_dir,
         historical_research_ready_release_directory=historical_dir,
     )
-    verify_stock_mechanical_readiness_publication(
+    _verify_stock_mechanical_readiness_publication_against_assessment(
+        assessment=assessment,
         foundation_release_directory=Path(foundation_release_directory),
         accepted_release_root=accepted_root,
         rebuild_complete_release_directory=rebuild_dir,
         historical_research_ready_release_directory=historical_dir,
-        synthetic_permit=synthetic_permit,
     )
     return result
 
@@ -1156,21 +1156,14 @@ def _verify_receipt_release(
     return manifest
 
 
-def verify_stock_mechanical_readiness_publication(
+def _verify_stock_mechanical_readiness_publication_against_assessment(
     *,
+    assessment: MechanicalReadinessAssessment,
     foundation_release_directory: Path,
     accepted_release_root: Path,
     rebuild_complete_release_directory: Path,
     historical_research_ready_release_directory: Path,
-    synthetic_permit: SyntheticOnlyPermit | None = None,
 ) -> MechanicalReadinessPublication:
-    """Re-derive and verify both milestone releases without selecting a latest file."""
-
-    assessment = assess_stock_mechanical_readiness(
-        foundation_release_directory=Path(foundation_release_directory),
-        accepted_release_root=Path(accepted_release_root),
-        synthetic_permit=synthetic_permit,
-    )
     rebuild_payload = _json_object(
         Path(rebuild_complete_release_directory) / "rebuild_complete.json",
         canonical=True,
@@ -1227,6 +1220,32 @@ def verify_stock_mechanical_readiness_publication(
     )
     return MechanicalReadinessPublication(
         assessment_id=assessment.assessment_id,
+        rebuild_complete_release_directory=Path(rebuild_complete_release_directory),
+        historical_research_ready_release_directory=Path(
+            historical_research_ready_release_directory
+        ),
+    )
+
+
+def verify_stock_mechanical_readiness_publication(
+    *,
+    foundation_release_directory: Path,
+    accepted_release_root: Path,
+    rebuild_complete_release_directory: Path,
+    historical_research_ready_release_directory: Path,
+    synthetic_permit: SyntheticOnlyPermit | None = None,
+) -> MechanicalReadinessPublication:
+    """Re-derive and verify both milestone releases without selecting a latest file."""
+
+    assessment = assess_stock_mechanical_readiness(
+        foundation_release_directory=Path(foundation_release_directory),
+        accepted_release_root=Path(accepted_release_root),
+        synthetic_permit=synthetic_permit,
+    )
+    return _verify_stock_mechanical_readiness_publication_against_assessment(
+        assessment=assessment,
+        foundation_release_directory=Path(foundation_release_directory),
+        accepted_release_root=Path(accepted_release_root),
         rebuild_complete_release_directory=Path(rebuild_complete_release_directory),
         historical_research_ready_release_directory=Path(
             historical_research_ready_release_directory

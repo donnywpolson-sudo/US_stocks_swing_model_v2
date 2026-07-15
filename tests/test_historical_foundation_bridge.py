@@ -340,5 +340,5 @@ def test_readiness_records_real_discovery_foundation_without_pit_claim() -> None
     assert anchors["historical_foundation_real_release_status"] == (
         "BUILT_NON_ACTIVE_LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
     )
-    assert contract["readiness"]["ready"] is False
+    assert contract["readiness"]["ready"] is True
     assert contract["readiness"]["candidate_eligibility"] == "BLOCKED_PENDING_PROSPECTIVE_PIT"

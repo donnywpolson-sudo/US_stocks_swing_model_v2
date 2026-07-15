@@ -260,7 +260,7 @@ def test_registered_executor_status_is_mechanical_only_and_preserves_all_blocker
     assert registered["alpha_evidence"] is False
     assert registered["candidate_eligible"] is False
     readiness = contract["readiness"]
-    assert readiness["ready"] is False
+    assert readiness["ready"] is True
     assert readiness["historical_evidence_scope"] == "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
     assert readiness["candidate_eligibility"] == "BLOCKED_PENDING_PROSPECTIVE_PIT"
     assert contract["production_evidence_anchors"]["trial_census_exact_status"] == (

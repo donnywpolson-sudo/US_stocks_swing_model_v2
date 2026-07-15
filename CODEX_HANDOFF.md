@@ -5,7 +5,7 @@
 - Root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Legacy root: `C:\Users\donny\Desktop\US_stocks_swing_model` (read-only)
 - Branch: `main`
-- State: new independent repository; initial reviewed commit pending
+- State: independent local repository with committed tracked closure
 
 ## Authorized scope
 
@@ -15,7 +15,7 @@ sealing, destructive cutover, or external push.
 
 ## Current milestone
 
-Status: `REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING`.
+Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
 
 - The approved migration hash-copied 4,911 files / 345,845,816 bytes into the
   content-addressed v2 vault. It did not move, link, or modify legacy files.
@@ -28,6 +28,9 @@ Status: `REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING`.
   process; no bulk Alpaca backfill was attempted.
 - No real-history hypothesis, model fit, WFA, candidate, or alpha evaluation
   ran.
+- Non-authorizing `REBUILD_COMPLETE` and mechanical
+  `HISTORICAL_RESEARCH_READY` receipts are published in the accepted-data
+  vault and bind a clean local commit. They do not clear any trust blocker.
 
 ## Source truth
 
@@ -44,8 +47,8 @@ Status: `REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING`.
 
 ## Next gate
 
-Run the full non-alpha suite, create the first exact local commit, and publish
-the two non-authorizing mechanical milestone receipts against that clean HEAD.
-`HISTORICAL_RESEARCH_READY` means only that the discovery harness is
-mechanically runnable; PIT truth, exact legacy-trial census, alpha, candidates,
-live use, options, and deployable shorts remain blocked.
+Stop at the controlled-rebuild boundary. Real-history hypothesis/WFA execution,
+candidate sealing, destructive cutover, external push, and trading require new
+authorization. `HISTORICAL_RESEARCH_READY` means only that the discovery
+harness is mechanically runnable; PIT truth, exact legacy-trial census, alpha,
+candidates, live use, options, and deployable shorts remain blocked.
