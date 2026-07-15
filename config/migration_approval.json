@@ -1,0 +1,28 @@
+{
+  "approval_id": "06b0acdbc332e88e1d21ccd4144740d522c03d4e054295703b1a80de651cf336",
+  "approval_scope": "COPY_TO_NON_ACTIVE_CONTENT_ADDRESSED_MIGRATION_RELEASE",
+  "approved_at": "2026-07-15T11:47:58.147611Z",
+  "config_sha256": "e886a5a0b26c1a5580b7538989196e1e6323825fced506a9f0a38b0d61543cfc",
+  "file_count": 4911,
+  "inventory_sha256": "c70b8ba01c96a0fdf9f4cd5a313a675c30b3db94ddd2ec7f52bdee0da4cc31ce",
+  "migration_implementation_manifest": {
+    "config/controlled_rebuild_authorization.json": "b8da8053084cfb8c057534ba14e7c0267d5b3d781f36a261f9f7d29d7bb32431",
+    "config/environment.lock.json": "357140d886aeb7f8b9eb46be606451eeff072d652cdf0d726d1d22e437b49fe8",
+    "pyproject.toml": "b2656a99da12275616d34a24a34aac511ea543fd1a8503abc116d1a1ce1285c3",
+    "requirements.lock": "0084afba3df9a8dafe75b37ed5a4510bec477bf49c341979af1ebf98233068f9",
+    "requirements.sha256.lock": "e240f5fc90cc43586b38ab7ccb68703764eeb8343f6c7b368ef7976347e348a9",
+    "src/us_stocks_swing_model_v2/capabilities.py": "70642fc171089c2a20a21088d51a92e7359fc002d6d1f2215dd64e34e6ce9166",
+    "src/us_stocks_swing_model_v2/cli/hash_copy.py": "e5114f50aebbb48a596c4bbff0ce4f6b1b5cd73d8fbcece7b85adf6bb85c2ef0",
+    "src/us_stocks_swing_model_v2/clock.py": "65afab1e307e7aa5e6bef52917c7a5b2c44d99ab814c23af73d21196f06ea3d3",
+    "src/us_stocks_swing_model_v2/common.py": "20cdfbc1310add36407e0b5a23eb2a7a76c562596d3fa7dec2517e90c56d6f43",
+    "src/us_stocks_swing_model_v2/governance.py": "09129852f0c2c77957c6a2ed0b006cc3cf7d48ea08eaf60eef2c91d3c26ac81c",
+    "src/us_stocks_swing_model_v2/locking.py": "ce742574071d540f1c82497f0fad0a5224406f8869bdd1b66c778ec8663a3a20",
+    "src/us_stocks_swing_model_v2/migration.py": "c4bbd8a8c6dfbcfe7e746deb94e296dadf14769f20db56a1c6c2179908508541"
+  },
+  "migration_implementation_sha256": "e74d9fb06f95a3b8b1ffc948681cbb921830438ea4fd85c9d46e4bcac337f542",
+  "migration_manifest_schema_version": 2,
+  "payload_layout_version": "flat_object_160bit_v1",
+  "plan_id": "479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82",
+  "schema_version": 1,
+  "total_bytes": 345845816
+}

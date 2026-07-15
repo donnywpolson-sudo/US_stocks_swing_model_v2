@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONTRACT_PATH = ROOT / "config" / "research_readiness_contract.json"
+DOC_PATH = ROOT / "docs" / "HISTORICAL_RESEARCH_HARNESS.md"
+
+
+def _contract() -> dict:
+    return json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+
+
+def test_controlled_rebuild_authority_and_repo_independence_are_explicit() -> None:
+    contract = _contract()
+    authorization = contract["authorization"]
+    assert authorization["this_contract_grants_execution_authority"] is False
+    assert set(authorization["current_controlled_rebuild_receipt_allows"]) == {
+        "approved_hash_copy",
+        "non_alpha_data_validation",
+        "synthetic_fixture_model_fitting",
+        "synthetic_fixture_wfa",
+        "bounded_free_alpaca_qualification",
+        "bounded_free_nasdaq_qualification",
+    }
+    assert set(authorization["hard_pauses_requiring_new_user_authorization"]) == {
+        "paid_data_acquisition",
+        "real_history_hypothesis_or_wfa_execution",
+        "candidate_sealing",
+        "destructive_cutover",
+        "external_push",
+        "trading",
+        "legacy_repository_write",
+    }
+    assert authorization["legacy_repositories_read_only"] is True
+    independence = contract["independence"]
+    assert independence["shared_mutable_data_paths"] is False
+    assert independence["shared_trial_artifact_or_state_paths"] is False
+    assert independence["no_cross_import_test_required"] is True
+    assert independence["no_cross_write_test_required"] is True
+
+
+def test_harness_readiness_is_separate_from_pit_evidence_scope() -> None:
+    readiness = _contract()["readiness"]
+    assert readiness["target_state"] == "HISTORICAL_RESEARCH_READY"
+    assert readiness["historical_evidence_scope"] == (
+        "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
+    )
+    assert readiness["candidate_eligibility"] == "BLOCKED_PENDING_PROSPECTIVE_PIT"
+    assert readiness["alpha_claim"] is False
+    assert readiness["live_readiness"] is False
+    assert readiness["readiness_is_execution_authority"] is False
+
+
+def test_source_epochs_and_free_feed_qualification_are_binding() -> None:
+    sources = _contract()["source_roles"]
+    assert sources["hfdl_history"] == "legacy_discovery_only"
+    assert sources["hfdl_epochs"] == [
+        {"id": "HFDL_PITRADING_CONSOLIDATED", "through": "2022-03-03"},
+        {"id": "HFDL_IEX_ONLY", "from": "2022-03-04"},
+    ]
+    assert sources["hfdl_epochs_may_be_silently_pooled_as_identical_feed"] is False
+    assert sources["failed_legacy_alpaca_capsules"] == (
+        "qualification_evidence_only_not_research_bars"
+    )
+    assert sources["actual_free_feed_requires_entitlement_qualification_receipt"]
+    assert sources["assumed_feed_allowed"] is False
+    assert sources["asof_policy"].startswith("omit_or_null")
+
+
+def test_trial_holdout_chronology_and_pit_sleeves_fail_closed() -> None:
+    contract = _contract()
+    ledger = contract["trial_ledger"]
+    assert ledger["append_contract"]["whole_chain_rewrite_allowed"] is False
+    assert ledger["pre_outcome_anchor"]["required"] is True
+    assert ledger["legacy_trial_census"]["unresolved_status"] == (
+        "INVALID_TRIAL_CENSUS_UNRESOLVED"
+    )
+    holdout = contract["nested_wfa"]["final_holdout"]
+    assert holdout["outer_oos_role"] == "screen_only"
+    assert holdout["one_time_access"] is True
+    assert holdout["pooled_for_selection"] is False
+    assert holdout["retune_rescue_retry_or_reuse_allowed"] is False
+    assert holdout["pass_authorizes_candidate_sealing"] is False
+    assert contract["sample_contract"]["required_time_order"] == (
+        "feature_window_start <= feature_available_at <= decision_at "
+        "< intended_entry_at = label_start_at < label_end_at = intended_exit_at"
+    )
+    sleeves = contract["sleeves"]
+    assert sleeves["proxy_assigned_sleeves_while_pit_unresolved"] == "diagnostic_only"
+    assert sleeves["proxy_sleeves_may_satisfy_trusted_gate"] is False
+
+
+def test_multiple_testing_book_charter_and_mees_gate_are_binding() -> None:
+    contract = _contract()
+    assert contract["forecast_metrics"]["binding_primary"] == "multiclass_log_loss"
+    multiple = contract["multiple_testing"]
+    assert "every_negative_control" in multiple["family_scope"]
+    assert (
+        multiple["outcome_informed_family_split_metric_substitution_or_class_choice_allowed"]
+        is False
+    )
+    assert multiple["pbo"]["not_applicable_receives_positive_credit"] is False
+    assert multiple["pbo"]["diagnostic_may_replace_chronological_wfa"] is False
+    frozen = contract["economic_translation"]["charter_must_freeze_before_outer_access"]
+    assert "weight_construction" in frozen
+    assert "missing_exit_and_delisting_handling" in frozen
+    assert contract["power"]["design_alternative_strictly_greater_than_mees_required"]
+    gate = contract["binding_gate"]
+    assert gate["decision_order"][-1] == "PASS_HISTORICAL_DISCOVERY_SCREEN"
+    screen = gate["PASS_HISTORICAL_DISCOVERY_SCREEN"]
+    assert screen["multiplicity_adjusted_one_sided_95pct_lower_bound_gt_mees"]
+    assert screen["candidate_sealed"] is False
+    assert screen["candidate_eligibility_while_pit_unresolved"] == (
+        "BLOCKED_PENDING_PROSPECTIVE_PIT"
+    )
+
+
+def test_document_does_not_convert_readiness_or_screen_into_alpha_authority() -> None:
+    text = DOC_PATH.read_text(encoding="utf-8")
+    normalized = " ".join(text.split()).replace("- ", "-")
+    assert "Harness readiness and evidence scope are independent." in normalized
+    assert "A diagnostic screen pass does not seal a candidate" in normalized
+    assert "all writes to the legacy repository remain hard-paused" in normalized
+    assert "Outer OOS is a screen, not the final holdout." in normalized

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "us-stocks-swing-model-v2"
+version = "0.1.0"
+description = "Bias-resistant US stock/ETF swing research contracts"
+requires-python = "==3.11.9"
+dependencies = [
+  "exchange-calendars==4.13.2",
+  "joblib==1.5.3",
+  "numpy==2.4.4",
+  "pandas==3.0.3",
+  "pyarrow==24.0.0",
+  "PyYAML==6.0.3",
+  "scikit-learn==1.8.0",
+  "scipy==1.17.1",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==9.0.3",
+]
+
+[project.scripts]
+stock-v2-hash-copy = "us_stocks_swing_model_v2.cli.hash_copy:main"
+stock-v2-qualify-sources = "us_stocks_swing_model_v2.cli.qualify_free_sources:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,20 @@
+{
+  "calendar_version": "4.13.2",
+  "code_sha256": "f733aa00db8d8492951ef9ddcd99d63929defbda182765f03405ba52fb2590fa",
+  "dataset": "xnys_sessions",
+  "environment_sha256": "357140d886aeb7f8b9eb46be606451eeff072d652cdf0d726d1d22e437b49fe8",
+  "execution_authority": false,
+  "first_session": "2000-01-03",
+  "last_session": "2035-12-31",
+  "policy_sha256": "9913cb5995b0ac4d62ca584c64dc17c5380c1ebe84b42e6616b27b02d693dd59",
+  "project": "US_stocks_swing_model_v2",
+  "provenance_sha256": "3e727abb36d1a793e7c4ef481d5f8deb5a6996711e6739cc8fc5ff9a95b377dd",
+  "receipt_id": "8c657eb08626e2091f5084a716819e3a5b688afea2c791389844337cb65dd67e",
+  "release_id": "055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
+  "release_manifest_sha256": "c26d5559ce396fabb44999be31c61936ce0d83619598ce6004ca11d72890a150",
+  "role": "DERIVED_CAUSAL_PINNED_SESSION_RULES",
+  "schema_version": 1,
+  "session_count": 9049,
+  "sessions_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+  "verification_receipt_id": "93f927879dde69e378935cc42587083321b2d09be128c4fe9630b7d75bc2d8ab"
+}

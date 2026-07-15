@@ -1,0 +1,535 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.1.0-mechanics",
+  "project": "US_stocks_swing_model_v2",
+  "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
+  "independence": {
+    "common_interpreter_allowed": true,
+    "byte_identical_provenance_preserving_source_copies_allowed": true,
+    "shared_mutable_data_paths": false,
+    "shared_mutable_environment": false,
+    "shared_trial_artifact_or_state_paths": false,
+    "required_distinct_evidence": [
+      "repository_root",
+      "git_directory",
+      "environment_lock_hash",
+      "dataset_release_id",
+      "trial_ledger_path",
+      "bundle_path",
+      "readiness_receipt"
+    ],
+    "no_cross_import_test_required": true,
+    "no_cross_write_test_required": true,
+    "external_outcome_informed_idea_exposure_must_be_ledgered": true
+  },
+  "authorization": {
+    "this_contract_grants_execution_authority": false,
+    "external_authorization_receipt_required": true,
+    "current_controlled_rebuild_receipt_allows": [
+      "approved_hash_copy",
+      "non_alpha_data_validation",
+      "synthetic_fixture_model_fitting",
+      "synthetic_fixture_wfa",
+      "bounded_free_alpaca_qualification",
+      "bounded_free_nasdaq_qualification"
+    ],
+    "synthetic_results_count_as_alpha_evidence": false,
+    "hard_pauses_requiring_new_user_authorization": [
+      "paid_data_acquisition",
+      "real_history_hypothesis_or_wfa_execution",
+      "candidate_sealing",
+      "destructive_cutover",
+      "external_push",
+      "trading",
+      "legacy_repository_write"
+    ],
+    "legacy_repositories_read_only": true
+  },
+  "readiness": {
+    "target_state": "HISTORICAL_RESEARCH_READY",
+    "current_state": "REAL_LEGACY_DISCOVERY_FOUNDATION_BUILT_READINESS_RECEIPT_PENDING",
+    "ready": false,
+    "readiness_is_execution_authority": false,
+    "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
+    "candidate_eligibility": "BLOCKED_PENDING_PROSPECTIVE_PIT",
+    "alpha_claim": false,
+    "live_readiness": false,
+    "document_or_config_creation_marks_ready": false,
+    "legacy_trial_census_required": true,
+    "synthetic_and_adversarial_contract_tests_required": true,
+    "pit_blockers": [
+      "historical_membership",
+      "historical_stock_etf_identity",
+      "complete_delisting_outcomes",
+      "survivorship_safe_security_master"
+    ]
+  },
+  "production_evidence_anchors": {
+    "historical_foundation_bridge_mechanics_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
+    "historical_foundation_real_release_status": "BUILT_NON_ACTIVE_LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
+    "external_worm_anchor_status": "NOT_CONFIGURED_BLOCKS_PRODUCTION",
+    "trial_census_exact_status": "INDETERMINATE_BLOCKS_TRUSTED_GATE",
+    "eligibility_census_materializer_status": "NOT_IMPLEMENTED_BLOCKS_PRODUCTION",
+    "holdout_access_receipt_status": "DESIGN_ONLY_BLOCKS_PRODUCTION",
+    "readiness_receipt_status": "NOT_ISSUED_BLOCKS_PRODUCTION",
+    "statistical_array_binding_required": true,
+    "local_hash_chain_or_local_anchor_is_external_immutability_proof": false,
+    "synthetic_fixture_evidence_is_production_evidence": false
+  },
+  "claims": {
+    "underlying_forecasts_only": true,
+    "options_execution_claim": false,
+    "options_profitability_claim": false,
+    "borrow_cost_mode": "EXCLUDED_BY_SCOPE",
+    "short_implementation_claim": false,
+    "historical_pit_claim": false,
+    "historical_alpha_claim": false
+  },
+  "source_roles": {
+    "hfdl_history": "legacy_discovery_only",
+    "hfdl_epochs": [
+      {
+        "id": "HFDL_PITRADING_CONSOLIDATED",
+        "through": "2022-03-03"
+      },
+      {
+        "id": "HFDL_IEX_ONLY",
+        "from": "2022-03-04"
+      }
+    ],
+    "hfdl_epochs_may_be_silently_pooled_as_identical_feed": false,
+    "failed_legacy_alpaca_capsules": "qualification_evidence_only_not_research_bars",
+    "prospective_alpaca_and_nasdaq": "separate_immutable_epochs_after_qualification",
+    "actual_free_feed_requires_entitlement_qualification_receipt": true,
+    "assumed_feed_allowed": false,
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "asof_policy": "omit_or_null_unless_valid_iso_mapping_date_is_deliberately_requested",
+    "feed_methodology_or_identity_change_requires_new_epoch": true
+  },
+  "trial_ledger": {
+    "scope": "all_outcome_informed_attempts_in_this_project",
+    "storage_contract": "append_only_sha256_hash_chained_jsonl",
+    "allowed_transitions": [
+      "DECLARED",
+      "BUILT",
+      "OUTER_EVALUATED",
+      "OUTER_SCREEN_PASS",
+      "HOLDOUT_SPEC_FROZEN",
+      "HOLDOUT_ACCESSED",
+      "HOLDOUT_PASS",
+      "CLOSED"
+    ],
+    "holdout_access_transition_is_conditional": true,
+    "required_fields": [
+      "sequence",
+      "event_id",
+      "previous_event_hash",
+      "event_hash",
+      "event_time_utc",
+      "trial_id",
+      "parent_trial_id",
+      "hypothesis_id",
+      "multiplicity_family_id",
+      "multiplicity_family_rule_hash",
+      "information_set_id",
+      "sleeve_ids",
+      "dataset_release_hash",
+      "code_commit",
+      "environment_lock_hash",
+      "charter_hash",
+      "feature_contract_hash",
+      "label_contract_hash",
+      "split_plan_hash",
+      "cost_contract_hash",
+      "role",
+      "event_type",
+      "outcome_information_accessed",
+      "manual_or_external_outcome_exposure",
+      "counts_as_alpha_trial",
+      "status",
+      "reason"
+    ],
+    "append_contract": {
+      "lock_protected": true,
+      "atomic": true,
+      "sequence_or_hash_mismatch_fails_closed": true,
+      "whole_chain_rewrite_allowed": false
+    },
+    "pre_outcome_anchor": {
+      "required": true,
+      "immutable_receipt": true,
+      "binds": [
+        "ledger_head",
+        "clean_code_commit",
+        "dataset_release_hash",
+        "environment_lock_hash",
+        "charter_hash"
+      ]
+    },
+    "legacy_trial_census": {
+      "machine_readable_required": true,
+      "documented_minimum_outcome_informed_attempts": 62,
+      "exact_count_state": "INDETERMINATE",
+      "uncertain_attempts_count_conservatively": true,
+      "manual_plot_or_report_exposure_counts": true,
+      "diagnostic_penalty_policy": "raw_trial_count_is_at_least_max_of_62_and_every_discovered_outcome_informed_attempt",
+      "effective_trial_count_reduction_allowed": false,
+      "trusted_gate_blocked_until_exact_census": true,
+      "unresolved_status": "INVALID_TRIAL_CENSUS_UNRESOLVED"
+    },
+    "same_historical_outcomes_cannot_reset_multiplicity": true,
+    "semantic_change_after_evaluation_requires_new_trial": true,
+    "family_assignment_must_predate_outcome_access": true,
+    "overlap_or_shared_ancestry_may_reduce_trial_count_by_family_split": false
+  },
+  "sample_contract": {
+    "required_fields": [
+      "sample_id",
+      "hypothesis_id",
+      "sleeve_id",
+      "asset_uuid",
+      "as_received_symbol",
+      "asset_type",
+      "exchange",
+      "decision_session_id",
+      "entry_session_id",
+      "exit_session_id",
+      "calendar_release_id",
+      "source_release_id",
+      "identity_release_id",
+      "corporate_action_release_id",
+      "source_epoch_id",
+      "membership_evidence_status",
+      "asset_type_evidence_status",
+      "historical_proxy_used",
+      "feature_window_start",
+      "feature_available_at",
+      "decision_at",
+      "intended_entry_at",
+      "label_start_at",
+      "label_end_at",
+      "intended_exit_at",
+      "outcome_resolution_status",
+      "outcome_status"
+    ],
+    "decision": "after_D0_regular_close_plus_publication_latency",
+    "entry": "D1_regular_session_open",
+    "exit": "D5_regular_session_close",
+    "target": "simple_split_normalized_exit_over_entry_price_return",
+    "holding_sessions": 5,
+    "calendar_days_allowed": false,
+    "same_decision_close_fill_allowed": false,
+    "dividends_in_price_return_target": false,
+    "split_effective_window": "(D1,D5]",
+    "unresolved_actions_or_delistings_are_deleted": false,
+    "unknown_asset_type_policy": "ABSTAIN",
+    "retrospective_membership_allowed": false,
+    "required_time_order": "feature_window_start <= feature_available_at <= decision_at < intended_entry_at = label_start_at < label_end_at = intended_exit_at",
+    "missing_entry_exit_action_delisting_or_path_deleted_after_outcome_access": false,
+    "missing_outcomes_remain_in_coverage_denominator": true,
+    "insufficient_outcome_coverage_status": "INCONCLUSIVE_OUTCOME_COVERAGE"
+  },
+  "purge_embargo": {
+    "interval_convention": "half_open",
+    "label_interval": "[decision_at,D5_close)",
+    "purge_rule": "remove_train_sample_when_train_label_interval_intersects_any_validation_or_test_label_interval",
+    "embargo_unit": "pinned_exchange_session",
+    "minimum_embargo_sessions": 5,
+    "row_or_calendar_day_embargo_allowed": false,
+    "zero_post_purge_overlap_required": true
+  },
+  "nested_wfa": {
+    "outer": {
+      "method": "expanding_rolling_origin",
+      "initial_train_sessions": 1008,
+      "test_sessions": 126,
+      "step_sessions": 126,
+      "minimum_folds": 8,
+      "minimum_distinct_oos_dates": 1008,
+      "sealed_final_holdout_sessions": 252
+    },
+    "inner": {
+      "method": "chronological_rolling_origin",
+      "folds": 4,
+      "validation_sessions": 126,
+      "purge_and_embargo_required": true
+    },
+    "outer_test_may_select_or_tune": false,
+    "scheduled_parameter_refit_requires_D5_matured_labels": true,
+    "hyperparameters_frozen_before_outer_test": true,
+    "insufficient_schedule_status": "INCONCLUSIVE_DATA_LENGTH",
+    "final_holdout": {
+      "outer_oos_role": "screen_only",
+      "specification_frozen_before_unlock": true,
+      "one_time_access": true,
+      "outer_and_holdout_reported_separately": true,
+      "pooled_for_selection": false,
+      "failure_closes_trial": true,
+      "retune_rescue_retry_or_reuse_allowed": false,
+      "successor_may_claim_exposed_dates_as_fresh_holdout": false,
+      "pass_authorizes_candidate_sealing": false,
+      "state_machine": [
+        "DECLARED",
+        "BUILT",
+        "OUTER_EVALUATED",
+        "OUTER_SCREEN_PASS_OR_CLOSED",
+        "HOLDOUT_SPEC_FROZEN",
+        "HOLDOUT_ACCESSED_ONCE",
+        "HOLDOUT_PASS_OR_CLOSED"
+      ]
+    }
+  },
+  "fold_local_fit_audit": {
+    "fit_sample_ids_must_be_recorded": true,
+    "test_id_intersection_allowed": false,
+    "fit_required_for": [
+      "imputation",
+      "winsorization",
+      "scaling",
+      "volatility_normalization",
+      "feature_selection",
+      "dimensionality_reduction",
+      "calibration",
+      "neutral_band",
+      "class_weighting",
+      "resampling",
+      "market_sector_residualization",
+      "liquidity_thresholds",
+      "risk_scaling",
+      "position_sizing"
+    ],
+    "global_deterministic_lags_allowed_only_with_causal_lineage": true,
+    "full_period_adv_allowed": false,
+    "future_membership_or_identity_allowed": false
+  },
+  "uncertainty": {
+    "primary_economic_observation": "aggregate_underlying_book_return_per_date",
+    "symbol_prediction_rows_treated_as_independent": false,
+    "forecast_panel_clustering": [
+      "prediction_date",
+      "security"
+    ],
+    "confidence_level": 0.95,
+    "primary_economic_test": "one_sided_mean_net_edge_greater_than_zero",
+    "hac_lag_rule": "max(4,floor(4*(T/100)^(2/9)))",
+    "bootstrap": {
+      "method": "stationary_date_block",
+      "resamples": 10000,
+      "seed_source": "trial_id_hash",
+      "required_sensitivity_sessions": [5, 10, 20],
+      "resample_complete_dates_and_cross_sections": true
+    },
+    "minimum_clusters_per_required_dimension": 30,
+    "insufficient_clusters_status": "INCONCLUSIVE_CLUSTER_COUNT"
+  },
+  "forecast_metrics": {
+    "binding_primary": "multiclass_log_loss",
+    "diagnostic_unless_jointly_predeclared_and_adjusted": [
+      "multiclass_brier_score",
+      "classwise_calibration_intercept",
+      "classwise_calibration_slope",
+      "expected_return_robust_absolute_error",
+      "coverage_and_error_at_abstention_policy"
+    ],
+    "binding_primary_economic_statistic": "stress_cost_underlying_book_mean_return",
+    "comparison": "hac_adjusted_diebold_mariano_and_romano_wolf",
+    "absolute_direction_primary": true,
+    "relative_rank_secondary": true,
+    "rank_may_rescue_failed_absolute_direction": false
+  },
+  "multiple_testing": {
+    "family_scope": [
+      "every_stock_etf_long_short_sleeve",
+      "every_horizon",
+      "every_primary_metric",
+      "every_candidate_baseline_contrast",
+      "every_negative_control"
+    ],
+    "family_rule_hash_must_predate_outcome_access": true,
+    "baseline_selection": "inner_fold_only_or_all_baselines_jointly_adjusted",
+    "outcome_informed_family_split_metric_substitution_or_class_choice_allowed": false,
+    "dsr": {
+      "required_for_hypothetical_underlying_book_only": true,
+      "minimum_probability": 0.95,
+      "trial_count": "raw_count_of_all_outcome_informed_alternatives_in_information_family",
+      "input": "outer_oos_net_daily_underlying_book_returns"
+    },
+    "romano_wolf": {
+      "required_for_joint_candidate_baseline_comparisons": true,
+      "maximum_adjusted_one_sided_p": 0.05,
+      "resampling_unit": "complete_prediction_date"
+    },
+    "pbo": {
+      "minimum_comparable_configurations": 10,
+      "minimum_even_equal_contiguous_chronological_blocks": 8,
+      "block_count_pinned_before_access": true,
+      "enumeration": "all_S_choose_S_over_2_in_sample_combinations_with_complement_oos",
+      "selection_statistic": "predeclared_25bps_one_way_stress_cost_sharpe",
+      "tie_rule": "deterministic_midrank",
+      "logit_input": "selected_configuration_oos_percentile_rank",
+      "pbo_definition": "fraction_of_selected_configuration_oos_rank_logits_below_zero",
+      "matrix": "common_date_25bps_one_way_stress_cost_returns",
+      "missing_date_zero_fill_allowed": false,
+      "pass_maximum": 0.2,
+      "inconclusive_maximum": 0.5,
+      "greater_than_inconclusive_maximum_status": "FAIL_BACKTEST_OVERFIT",
+      "insufficient_genuine_single_configuration_status": "NOT_APPLICABLE",
+      "not_applicable_receives_positive_credit": false,
+      "diagnostic_may_replace_chronological_wfa": false,
+      "missing_tried_variant_matrix_status": "INVALID_MISSING_TRIAL_EVIDENCE"
+    }
+  },
+  "economic_translation": {
+    "concurrent_cohorts": 5,
+    "capital_fraction_per_new_cohort": 0.2,
+    "entry": "D1_open",
+    "exit": "D5_close",
+    "daily_book": "sum_of_active_cohorts",
+    "turnover": "actual_weight_changes",
+    "each_prediction_is_full_capital": false,
+    "one_way_cost_basis_points": [0, 10, 25, 50],
+    "binding_stress_cost_basis_points": 25,
+    "extreme_cost_basis_points": 50,
+    "cost_monotonicity_required": true,
+    "capacity_status_without_notional_and_adv_contract": "UNKNOWN",
+    "borrow_cost_mode": "EXCLUDED_BY_SCOPE",
+    "short_implementation_claim": false,
+    "options_execution_claim": false,
+    "charter_must_freeze_before_outer_access": [
+      "within_cohort_selection",
+      "weight_construction",
+      "gross_and_net_exposure",
+      "long_short_balance",
+      "stock_etf_allocation",
+      "per_name_and_sector_caps",
+      "cash_treatment",
+      "abstention_treatment",
+      "missing_exit_and_delisting_handling",
+      "turnover_convention",
+      "capacity_and_notional_assumptions"
+    ],
+    "post_access_change_requires_new_counted_trial": true
+  },
+  "baselines": [
+    "ZERO_EXPECTED_RETURN_AND_FOLD_LOCAL_CLASS_BASE_RATES",
+    "FOLD_LOCAL_MARKET_ONLY_FORECAST",
+    "SIMPLE_TRAILING_RETURN_FORECAST",
+    "FOLD_LOCAL_SECURITY_HISTORICAL_MEAN",
+    "EQUAL_RISK_MARKET_SECTOR_NEUTRAL_RANKING"
+  ],
+  "negative_controls": [
+    "WHOLE_SESSION_CIRCULAR_DATE_SHIFT",
+    "WITHIN_DATE_SYMBOL_LABEL_PERMUTATION",
+    "DETERMINISTIC_RANDOM_FEATURE",
+    "FUTURE_ADJUSTMENT_AND_MEMBERSHIP_CANARIES_REJECTED_BEFORE_FIT"
+  ],
+  "sleeves": {
+    "required": [
+      "stock_long",
+      "stock_short",
+      "etf_long",
+      "etf_short"
+    ],
+    "independent_data_power_forecast_economic_cost_and_uncertainty_gate": true,
+    "proxy_assigned_sleeves_while_pit_unresolved": "diagnostic_only",
+    "proxy_sleeves_may_satisfy_trusted_gate": false,
+    "aggregate_may_hide_failure": false,
+    "combination_or_weight_selection_is_new_trial": true
+  },
+  "power": {
+    "mees_required_before_outer_evaluation": true,
+    "mees_required_separately_for_forecast_and_underlying_book": true,
+    "design_alternative_strictly_greater_than_mees_required": true,
+    "training_only_centered_date_residuals": true,
+    "stationary_block_simulations": 5000,
+    "minimum_power_each_sleeve": 0.8,
+    "below_minimum_status": "INCONCLUSIVE_DATA_OR_POWER"
+  },
+  "binding_gate": {
+    "decision_order": [
+      "INVALID",
+      "INCONCLUSIVE_PIT_IDENTITY",
+      "INCONCLUSIVE_DATA_OR_POWER",
+      "FAIL_NO_EDGE",
+      "FAIL_NOT_ECONOMIC",
+      "INCONCLUSIVE_EFFECT",
+      "FAIL_MULTIPLICITY_OR_CONTROL",
+      "PASS_HISTORICAL_DISCOVERY_SCREEN"
+    ],
+    "INVALID": "lineage_pit_representation_leakage_timing_role_ledger_cost_sleeve_or_evidence_failure",
+    "INCONCLUSIVE_PIT_IDENTITY": "membership_or_asset_type_evidence_cannot_support_claimed_sleeve",
+    "INCONCLUSIVE_DATA_OR_POWER": "any_required_trusted_sleeve_power_below_0_80_or_insufficient_dates_securities_folds_predictions_or_outcome_coverage",
+    "FAIL_NO_EDGE": "confidence_upper_bound_lte_zero",
+    "FAIL_NOT_ECONOMIC": "after_no_edge_rule_confidence_upper_bound_lte_mees",
+    "INCONCLUSIVE_EFFECT": "confidence_interval_intersects_mees",
+    "FAIL_MULTIPLICITY_OR_CONTROL": "effect_bound_passes_but_adjusted_test_dsr_pbo_cost_baseline_trusted_sleeve_or_control_fails",
+    "PASS_HISTORICAL_DISCOVERY_SCREEN": {
+      "multiplicity_adjusted_one_sided_95pct_lower_bound_gt_mees": true,
+      "romano_wolf_adjusted_p_lte": 0.05,
+      "underlying_book_dsr_probability_gte": 0.95,
+      "pbo_policy_satisfied_when_applicable": true,
+      "cost_25bps_one_way_pass": true,
+      "all_trusted_sleeves_baselines_and_controls_pass": true,
+      "candidate_sealed": false,
+      "candidate_eligibility_while_pit_unresolved": "BLOCKED_PENDING_PROSPECTIVE_PIT",
+      "authorizes_only": "diagnostic_hypothesis_record_for_possible_separately_authorized_prospective_program",
+      "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
+    }
+  },
+  "registered_mechanical_executor": {
+    "entrypoint": "us_stocks_swing_model_v2.research.executor:execute_synthetic_nested_wfa",
+    "mechanics_version": "synthetic_nested_wfa_linear_distribution_v1",
+    "implementation_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
+    "evidence_role": "SYNTHETIC_MECHANICS_ONLY",
+    "model_kind": "linear_distribution_v1",
+    "target_semantics": "ABSOLUTE_NEXT_5_SESSION_RETURN",
+    "fold_local_scaling": true,
+    "ridge_fit": true,
+    "hyperparameter_selection": "INNER_WEIGHTED_MEAN_SQUARED_ERROR_ONLY",
+    "tie_break": "LOWEST_ALPHA",
+    "outer_predictions_frozen_before_label_evaluation": true,
+    "fit_and_audit_sample_ids_recorded_exactly": true,
+    "rank_used_as_direction": false,
+    "real_history_authorized": false,
+    "alpha_evidence": false,
+    "candidate_eligible": false,
+    "does_not_clear_pit_or_trial_census_blockers": true
+  },
+  "role_isolation": {
+    "roles": [
+      "splitter",
+      "builder",
+      "evaluator",
+      "inference"
+    ],
+    "builder_outer_label_access": false,
+    "evaluator_training_module_import": false,
+    "evaluator_fit_calls_allowed": 0,
+    "inference_fit_calls_allowed": 0,
+    "inference_outcome_or_evaluation_access": false,
+    "prediction_manifest_must_precede_label_unlock": true,
+    "evaluation_report_binds_all_input_hashes": true,
+    "holdout_access_receipt": "one_time_append_only",
+    "holdout_receipt_binds_frozen_spec_and_pre_unlock_ledger_head": true,
+    "repeated_holdout_access_is_fatal": true,
+    "process_isolation_claims_independent_human_judgment": false
+  },
+  "research_basis": [
+    "https://doi.org/10.1186/1471-2105-7-91",
+    "https://www.jmlr.org/papers/v11/cawley10a.html",
+    "https://doi.org/10.1093/biomet/81.2.351",
+    "https://doi.org/10.1016/S0304-4076(00)00030-0",
+    "https://doi.org/10.1080/07350015.1995.10524599",
+    "https://doi.org/10.2307/1913610",
+    "https://doi.org/10.1080/01621459.1994.10476870",
+    "https://doi.org/10.1093/rfs/hhn053",
+    "https://doi.org/10.1198/jbes.2010.07136",
+    "https://doi.org/10.1111/j.1468-0262.2005.00615.x",
+    "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf",
+    "https://doi.org/10.21314/JCF.2016.322",
+    "https://docs.alpaca.markets/us/docs/about-market-data-api",
+    "https://docs.alpaca.markets/us/reference/stockbarsingle-1",
+    "https://docs.alpaca.markets/us/docs/market-data-faq"
+  ]
+}

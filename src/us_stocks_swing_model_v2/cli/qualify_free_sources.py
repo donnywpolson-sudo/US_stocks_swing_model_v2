@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+from ..common import iso_z, sha256_bytes
+from ..clock import TrustedClock
+from ..errors import NetworkGuardError
+from ..exchange_calendar import load_xnys_calendar_release
+from ..providers.alpaca import (
+    AUTH_ENVIRONMENT_TOKEN,
+    AlpacaBarsPolicy,
+    AlpacaBarsRequest,
+    guarded_fetch_landed_pages,
+    qualify_landed_pages,
+)
+from ..providers.nasdaq import NASDAQ_TRADED_URL, parse_nasdaq_traded
+from ..providers.snapshots import (
+    ALLOWED_RESPONSE_HEADERS,
+    AsReceivedSnapshotStore,
+    NetworkAcquisitionRegistry,
+    normalize_response_headers,
+)
+
+
+NASDAQ_URLS = (NASDAQ_TRADED_URL,)
+MAX_NASDAQ_RESPONSE_BYTES = 32 * 1024 * 1024
+
+
+def parser() -> argparse.ArgumentParser:
+    value = argparse.ArgumentParser(description="Plan or run bounded free-source qualification")
+    value.add_argument("--plan-only", action="store_true", help="documentary flag; this is the default")
+    value.add_argument("--execute-network", action="store_true", help=f"also requires {AUTH_ENVIRONMENT_TOKEN}=YES")
+    selection = value.add_mutually_exclusive_group()
+    selection.add_argument("--nasdaq-only", action="store_true")
+    selection.add_argument("--alpaca-only", action="store_true")
+    value.add_argument("--symbols", default="AAPL,SPY")
+    value.add_argument("--start", default="2024-01-02T00:00:00Z")
+    value.add_argument("--end", default="2024-01-10T00:00:00Z")
+    return value
+
+
+def _parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    requested_at = datetime.now(timezone.utc)
+    symbols = tuple(sorted(set(item.strip().upper() for item in args.symbols.split(",") if item.strip())))
+    alpaca_request = AlpacaBarsRequest(symbols, _parse_time(args.start), _parse_time(args.end), requested_at)
+    use_alpaca = not args.nasdaq_only
+    use_nasdaq = not args.alpaca_only
+    alpaca_policies = tuple(AlpacaBarsPolicy(feed=feed, asof=None) for feed in ("sip", "iex"))
+    plan: dict[str, object] = {
+        "mode": "network" if args.execute_network else "plan_only",
+        "alpaca": {
+            "requests_without_credentials": [
+                {"feed": policy.feed, "url": alpaca_request.url(policy)} for policy in alpaca_policies
+            ],
+            "purpose": "bounded_delayed_raw_SIP_vs_IEX_entitlement_and_schema_qualification",
+        } if use_alpaca else {"selected": False},
+        "nasdaq": {"urls": NASDAQ_URLS, "purpose": "as_received_identity_type_snapshot"} if use_nasdaq else {"selected": False},
+        "prohibitions": ["model_fit", "alpha_metric", "order_endpoint", "historical_backfill"],
+    }
+    if not args.execute_network:
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
+    if os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
+        raise NetworkGuardError(f"require {AUTH_ENVIRONMENT_TOKEN}=YES")
+    repo_root = Path(__file__).resolve().parents[3]
+    source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
+    pinned_store_root = Path(str(source_config["snapshot_store_root"]))
+    expected_store_root = repo_root / "data" / "vault" / "qualification" / "as_received"
+    if pinned_store_root != expected_store_root or source_config.get("project") != "US_stocks_swing_model_v2":
+        raise ValueError("qualification snapshot root/project differs from the repository-pinned contract")
+    calendar_release: Path | None = None
+    expected_calendar_root: Path | None = None
+    if use_alpaca:
+        calendar_value = source_config.get("qualification_calendar_release")
+        if not isinstance(calendar_value, str) or not calendar_value:
+            raise NetworkGuardError(
+                "Alpaca qualification requires a pinned accepted XNYS calendar release"
+            )
+        calendar_release = Path(calendar_value)
+        expected_calendar_root = repo_root / "data" / "vault" / "accepted"
+        try:
+            calendar_release.resolve(strict=True).relative_to(
+                (expected_calendar_root / "xnys_sessions").resolve(strict=True)
+            )
+        except (OSError, ValueError) as exc:
+            raise NetworkGuardError(
+                "qualification calendar is outside the accepted XNYS release root"
+            ) from exc
+        load_xnys_calendar_release(
+            calendar_release,
+            accepted_release_root=expected_calendar_root,
+        )
+    acquisition_registry = NetworkAcquisitionRegistry.load(
+        repo_root / "config" / "network_acquisition_registry.json"
+    )
+    store = AsReceivedSnapshotStore(
+        pinned_store_root,
+        allowed_root=repo_root,
+        acquisition_registry=acquisition_registry,
+    )
+    trusted_clock = TrustedClock.production()
+    result: dict[str, object] = {}
+    if use_alpaca:
+        assert calendar_release is not None and expected_calendar_root is not None
+        feed_results: list[dict[str, object]] = []
+        for policy in alpaca_policies:
+            landed_pages = guarded_fetch_landed_pages(
+                alpaca_request,
+                snapshot_store=store,
+                api_key_id=os.environ.get("APCA_API_KEY_ID", ""),
+                api_secret_key=os.environ.get("APCA_API_SECRET_KEY", ""),
+                policy=policy,
+                network_enabled=True,
+                clock=trusted_clock,
+            )
+            qualification = qualify_landed_pages(
+                alpaca_request,
+                policy,
+                landed_pages,
+                calendar_release_directory=calendar_release,
+                accepted_release_root=expected_calendar_root,
+            )
+            feed_results.append(
+                {
+                    "feed": policy.feed,
+                    "state": qualification.state,
+                    "reasons": list(qualification.reasons),
+                    "snapshot_ids": list(qualification.snapshot_ids),
+                    "bar_count": qualification.bar_count,
+                    "calendar_release_id": qualification.calendar_release_id,
+                    "evidence_state": qualification.evidence_state,
+                    "trust_eligible": qualification.trust_eligible,
+                }
+            )
+        result["alpaca_feed_qualification"] = feed_results
+        result["qualified_feed_candidates"] = [
+            row["feed"]
+            for row in feed_results
+            if row["state"] == "PASS" and row["trust_eligible"] is True
+        ]
+    nasdaq_results: list[dict[str, object]] = []
+    for url in NASDAQ_URLS if use_nasdaq else ():
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc != "www.nasdaqtrader.com":
+            raise NetworkGuardError("Nasdaq URL is outside the frozen host")
+        with urlopen(Request(url, method="GET"), timeout=30) as response:  # noqa: S310 - host pinned above
+            raw = response.read(MAX_NASDAQ_RESPONSE_BYTES + 1)
+            headers = normalize_response_headers(
+                {
+                    key.lower(): value
+                    for key, value in response.headers.items()
+                    if key.lower() in ALLOWED_RESPONSE_HEADERS
+                }
+            )
+            http_status = int(response.status)
+            response_url = str(response.geturl())
+        if response_url != url:
+            raise NetworkGuardError("Nasdaq response redirected away from the exact approved URL")
+        if len(raw) > MAX_NASDAQ_RESPONSE_BYTES:
+            raise ValueError("Nasdaq response exceeded the bounded byte limit")
+        snapshot = store._land_network_response(
+            source="nasdaqtraded",
+            requested_url=url,
+            response_url=response_url,
+            http_status=http_status,
+            raw=raw,
+            headers=headers,
+            clock=trusted_clock,
+            max_bytes=MAX_NASDAQ_RESPONSE_BYTES,
+        )
+        records = parse_nasdaq_traded(snapshot)
+        file_created_values = {
+            iso_z(record.file_created_at) for record in records
+        }
+        if len(file_created_values) != 1:
+            raise ValueError("Nasdaq parse did not preserve one file-creation receipt time")
+        nasdaq_results.append(
+            {
+                "url": url,
+                "sha256": sha256_bytes(raw),
+                "record_count": len(records),
+                "retrieved_at": iso_z(snapshot.retrieved_at),
+                "file_created_at": next(iter(file_created_values)),
+            }
+        )
+    if use_nasdaq:
+        result["nasdaq"] = nasdaq_results
+    plan["result"] = result
+    print(json.dumps(plan, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

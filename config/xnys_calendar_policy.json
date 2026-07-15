@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "calendar_name": "XNYS",
+  "calendar_package": "exchange-calendars",
+  "calendar_version": "4.13.2",
+  "requested_start": "2000-01-01",
+  "requested_end": "2035-12-31",
+  "role": "derived_causal",
+  "session_source": "versioned_exchange_rules_not_observed_bars",
+  "successor_policy": "package_range_or_policy_change_creates_new_release"
+}

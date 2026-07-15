@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "status": "ACTIVE",
+  "allowed_sources": {
+    "alpaca_assets": "https://paper-api.alpaca.markets/v2/assets",
+    "alpaca_corporate_actions": "https://data.alpaca.markets/v1/corporate-actions",
+    "alpaca_iex_qualification": "https://data.alpaca.markets/v2/stocks/bars",
+    "alpaca_sip_qualification": "https://data.alpaca.markets/v2/stocks/bars",
+    "nasdaqtraded": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
+  }
+}

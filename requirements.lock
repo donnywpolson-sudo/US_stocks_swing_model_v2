@@ -1,0 +1,23 @@
+# Reproducible runtime/test snapshot for Python 3.11.9 on Windows.
+colorama==0.4.6
+exchange-calendars==4.13.2
+iniconfig==2.3.0
+joblib==1.5.3
+korean-lunar-calendar==0.4.0
+numpy==2.4.4
+packaging==26.2
+pandas==3.0.3
+pluggy==1.6.0
+pyarrow==24.0.0
+Pygments==2.20.0
+pyluach==2.3.0
+pytest==9.0.3
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+scikit-learn==1.8.0
+scipy==1.17.1
+setuptools==82.0.1
+six==1.17.0
+threadpoolctl==3.6.0
+toolz==1.1.0
+tzdata==2026.2

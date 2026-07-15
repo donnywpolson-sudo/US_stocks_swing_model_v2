@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.1.0",
+  "project": "US_stocks_swing_model_v2",
+  "mechanical_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
+  "source": "VERIFIED_COMPLETE_HFDL_TWO_EPOCH_SET_ONLY",
+  "calendar": "PINNED_ACCEPTED_XNYS_RELEASE_ONLY",
+  "required_source_epochs": [
+    "hfdl_pitrading_consolidated",
+    "hfdl_iex_only"
+  ],
+  "physical_output_kinds": [
+    "causal_bars",
+    "feature_inputs",
+    "outcome_inputs"
+  ],
+  "downstream_dependency": "VERIFIED_UNPOOLED_CAUSAL_BAR_RELEASE_ONLY",
+  "explicit_missing_and_unavailable_denominators_required": true,
+  "feature_inputs": [
+    "close_to_close_return_1",
+    "intraday_return",
+    "range_fraction",
+    "log1p_volume"
+  ],
+  "feature_cutoff": "DECISION_SESSION_CLOSE_WITH_CURRENT_AND_PRIOR_PINNED_SESSION_ONLY",
+  "outcome_horizon": "D1_OPEN_TO_D5_CLOSE_WITHIN_ONE_SOURCE_EPOCH_ONLY",
+  "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
+  "membership_evidence_status": "UNKNOWN_NOT_AS_RECEIVED",
+  "security_type_evidence_status": "UNKNOWN_NOT_AS_RECEIVED",
+  "action_evidence_status": "UNAVAILABLE_NOT_AS_RECEIVED",
+  "delisting_evidence_status": "UNAVAILABLE_NOT_AS_RECEIVED",
+  "source_series_id_is_persistent_asset_identity": false,
+  "epochs_may_be_pooled": false,
+  "matured_outcomes_may_be_emitted": false,
+  "model_or_evaluation_inputs_allowed": false,
+  "real_history_execution_authorized": false,
+  "alpha_evidence": false,
+  "candidate_eligible": false
+}

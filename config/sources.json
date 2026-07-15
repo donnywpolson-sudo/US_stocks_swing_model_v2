@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "timezone": "America/New_York",
+  "snapshot_store_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2/data/vault/qualification/as_received",
+  "qualification_calendar_release": "C:/Users/donny/Desktop/US_stocks_swing_model_v2/data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
+  "sources": {
+    "hfdl_legacy_discovery": {
+      "enabled_for_active_pipeline": false,
+      "role": "legacy_discovery_only",
+      "legacy_root": "C:/Users/donny/Desktop/US_stocks_swing_model/data/raw",
+      "point_in_time_safe": false,
+      "epochs": [
+        {
+          "name": "pitrading_consolidated",
+          "end_inclusive": "2022-03-03"
+        },
+        {
+          "name": "iex_only",
+          "start_inclusive": "2022-03-04"
+        }
+      ],
+      "prohibitions": [
+        "prospective_confirmation",
+        "concatenate_with_alpaca",
+        "historical_membership_claim",
+        "pristine_holdout_claim"
+      ]
+    },
+    "alpaca_sip_qualification_legacy": {
+      "enabled_for_active_pipeline": false,
+      "role": "source_qualification_evidence_only",
+      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/reports/provider_feasibility/alpaca_sip_v1/run_summary.json",
+      "scope": "780_stock_symbols_1878977_daily_sip_rows_396_native_json_gz_pages",
+      "quality_status": "fail_coverage_0_98638_three_gaps_22357_unmapped_survivorship_fail_stock_only",
+      "prohibitions": [
+        "treat_as_full_history",
+        "model_training",
+        "alpha_evaluation",
+        "prospective_confirmation"
+      ]
+    },
+    "alpaca_sip_qualification_30_probe": {
+      "enabled_for_active_pipeline": false,
+      "role": "source_qualification_evidence_only",
+      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/reports/provider_feasibility/alpaca_sip_v1/run_summary.json",
+      "scope": "30_symbols_24_native_json_gz_pages_90_provenance_sidecars",
+      "quality_status": "fail_validation_passed_false",
+      "prohibitions": [
+        "treat_as_full_history",
+        "model_training",
+        "alpha_evaluation",
+        "prospective_confirmation"
+      ]
+    },
+    "alpaca_basic_delayed_sip": {
+      "enabled_for_active_pipeline": false,
+      "role": "candidate_historical_and_prospective_bars",
+      "network_default": "disabled",
+      "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+      "request_contract": {
+        "qualified_feed": null,
+        "qualification_candidates": ["sip", "iex"],
+        "timeframe": "1Day",
+        "adjustment": "raw",
+        "asof": null,
+        "minimum_end_lag_minutes": 20,
+        "sort": "asc"
+      },
+      "status": "empty_pending_bounded_sip_vs_iex_qualification"
+    },
+    "alpaca_corporate_actions": {
+      "enabled_for_active_pipeline": false,
+      "role": "candidate_as_received_corporate_action_evidence",
+      "network_default": "disabled",
+      "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
+      "page_limit": 1000,
+      "sort": "asc",
+      "provider_creation_time_guaranteed": false,
+      "causal_time": "local_landed_receipt_time",
+      "late_arrival_policy": "revise_outcome_or_abstain_never_backdate",
+      "status": "empty_pending_source_qualification"
+    },
+    "nasdaq_symbol_directory": {
+      "enabled_for_active_pipeline": false,
+      "role": "prospective_as_received_identity",
+      "network_default": "disabled",
+      "url": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt",
+      "fallback_files": {
+        "nasdaqlisted.txt": "disabled_unknown",
+        "otherlisted.txt": "disabled_unknown"
+      },
+      "unknown_security_type_policy": "abstain",
+      "qualification_receipt": "config/nasdaq_qualification_receipt.json",
+      "latest_snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
+      "status": "qualified_public_snapshot_pending_alpaca_asset_join_and_identity_release"
+    },
+    "alpha_vantage": {
+      "enabled_for_active_pipeline": false,
+      "role": "excluded"
+    },
+    "options_data": {
+      "enabled_for_active_pipeline": false,
+      "role": "excluded"
+    }
+  }
+}

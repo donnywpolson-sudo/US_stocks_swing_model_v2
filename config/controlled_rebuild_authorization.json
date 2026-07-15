@@ -1,0 +1,35 @@
+{
+  "authorization_version": "1.0.0",
+  "authorization_source": "CODEX_TASK_USER_MESSAGE",
+  "task_thread_id": "019f6329-fb5d-7b53-8db6-93ab519f4da8",
+  "authorization_text": "START THE CONTROLLED REBUILD. Build futures_intraday_model_v2 and US_stocks_swing_model_v2 as separate projects under the final audited plan. Preserve both legacy projects unchanged. Work autonomously through REBUILD_COMPLETE and HISTORICAL_RESEARCH_READY. You may create files, initialize and locally commit the new repositories, hash-copy approved data, make free Alpaca/Nasdaq qualification calls, implement pipelines, and run non-alpha tests. Pause before paid Databento downloads, real-history hypothesis/WFA execution, candidate sealing, destructive cutover, or pushing externally.",
+  "data_reuse_policy": {
+    "blanket_redownload_allowed": false,
+    "copy_mode": "HASH_VERIFIED_COPY_NOT_MOVE",
+    "links_allowed": false,
+    "legacy_bytes_remain_unchanged": true
+  },
+  "hard_pauses": [
+    "candidate_sealing",
+    "destructive_cutover",
+    "external_push",
+    "legacy_repository_write",
+    "paid_databento_download",
+    "real_history_hypothesis_or_wfa_execution",
+    "trading"
+  ],
+  "project": "US_stocks_swing_model_v2",
+  "legacy_root": "C:\\Users\\donny\\Desktop\\US_stocks_swing_model",
+  "active_root": "C:\\Users\\donny\\Desktop\\US_stocks_swing_model_v2",
+  "allowed_actions": [
+    "bounded_free_alpaca_qualification",
+    "bounded_free_nasdaq_qualification",
+    "create_repository_files",
+    "hash_copy_approved_legacy_data",
+    "initialize_and_commit_local_git",
+    "non_alpha_data_validation",
+    "synthetic_fixture_model_fitting",
+    "synthetic_fixture_wfa"
+  ],
+  "authorization_id": "dd131238845c26cd9dca58aa6b0986e5ec46238881cecc411af2ddbb58b5bbf7"
+}

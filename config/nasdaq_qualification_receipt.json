@@ -1,0 +1,28 @@
+{
+  "activation_state": "NOT_ACTIVE_PENDING_ALPACA_ASSET_JOIN_AND_ACCEPTED_IDENTITY_RELEASE",
+  "eligible_stock_or_etf_count": 10578,
+  "evidence_role": "PROSPECTIVE_AS_RECEIVED_IDENTITY_QUALIFICATION_ONLY",
+  "file_created_at": "2026-07-15T06:01:00-04:00",
+  "network_registry_id": "bcf2b4a386149a23ecd87aedad40c2a7ffa8282e025600f0b3fc833ea964f157",
+  "parser_code_sha256": "08670382459028f612d6b7112b17e10e43bc721d34c160dae7d2201bc7478049",
+  "prohibitions": [
+    "candidate_evidence",
+    "historical_membership_backfill",
+    "model_fit",
+    "treat_unknown_as_eligible"
+  ],
+  "project": "US_stocks_swing_model_v2",
+  "raw_sha256": "cfbf42108b072407dc57aa580f33d72d54d22aa91da01916996d3e678e5ba070",
+  "receipt_id": "3ff84048d00f7a7cc6a51aa10f915893cae23a461f010101360553af51eec2b7",
+  "record_count": 13050,
+  "retrieved_at": "2026-07-15T10:52:19.218586Z",
+  "schema_version": 1,
+  "security_type_counts": {
+    "ETF": 5543,
+    "STOCK": 5035,
+    "UNKNOWN": 2472
+  },
+  "snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
+  "snapshot_store_code_sha256": "5a110c424e8ca2e2018ef7a7ceccd19f434001ef3618434fdbb25c4eec7f6b4e",
+  "unknown_or_nonstandard_count": 2472
+}
