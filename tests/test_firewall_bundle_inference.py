@@ -125,6 +125,8 @@ def _sleeve_metric(
         numerical_valid=True,
         lineage_valid=True,
         negative_control_state="PASS",
+        robustness_state="PASS",
+        robustness_evidence_hash="a" * 64,
     )
 
 
@@ -288,6 +290,8 @@ def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None)
         eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
         external_anchor_receipt_id=BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID,
         production_readiness_state="NOT_CONFIGURED_BLOCKS_PRODUCTION",
+        monitoring_policy_hash="8" * 64,
+        monitoring_reference_hash="9" * 64,
         code_hash="1" * 64,
         config_hash="2" * 64,
         environment_hash="3" * 64,
@@ -514,6 +518,10 @@ def test_bundle_release_slots_cutoffs_and_frozen_gate_are_binding(tmp_path: Path
 
     with pytest.raises(ContractError, match="frozen-policy"):
         replace(metadata, primary_gate_id="0" * 64).validate()
+    with pytest.raises(ContractError, match="frozen-policy"):
+        replace(metadata, robustness_policy_hash="0" * 64).validate()
+    with pytest.raises(ContractError, match="frozen-policy"):
+        replace(metadata, robustness_evidence_hash="0" * 64).validate()
 
     assert metadata.trust_eligible is False
 
@@ -878,6 +886,7 @@ def _trial(release_directories: tuple[Path, ...], hypothesis: str = "h1") -> Tri
         model_family="linear-baseline",
         primary_metric="net_mean_return",
         primary_gate_id=sha256_bytes(canonical_json_bytes(_gate_policy().as_dict())),
+        robustness_policy_id="8" * 64,
         cost_policy_id="cost-v1",
         trial_family_id="family-v1",
         census_anchor_id="4" * 64,
@@ -915,6 +924,7 @@ def _outer_permit(
         "trial_family_anchor_id": spec.trial_family_anchor_id,
         "governance_contract_hash": spec.governance_contract_hash,
         "primary_gate_id": spec.primary_gate_id,
+        "robustness_policy_id": spec.robustness_policy_id,
         "release_bindings_hash": release_bindings_hash(spec.release_bindings),
         "holdout_receipt_id": holdout.receipt_id,
     }
@@ -936,6 +946,61 @@ def _outer_permit(
         authorization_authority=_authority(),
     )
     return permit, holdout
+
+
+def _gate_for_state(
+    registry: TrialRegistry,
+    permit,
+    *,
+    state: GateState,
+    evaluated_at: datetime = datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc),
+):
+    metrics = {
+        name: _sleeve_metric()
+        for name in ("stock_long", "stock_short", "etf_long", "etf_short")
+    }
+    if state is GateState.INCONCLUSIVE:
+        del metrics["etf_short"]
+    elif state is GateState.INCONCLUSIVE_ROBUSTNESS:
+        metrics["stock_long"] = replace(
+            metrics["stock_long"],
+            robustness_state="INCONCLUSIVE_ROBUSTNESS",
+        )
+    elif state is GateState.FAIL:
+        metrics["stock_short"] = replace(
+            metrics["stock_short"],
+            after_cost_effect=-0.001,
+            multiplicity_adjusted_confidence_lower=-0.002,
+        )
+    gate = registry.with_clock(_clock(evaluated_at)).build_gate_receipt(
+        permit,
+        policy=_gate_policy(),
+        metrics=metrics,
+    )
+    assert gate.state == state.value
+    return gate
+
+
+def _evaluation_result(permit, holdout, gate) -> dict[str, object]:
+    result: dict[str, object] = {
+        "trial_id": permit.trial_id,
+        "evaluation_scope": permit.evaluation_scope,
+        "state": gate.state,
+        "evaluation_input_hash": permit.evaluation_input_hash,
+        "evaluator_closure_hash": permit.evaluator_closure_hash,
+        "authorization_receipt_id": permit.authorization_receipt_id,
+        "holdout_receipt_id": holdout.receipt_id,
+        "gate_receipt_id": gate.receipt_id,
+        "robustness_policy_id": permit.robustness_policy_id,
+        "robustness_evidence_hash": gate.robustness_evidence_hash,
+        "evaluation_closed": True,
+    }
+    result["result_artifact_hash"] = sha256_bytes(
+        canonical_json_bytes(
+            {name: result[name] for name in sorted(result)}
+        )
+    )
+    return result
 
 
 def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path) -> None:
@@ -967,6 +1032,11 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
     mutated = _trial(release_directories, "h2")
     assert mutated.trial_id != trial_id
     permit, holdout = _outer_permit(registry, first, trial_id)
+    inconclusive_gate = _gate_for_state(
+        registry,
+        permit,
+        state=GateState.INCONCLUSIVE,
+    )
     forged_unsigned = {**permit.unsigned_dict(), "evaluator_code_hash": "0" * 64}
     forged_permit = type(permit)(
         **forged_unsigned,
@@ -976,35 +1046,64 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
     with pytest.raises(EvaluationAuthorizationError, match="registry-issued"):
         registry.with_clock(
             _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
-        ).record_evaluation(forged_permit, {})
+        ).record_evaluation(
+            forged_permit,
+            {},
+            gate_receipt=inconclusive_gate,
+        )
+    tampered_evidence = _evaluation_result(permit, holdout, inconclusive_gate)
+    tampered_evidence["robustness_evidence_hash"] = "b" * 64
+    tampered_evidence["result_artifact_hash"] = sha256_bytes(
+        canonical_json_bytes(
+            {
+                name: tampered_evidence[name]
+                for name in sorted(tampered_evidence)
+                if name != "result_artifact_hash"
+            }
+        )
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="gate or robustness"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 45, tzinfo=timezone.utc))
+        ).record_evaluation(
+            permit,
+            tampered_evidence,
+            gate_receipt=inconclusive_gate,
+        )
+    forged_gate = replace(
+        inconclusive_gate,
+        robustness_policy_hash="0" * 64,
+        receipt_id="",
+    )
+    forged_gate = replace(
+        forged_gate,
+        receipt_id=sha256_bytes(canonical_json_bytes(forged_gate.unsigned_dict())),
+    )
+    forged_gate.validate()
+    with pytest.raises(EvaluationAuthorizationError, match="gate or robustness"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 45, tzinfo=timezone.utc))
+        ).record_evaluation(
+            permit,
+            _evaluation_result(permit, holdout, forged_gate),
+            gate_receipt=forged_gate,
+        )
     registry.with_clock(_clock(datetime(2026, 7, 15, 2, tzinfo=timezone.utc))).record_evaluation(
         permit,
-        {
-            "trial_id": trial_id,
-            "evaluation_scope": "OUTER_SCREEN",
-            "state": "INCONCLUSIVE",
-            "evaluation_input_hash": permit.evaluation_input_hash,
-            "evaluator_closure_hash": permit.evaluator_closure_hash,
-            "authorization_receipt_id": permit.authorization_receipt_id,
-            "holdout_receipt_id": holdout.receipt_id,
-            "result_artifact_hash": "a" * 64,
-            "evaluation_closed": True,
-        },
+        _evaluation_result(permit, holdout, inconclusive_gate),
+        gate_receipt=inconclusive_gate,
+    )
+    pass_gate = _gate_for_state(
+        registry,
+        permit,
+        state=GateState.PASS,
+        evaluated_at=datetime(2026, 7, 15, 2, 30, tzinfo=timezone.utc),
     )
     with pytest.raises(IntegrityError, match="duplicate"):
         registry.with_clock(_clock(datetime(2026, 7, 15, 3, tzinfo=timezone.utc))).record_evaluation(
             permit,
-            {
-                "trial_id": trial_id,
-                "evaluation_scope": "OUTER_SCREEN",
-                "state": "PASS",
-                "evaluation_input_hash": permit.evaluation_input_hash,
-                "evaluator_closure_hash": permit.evaluator_closure_hash,
-                "authorization_receipt_id": permit.authorization_receipt_id,
-                "holdout_receipt_id": holdout.receipt_id,
-                "result_artifact_hash": "b" * 64,
-                "evaluation_closed": True,
-            },
+            _evaluation_result(permit, holdout, pass_gate),
+            gate_receipt=pass_gate,
         )
 
 
@@ -1039,25 +1138,18 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
             permit_issued_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
         )
     permit, holdout = _outer_permit(registry, spec, trial_id)
+    gate = _gate_for_state(registry, permit, state=GateState.PASS)
     with pytest.raises(EvaluationAuthorizationError, match="fields"):
         registry.with_clock(_clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))).record_evaluation(
             permit,
             {"trial_id": trial_id, "evaluation_input_hash": permit.evaluation_input_hash},
+            gate_receipt=gate,
         )
     with pytest.raises(EvaluationAuthorizationError, match="after permit"):
         registry.record_evaluation(
             permit,
-            {
-                "trial_id": trial_id,
-                "evaluation_scope": "OUTER_SCREEN",
-                "state": "PASS",
-                "evaluation_input_hash": permit.evaluation_input_hash,
-                "evaluator_closure_hash": permit.evaluator_closure_hash,
-                "authorization_receipt_id": permit.authorization_receipt_id,
-                "holdout_receipt_id": holdout.receipt_id,
-                "result_artifact_hash": "a" * 64,
-                "evaluation_closed": True,
-            },
+            _evaluation_result(permit, holdout, gate),
+            gate_receipt=gate,
         )
 
     malformed_path = governance_root / "malformed-trials.jsonl"
@@ -1088,6 +1180,17 @@ def test_all_four_sleeves_are_binding_and_underpowered_is_inconclusive() -> None
     assert policy.aggregate(metrics) is GateState.FAIL
     del metrics["etf_short"]
     assert policy.evaluate(metrics)["etf_short"] is GateState.INCONCLUSIVE
+    robustness = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
+    robustness["stock_long"] = replace(
+        passing,
+        robustness_state="INCONCLUSIVE_ROBUSTNESS",
+    )
+    assert policy.aggregate(robustness) is GateState.INCONCLUSIVE_ROBUSTNESS
+    robustness["stock_short"] = _sleeve_metric(
+        effect=-0.001,
+        confidence_lower=-0.002,
+    )
+    assert policy.aggregate(robustness) is GateState.FAIL
 
 
 def test_gate_distinguishes_invalid_power_pbo_and_strict_economic_confidence() -> None:

@@ -47,6 +47,11 @@ physical epochs. See `config/migration_allowlist.json`,
 `config/migration_approval.json`, and `config/sources.json` for the fail-closed
 contracts.
 
+After that migration completed, the authenticated immutable migration release
+became the source of truth. The allowlist, approval, and legacy baseline remain
+historical review evidence; routine validation does not rescan or replan from
+the mutable legacy checkout.
+
 `REBUILD_COMPLETE` and mechanical `HISTORICAL_RESEARCH_READY` are represented
 by content-addressed, non-authorizing receipts under the ignored accepted-data
 vault. A receipt is current only when its repository HEAD/tree and all release

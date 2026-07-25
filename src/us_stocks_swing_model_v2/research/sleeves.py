@@ -15,16 +15,19 @@ from .contracts import (
     require_synthetic_permit,
     require_unique_ascii_ids,
 )
+from .robustness import RobustnessState
 
 
 class SleeveState(str, Enum):
     REGISTERED = "REGISTERED"
     MECHANICS_READY = "MECHANICS_READY"
+    MECHANICS_INCONCLUSIVE_ROBUSTNESS = "MECHANICS_INCONCLUSIVE_ROBUSTNESS"
     MECHANICS_FAIL_CLOSED = "MECHANICS_FAIL_CLOSED"
 
 
 class PortfolioState(str, Enum):
     MECHANICS_READY = "MECHANICS_READY"
+    MECHANICS_INCONCLUSIVE_ROBUSTNESS = "MECHANICS_INCONCLUSIVE_ROBUSTNESS"
     MECHANICS_FAIL_CLOSED = "MECHANICS_FAIL_CLOSED"
 
 
@@ -61,6 +64,7 @@ class SyntheticSleeveMetrics:
     power_sufficient: bool
     negative_controls_clear: bool
     numerically_valid: bool
+    robustness_state: RobustnessState
 
 
 @dataclass(frozen=True)
@@ -144,6 +148,8 @@ def evaluate_synthetic_sleeve(
     for name in ("power_sufficient", "negative_controls_clear", "numerically_valid"):
         if type(getattr(metrics, name)) is not bool:
             raise ResearchContractError(f"{name} must be an exact bool")
+    if type(metrics.robustness_state) is not RobustnessState:
+        raise ResearchContractError("robustness_state must be an exact RobustnessState")
     numeric_values = np.asarray(
         [
             metrics.mean_after_costs,
@@ -182,11 +188,12 @@ def evaluate_synthetic_sleeve(
         failed.append("POWER")
     if metrics.negative_controls_clear is not True:
         failed.append("NEGATIVE_CONTROLS")
-    state = (
-        SleeveState.MECHANICS_READY
-        if not failed
-        else SleeveState.MECHANICS_FAIL_CLOSED
-    )
+    if failed:
+        state = SleeveState.MECHANICS_FAIL_CLOSED
+    elif metrics.robustness_state is RobustnessState.MECHANICS_INCONCLUSIVE:
+        state = SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
+    else:
+        state = SleeveState.MECHANICS_READY
     return SleeveGateResult(
         sleeve_id=sleeve_id,
         state=state,
@@ -209,9 +216,12 @@ def evaluate_portfolio_mechanics(
     by_id = {result.sleeve_id: result for result in sleeve_results}
     if any(result.mechanics_only is not True for result in sleeve_results):
         raise ResearchContractError("portfolio accepts mechanics-only sleeve results")
-    if all(
-        by_id[sleeve].state == SleeveState.MECHANICS_READY
-        for sleeve in charter.included_sleeves
+    included_states = tuple(by_id[sleeve].state for sleeve in charter.included_sleeves)
+    if any(state is SleeveState.MECHANICS_FAIL_CLOSED for state in included_states):
+        return PortfolioState.MECHANICS_FAIL_CLOSED
+    if any(
+        state is SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
+        for state in included_states
     ):
-        return PortfolioState.MECHANICS_READY
-    return PortfolioState.MECHANICS_FAIL_CLOSED
+        return PortfolioState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
+    return PortfolioState.MECHANICS_READY

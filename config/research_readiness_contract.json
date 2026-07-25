@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.1.0-mechanics",
+  "contract_version": "1.2.0-robustness-monitoring",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -446,15 +446,58 @@
     "minimum_power_each_sleeve": 0.8,
     "below_minimum_status": "INCONCLUSIVE_DATA_OR_POWER"
   },
+  "robustness": {
+    "policy_hash_must_be_bound_to_trial_and_evaluation": true,
+    "evidence_hash_must_be_bound_to_gate_receipt_evaluation_record_and_bundle": true,
+    "explicit_sleeve_and_book_state": "INCONCLUSIVE_ROBUSTNESS",
+    "definite_failure_precedes_inconclusive_robustness": true,
+    "temporal_concentration": {
+      "minimum_outer_folds": 8,
+      "minimum_positive_fold_fraction": 0.625,
+      "every_leave_one_fold_out_weighted_mean_gt_zero": true,
+      "applies_to_each_required_sleeve_and_primary_aggregate": true
+    },
+    "stability": {
+      "seed_count": 5,
+      "seeds_derived_from_trial_id": true,
+      "deterministic_repeat_requires_identical_artifact_and_prediction_hashes": true,
+      "variant_manifest_frozen_before_outer_access": true,
+      "every_variant_in_trial_ledger_and_multiplicity_family": true,
+      "minimum_positive_variant_fraction": 0.8,
+      "minimum_median_effect_retention": 0.5,
+      "variant_selection_after_outer_access_allowed": false
+    },
+    "source_epoch": {
+      "required_epochs_from_release_bindings": true,
+      "minimum_distinct_oos_dates_each_epoch": 252,
+      "stress_cost_mean_each_epoch_gt_zero": true,
+      "silent_or_statistical_pooling_satisfies_gate": false,
+      "applies_to_each_required_sleeve_and_primary_aggregate": true
+    },
+    "valid_instability_status": "INCONCLUSIVE_ROBUSTNESS",
+    "malformed_or_incomplete_binding_status": "INVALID"
+  },
+  "prospective_monitoring": {
+    "policy_path": "config/prospective_monitoring_policy.json",
+    "policy_and_reference_hashes_bound_to_bundle": true,
+    "records_append_only_and_bundle_bound": true,
+    "records_locally_head_anchored": true,
+    "recovery_scope": "AUTHORIZE_MONITORING_RECOVERY",
+    "recovery_binds_previous_record_bundle_policy_reference_and_observation": true,
+    "paused_or_invalid_requires_abstention": true,
+    "pending_blocks_manual_decision_support_ready": true,
+    "automatic_retraining_retuning_source_substitution_or_resume": false
+  },
   "binding_gate": {
     "decision_order": [
       "INVALID",
       "INCONCLUSIVE_PIT_IDENTITY",
-      "INCONCLUSIVE_DATA_OR_POWER",
       "FAIL_NO_EDGE",
       "FAIL_NOT_ECONOMIC",
-      "INCONCLUSIVE_EFFECT",
       "FAIL_MULTIPLICITY_OR_CONTROL",
+      "INCONCLUSIVE_DATA_OR_POWER",
+      "INCONCLUSIVE_EFFECT",
+      "INCONCLUSIVE_ROBUSTNESS",
       "PASS_HISTORICAL_DISCOVERY_SCREEN"
     ],
     "INVALID": "lineage_pit_representation_leakage_timing_role_ledger_cost_sleeve_or_evidence_failure",
@@ -464,6 +507,7 @@
     "FAIL_NOT_ECONOMIC": "after_no_edge_rule_confidence_upper_bound_lte_mees",
     "INCONCLUSIVE_EFFECT": "confidence_interval_intersects_mees",
     "FAIL_MULTIPLICITY_OR_CONTROL": "effect_bound_passes_but_adjusted_test_dsr_pbo_cost_baseline_trusted_sleeve_or_control_fails",
+    "INCONCLUSIVE_ROBUSTNESS": "valid_effect_is_temporally_concentrated_seed_or_parameter_fragile_or_source_epoch_unstable",
     "PASS_HISTORICAL_DISCOVERY_SCREEN": {
       "multiplicity_adjusted_one_sided_95pct_lower_bound_gt_mees": true,
       "romano_wolf_adjusted_p_lte": 0.05,
@@ -471,6 +515,7 @@
       "pbo_policy_satisfied_when_applicable": true,
       "cost_25bps_one_way_pass": true,
       "all_trusted_sleeves_baselines_and_controls_pass": true,
+      "robustness_gate_pass": true,
       "candidate_sealed": false,
       "candidate_eligibility_while_pit_unresolved": "BLOCKED_PENDING_PROSPECTIVE_PIT",
       "authorizes_only": "diagnostic_hypothesis_record_for_possible_separately_authorized_prospective_program",

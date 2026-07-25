@@ -23,10 +23,15 @@ from us_stocks_swing_model_v2.migration import (
     approval_payload_for_review,
     execute_copy_plan,
     load_migration_approval,
+    load_sealed_migration_approval,
     load_migration_config,
     migration_payload_object_relative,
     migration_authorization_bindings,
     plan_migration,
+)
+from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
+    CompletedMigrationRelease,
+    verify_completed_migration_release,
 )
 from us_stocks_swing_model_v2.governance import (
     SignedAuthorizationReceipt,
@@ -36,6 +41,17 @@ import us_stocks_swing_model_v2.migration as migration_module
 
 
 REPO = Path(__file__).parents[1]
+
+
+@pytest.fixture(scope="module")
+def completed_real_migration() -> tuple[MigrationApproval, CompletedMigrationRelease]:
+    approval = load_sealed_migration_approval(REPO / "config" / "migration_approval.json")
+    release = verify_completed_migration_release(
+        REPO / "data" / "vault" / "migration_releases" / approval.plan_id
+    )
+    assert release.plan_id == approval.plan_id
+    assert release.inventory_sha256 == approval.inventory_sha256
+    return approval, release
 
 
 def _external_execution_kwargs(
@@ -210,23 +226,29 @@ def test_real_migration_config_excludes_derived_and_option_branches() -> None:
     assert "pending" not in json.dumps(config["entries"]).lower()
 
 
-def test_explicit_user_task_authority_binds_only_the_exact_non_alpha_copy_plan() -> None:
-    plan = plan_migration(load_migration_config(REPO / "config" / "migration_allowlist.json"))
+def test_explicit_user_task_authority_binds_completed_non_alpha_copy(
+    completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
+) -> None:
+    approval, release = completed_real_migration
     authority = ControlledRebuildAuthorization.load(
         REPO / "config" / "controlled_rebuild_authorization.json"
     )
-    authority.validate_plan(plan)
-    approval = MigrationApproval.from_dict(
-        approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
-    )
-    bindings = migration_authorization_bindings(plan, approval)
+    summary = json.loads((release.root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["authorization_registry_id"] == authority.authorization_id
+    assert summary["authorization_class"] == CONTROLLED_REBUILD_AUTHORIZATION_CLASS
+    assert summary["approval_id"] == approval.approval_id
+    assert summary["plan_id"] == approval.plan_id
+    assert summary["state"] == "COMPLETE_NON_ACTIVE"
     receipt_id = sha256_bytes(
         canonical_json_bytes(
             {
                 "authorization_id": authority.authorization_id,
                 "approval_id": approval.approval_id,
-                "bindings": bindings,
-                "plan_id": plan.plan_id,
+                "bindings": {
+                    "config_sha256": approval.config_sha256,
+                    "inventory_sha256": approval.inventory_sha256,
+                },
+                "plan_id": approval.plan_id,
                 "scope": COPY_AUTHORIZATION_SCOPE,
                 "task_thread_id": authority.task_thread_id,
             }
@@ -237,16 +259,16 @@ def test_explicit_user_task_authority_binds_only_the_exact_non_alpha_copy_plan()
     assert "real_history" not in CONTROLLED_REBUILD_AUTHORIZATION_CLASS.lower()
 
 
-def test_checked_in_migration_approval_binds_current_reviewed_plan_and_code() -> None:
-    plan = plan_migration(
-        load_migration_config(REPO / "config" / "migration_allowlist.json")
-    )
-    approval = load_migration_approval(
-        REPO / "config" / "migration_approval.json", plan
-    )
-    assert approval.plan_id == plan.plan_id
+def test_checked_in_migration_approval_binds_completed_reviewed_capsule(
+    completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
+) -> None:
+    approval, release = completed_real_migration
+    assert approval.plan_id == release.plan_id
+    assert approval.inventory_sha256 == release.inventory_sha256
     assert approval.file_count == 4_911
     assert approval.total_bytes == 345_845_816
+    assert len(release.entries) == approval.file_count
+    assert sum(entry.size for entry in release.entries) == approval.total_bytes
 
 
 def test_migration_checkpoint_resumes_without_partial_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -550,16 +572,19 @@ def test_long_logical_destination_uses_only_the_sealed_flat_payload_object(
     assert not (release / "payload" / relative).exists()
 
 
-def test_real_plan_flat_namespace_is_unique_and_windows_safe() -> None:
-    plan = plan_migration(
-        load_migration_config(REPO / "config" / "migration_allowlist.json")
-    )
-    vault = Path(plan.destination_vault)
-    final_payload = vault / "migration_releases" / plan.plan_id / "payload"
-    objects = [entry.payload_object for entry in plan]
-    logical = [Path(entry.destination).relative_to(vault) for entry in plan]
+def test_completed_real_migration_flat_namespace_is_unique_and_windows_safe(
+    completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
+) -> None:
+    _, release = completed_real_migration
+    vault = REPO / "data" / "vault"
+    final_payload = release.root / "payload"
+    objects = [entry.payload_object for entry in release.entries]
+    logical = [Path(entry.destination).relative_to(vault) for entry in release.entries]
     assert len(objects) == len(set(objects)) == 4_911
-    assert all(entry.schema_version == MIGRATION_MANIFEST_SCHEMA_VERSION for entry in plan)
+    assert all(
+        entry.schema_version == MIGRATION_MANIFEST_SCHEMA_VERSION
+        for entry in release.entries
+    )
     assert max(len(str(final_payload / item)) for item in objects) < 240
     assert max(len(str(final_payload / item)) for item in logical) > 260
 

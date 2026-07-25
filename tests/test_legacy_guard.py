@@ -7,7 +7,11 @@ import pytest
 
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_file
 from us_stocks_swing_model_v2.errors import IntegrityError
-from us_stocks_swing_model_v2.legacy_guard import capture_legacy_baseline, verify_legacy_baseline
+from us_stocks_swing_model_v2.legacy_guard import (
+    capture_legacy_baseline,
+    load_legacy_baseline,
+    verify_legacy_baseline,
+)
 
 
 def _git(root: Path, *args: str) -> None:
@@ -39,8 +43,8 @@ def test_verify_is_read_only_and_detects_content_mutation(tmp_path: Path) -> Non
         verify_legacy_baseline(config)
 
 
-def test_frozen_legacy_project_is_unchanged() -> None:
+def test_checked_in_legacy_baseline_is_an_authenticated_historical_capture() -> None:
     config = Path(__file__).parents[1] / "config" / "legacy_baseline.json"
-    observed = verify_legacy_baseline(config)
+    observed = load_legacy_baseline(config)
     assert observed["head"] == "beab97d89a527a04c3640ba3cc70c2f9493044cc"
     assert observed["status_count"] == 31

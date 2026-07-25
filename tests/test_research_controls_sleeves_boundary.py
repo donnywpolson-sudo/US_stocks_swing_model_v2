@@ -10,6 +10,7 @@ from us_stocks_swing_model_v2.research import (
     NegativeControlState,
     PortfolioCharter,
     PortfolioState,
+    RobustnessState,
     SleeveState,
     SleeveThresholds,
     SyntheticSleeveMetrics,
@@ -79,6 +80,7 @@ def _metrics(*, adjusted_p: float) -> SyntheticSleeveMetrics:
         power_sufficient=True,
         negative_controls_clear=True,
         numerically_valid=True,
+        robustness_state=RobustnessState.MECHANICS_READY,
     )
 
 
@@ -115,6 +117,32 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
     assert stock_long.state == SleeveState.MECHANICS_READY
     assert etf_short.state == SleeveState.MECHANICS_FAIL_CLOSED
     assert etf_short.failed_gates == ("ROMANO_WOLF",)
+
+    robustness_inconclusive = evaluate_synthetic_sleeve(
+        sleeve_id="stock-long",
+        metrics=replace(
+            _metrics(adjusted_p=0.01),
+            robustness_state=RobustnessState.MECHANICS_INCONCLUSIVE,
+        ),
+        thresholds=thresholds,
+        permit=permit,
+        fixture=fixture,
+    )
+    assert (
+        robustness_inconclusive.state
+        is SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
+    )
+    failure_precedes_robustness = evaluate_synthetic_sleeve(
+        sleeve_id="etf-short",
+        metrics=replace(
+            _metrics(adjusted_p=0.06),
+            robustness_state=RobustnessState.MECHANICS_INCONCLUSIVE,
+        ),
+        thresholds=thresholds,
+        permit=permit,
+        fixture=fixture,
+    )
+    assert failure_precedes_robustness.state is SleeveState.MECHANICS_FAIL_CLOSED
 
     with np.testing.assert_raises_regex(ValueError, "explicit real float"):
         evaluate_synthetic_sleeve(
@@ -162,6 +190,17 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
             (stock_long, etf_short),
         )
         == PortfolioState.MECHANICS_READY
+    )
+    robustness_charter = PortfolioCharter.create(
+        registered_sleeves=("stock-long", "etf-short"),
+        included_sleeves=("stock-long",),
+    )
+    assert (
+        evaluate_portfolio_mechanics(
+            robustness_charter,
+            (robustness_inconclusive, etf_short),
+        )
+        is PortfolioState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     )
 
     forged_charter = replace(all_included, charter_hash="0" * 64)

@@ -338,10 +338,40 @@ class MigrationApproval:
         value.pop("approval_id")
         return value
 
-    def validate(self, plan: MigrationPlan) -> None:
+    def validate_sealed(self) -> None:
+        """Authenticate the historical approval without rescanning legacy inputs."""
+
         parse_utc_z(self.approved_at, "approved_at")
-        if self.schema_version != 1 or self.approval_scope != APPROVAL_SCOPE:
-            raise PermissionError("migration approval scope/schema is invalid")
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 1
+            or self.approval_scope != APPROVAL_SCOPE
+            or type(self.migration_manifest_schema_version) is not int
+            or self.migration_manifest_schema_version != MIGRATION_MANIFEST_SCHEMA_VERSION
+            or self.payload_layout_version != PAYLOAD_LAYOUT_VERSION
+            or type(self.file_count) is not int
+            or self.file_count <= 0
+            or type(self.total_bytes) is not int
+            or self.total_bytes < 0
+        ):
+            raise PermissionError("sealed migration approval scope/schema/counts are invalid")
+        for field in ("config_sha256", "inventory_sha256", "plan_id"):
+            require_sha256(getattr(self, field), f"migration_approval.{field}")
+        manifest = dict(self.migration_implementation_manifest)
+        if set(manifest) != set(MIGRATION_IMPLEMENTATION_PATHS):
+            raise PermissionError("sealed migration implementation manifest fields differ")
+        for relative, digest in manifest.items():
+            if safe_relative_path(relative).as_posix() != relative:
+                raise PermissionError("sealed migration implementation path is not canonical")
+            require_sha256(digest, f"migration_approval.implementation.{relative}")
+        implementation_sha256 = sha256_bytes(canonical_json_bytes(dict(sorted(manifest.items()))))
+        if self.migration_implementation_sha256 != implementation_sha256:
+            raise PermissionError("sealed migration_implementation_sha256 is invalid")
+        if self.approval_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
+            raise PermissionError("migration approval_id does not match its content")
+
+    def validate(self, plan: MigrationPlan) -> None:
+        self.validate_sealed()
         expected = {
             "migration_manifest_schema_version": plan.migration_manifest_schema_version,
             "payload_layout_version": plan.payload_layout_version,
@@ -356,9 +386,6 @@ class MigrationApproval:
         for field, value in expected.items():
             if getattr(self, field) != value:
                 raise PermissionError(f"migration approval does not bind current {field}")
-        if self.approval_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
-            raise PermissionError("migration approval_id does not match its content")
-
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "MigrationApproval":
         if set(payload) != set(cls.__dataclass_fields__):
@@ -391,7 +418,9 @@ def approval_payload_for_review(plan: MigrationPlan, approved_at: str) -> dict[s
     return {**unsigned, "approval_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
-def load_migration_approval(path: Path, plan: MigrationPlan) -> MigrationApproval:
+def load_sealed_migration_approval(path: Path) -> MigrationApproval:
+    """Load an authenticated approval for an already completed migration."""
+
     approval_path = Path(path)
     reject_link(approval_path)
     if not approval_path.is_file() or approval_path.stat().st_nlink != 1:
@@ -404,6 +433,12 @@ def load_migration_approval(path: Path, plan: MigrationPlan) -> MigrationApprova
         approval = MigrationApproval.from_dict(payload)
     except (TypeError, ValueError, KeyError) as exc:
         raise PermissionError("migration approval schema is invalid") from exc
+    approval.validate_sealed()
+    return approval
+
+
+def load_migration_approval(path: Path, plan: MigrationPlan) -> MigrationApproval:
+    approval = load_sealed_migration_approval(path)
     approval.validate(plan)
     return approval
 

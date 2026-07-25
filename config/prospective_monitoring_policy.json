@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0-balanced-non-authorizing",
+  "project": "US_stocks_swing_model_v2",
+  "mechanics_only": true,
+  "reference": {
+    "training_only": true,
+    "fixed_bins_categories_and_missing_bucket": true,
+    "reference_hash_bound_to_bundle": true
+  },
+  "minimum_window": {
+    "distinct_dates": 30,
+    "eligible_predictions": 500
+  },
+  "population_stability_index": {
+    "warning_gte": 0.1,
+    "pause_gte": 0.25
+  },
+  "missingness_absolute_delta": {
+    "warning_gte": 0.05,
+    "pause_gte": 0.1
+  },
+  "coverage_ratio_to_sealed_floor": {
+    "warning_lt": 0.95,
+    "pause_lt": 0.9
+  },
+  "matured_primary_score_relative_degradation": {
+    "pause_gte": 0.1
+  },
+  "state_precedence": [
+    "MONITORING_INVALID",
+    "MONITORING_PAUSED",
+    "MONITORING_WARNING",
+    "MONITORING_PENDING",
+    "MONITORING_OK"
+  ],
+  "record_contract": {
+    "append_only_hash_chain": true,
+    "local_head_anchor_required_for_every_append": true,
+    "bundle_policy_reference_and_observation_hashes_required": true,
+    "previous_record_id_required_after_first_record": true,
+    "automatic_actions_must_be_empty": true
+  },
+  "recovery": {
+    "automatic_resume": false,
+    "authorization_scope": "AUTHORIZE_MONITORING_RECOVERY",
+    "signed_review_required_after_paused_or_invalid": true,
+    "review_binds_previous_record_bundle_policy_reference_and_observation": true,
+    "recovery_without_exact_review_remains_paused": true
+  },
+  "paused_or_invalid_requires_abstention": true,
+  "pending_blocks_manual_decision_support_ready": true,
+  "automatic_retraining_retuning_source_substitution_or_resume": false
+}

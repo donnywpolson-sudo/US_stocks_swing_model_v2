@@ -87,6 +87,10 @@ class SealedBundleMetadata:
     production_readiness_state: str
     governance_contract_hash: str
     primary_gate_id: str
+    robustness_policy_hash: str
+    robustness_evidence_hash: str
+    monitoring_policy_hash: str
+    monitoring_reference_hash: str
     gate_receipt: GateReceipt
     sealing_authorization: SignedAuthorizationReceipt
     code_hash: str
@@ -133,6 +137,10 @@ class SealedBundleMetadata:
             "production_readiness_state": self.production_readiness_state,
             "governance_contract_hash": self.governance_contract_hash,
             "primary_gate_id": self.primary_gate_id,
+            "robustness_policy_hash": self.robustness_policy_hash,
+            "robustness_evidence_hash": self.robustness_evidence_hash,
+            "monitoring_policy_hash": self.monitoring_policy_hash,
+            "monitoring_reference_hash": self.monitoring_reference_hash,
             "gate_receipt": self.gate_receipt.as_dict(),
             "code_hash": self.code_hash,
             "config_hash": self.config_hash,
@@ -172,10 +180,12 @@ class SealedBundleMetadata:
             "release_bindings_hash": release_bindings_hash(self.release_bindings),
             "governance_contract_hash": self.governance_contract_hash,
             "primary_gate_id": self.primary_gate_id,
+            "robustness_policy_hash": self.robustness_policy_hash,
+            "robustness_evidence_hash": self.robustness_evidence_hash,
         }
 
     def validate(self) -> None:
-        if type(self.schema_version) is not int or self.schema_version != 1 or self.model_kind != "linear_distribution_v1":
+        if type(self.schema_version) is not int or self.schema_version != 3 or self.model_kind != "linear_distribution_v1":
             raise ContractError("unsupported sealed bundle contract")
         cutoff = parse_utc_z(self.training_cutoff, "training_cutoff")
         sealed = parse_utc_z(self.sealed_at, "sealed_at")
@@ -292,6 +302,10 @@ class SealedBundleMetadata:
             "external_anchor_receipt_id",
             "governance_contract_hash",
             "primary_gate_id",
+            "robustness_policy_hash",
+            "robustness_evidence_hash",
+            "monitoring_policy_hash",
+            "monitoring_reference_hash",
             "code_hash",
             "config_hash",
             "environment_hash",
@@ -319,6 +333,10 @@ class SealedBundleMetadata:
             or self.gate_receipt.release_bindings_hash
             != release_bindings_hash(self.release_bindings)
             or self.gate_receipt.policy_hash != self.primary_gate_id
+            or self.gate_receipt.robustness_policy_hash
+            != self.robustness_policy_hash
+            or self.gate_receipt.robustness_evidence_hash
+            != self.robustness_evidence_hash
             or parse_utc_z(self.gate_receipt.evaluated_at, "gate.evaluated_at") > sealed
         ):
             raise ContractError("bundle requires the matching frozen-policy PASS gate receipt")
@@ -389,6 +407,10 @@ class SealedBundleMetadata:
             production_readiness_state=str(value["production_readiness_state"]),
             governance_contract_hash=str(value["governance_contract_hash"]),
             primary_gate_id=str(value["primary_gate_id"]),
+            robustness_policy_hash=str(value["robustness_policy_hash"]),
+            robustness_evidence_hash=str(value["robustness_evidence_hash"]),
+            monitoring_policy_hash=str(value["monitoring_policy_hash"]),
+            monitoring_reference_hash=str(value["monitoring_reference_hash"]),
             gate_receipt=GateReceipt.from_dict(value["gate_receipt"]),
             sealing_authorization=SignedAuthorizationReceipt.from_dict(value["sealing_authorization"]),
             code_hash=str(value["code_hash"]),
@@ -444,6 +466,8 @@ class PreparedBundleCandidate:
             "release_bindings_hash": release_bindings_hash(bindings),
             "governance_contract_hash": str(payload["governance_contract_hash"]),
             "primary_gate_id": str(payload["primary_gate_id"]),
+            "robustness_policy_hash": str(payload["robustness_policy_hash"]),
+            "robustness_evidence_hash": str(payload["robustness_evidence_hash"]),
         }
 
 
@@ -477,12 +501,22 @@ def prepare_bundle_candidate(
         "holdout_receipt_id": trial_permit.holdout_receipt_id,
         "governance_contract_hash": trial_permit.governance_contract_hash,
         "primary_gate_id": trial_permit.primary_gate_id,
+        "robustness_policy_hash": trial_permit.robustness_policy_id,
     }
     for name, expected in permit_gate_bindings.items():
         supplied = fields.pop(name, expected)
         if supplied != expected:
             raise ContractError(f"bundle {name} differs from the issued permit")
         fields[name] = expected
+    supplied_robustness_evidence = fields.pop(
+        "robustness_evidence_hash",
+        gate_receipt.robustness_evidence_hash,
+    )
+    if supplied_robustness_evidence != gate_receipt.robustness_evidence_hash:
+        raise ContractError(
+            "bundle robustness evidence differs from the gate receipt"
+        )
+    fields["robustness_evidence_hash"] = gate_receipt.robustness_evidence_hash
     for name, expected in (
         ("readiness_receipt_id", BLOCKED_READINESS_RECEIPT_ID),
         ("external_anchor_receipt_id", BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID),
@@ -498,6 +532,8 @@ def prepare_bundle_candidate(
         or gate_receipt.permit_payload_hash
         != sha256_bytes(canonical_json_bytes(trial_permit.as_dict()))
         or gate_receipt.primary_gate_id != trial_permit.primary_gate_id
+        or gate_receipt.robustness_policy_hash
+        != trial_permit.robustness_policy_id
     ):
         raise ContractError("bundle gate receipt differs from the registry-issued permit")
     root = Path(bundle_dir)
@@ -523,7 +559,7 @@ def prepare_bundle_candidate(
         raise ContractError("bundle release IDs differ from verified release manifests")
     artifacts = tuple(built)
     provisional = SealedBundleMetadata(
-        schema_version=1,
+        schema_version=3,
         artifacts=artifacts,
         data_release_ids=data_release_ids,
         release_bindings=bindings,

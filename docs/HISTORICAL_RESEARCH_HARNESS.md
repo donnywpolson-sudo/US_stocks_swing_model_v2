@@ -404,14 +404,29 @@ labels are absent from the builder request type, and every outer prediction
 artifact is frozen before the evaluator receives its matching labels.
 
 Prediction manifests must predate label-unlock receipts. Evaluation reports bind
-evaluation artifact, predictions, data release, charter, ledger head, code, and environment
-hashes. The evaluator writes only to its unique run directory. Final-holdout
+evaluation artifact, predictions, data release, charter, ledger head, code, and
+environment hashes. They also bind the preregistered robustness-policy hash and
+the exact per-sleeve robustness-evidence hash. Gate receipts, append-only
+evaluation records, and later bundle candidates must agree on those hashes;
+post-evaluation policy or evidence mutation is invalid. Valid temporal,
+seed/parameter, or source-epoch instability propagates as
+`INCONCLUSIVE_ROBUSTNESS` through its sleeve and the aggregate book, while a
+definite failure retains precedence. The evaluator writes only to its unique run
+directory. Final-holdout
 access is one-time, append-only, and anchored to the frozen holdout specification
 and pre-unlock ledger head. Repeated access is fatal.
 
 Inference is separately fit-free. Its schema may contain underlying expected
 five-session return, absolute probabilities, uncertainty, rank, abstention, and
 release/bundle IDs only. Option-trade fields are invalid.
+
+Prospective monitoring is a separate, non-authorizing lane. Its records are
+append-only and head-anchored, bind the sealed bundle plus monitoring policy and
+reference hashes, and contain no automatic retraining, retuning, source
+substitution, resume, or promotion action. After a paused or invalid state, a
+later healthy observation remains paused unless an exact signed recovery review
+binds the previous record and corrected observation. Pending, paused, or invalid
+monitoring cannot support manual decision readiness.
 
 This is process isolation, not proof of independent human judgment. Genuine
 independence requires a separate account or external evaluator, and prospective

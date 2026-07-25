@@ -31,6 +31,16 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
 - Non-authorizing `REBUILD_COMPLETE` and mechanical
   `HISTORICAL_RESEARCH_READY` receipts are published in the accepted-data
   vault and bind a clean local commit. They do not clear any trust blocker.
+- Robustness policy and evidence hashes now bind sleeve, book, evaluation, and
+  bundle artifacts. Definite failures take precedence; underpowered robustness
+  evidence remains explicitly inconclusive.
+- Prospective monitoring mechanics are append-only and bundle/policy/reference
+  bound. Paused or invalid monitoring abstains and cannot resume without an
+  exact signed review; monitoring cannot retrain, retune, substitute sources,
+  or promote.
+- The complete non-alpha suite passes: 181 tests. Routine v2 validation now
+  authenticates the immutable completed migration capsule instead of requiring
+  the independently mutable legacy checkout to remain frozen forever.
 
 ## Source truth
 
@@ -44,6 +54,10 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
   qualification. SIP and IEX remain candidates; neither is assumed active.
 - Nasdaq: one public as-received qualification snapshot is preserved, but it
   is not an active identity release until the asset join is implemented.
+- Completed migration capsule: the immutable 4,911-file release is the
+  post-migration source of truth. The allowlist, approval, and legacy baseline
+  remain historical review evidence and are not replanned from current legacy
+  files.
 
 ## Next gate
 

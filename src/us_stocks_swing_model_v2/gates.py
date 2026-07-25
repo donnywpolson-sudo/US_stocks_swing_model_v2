@@ -17,6 +17,7 @@ class GateState(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     INCONCLUSIVE = "INCONCLUSIVE"
+    INCONCLUSIVE_ROBUSTNESS = "INCONCLUSIVE_ROBUSTNESS"
     INVALID = "INVALID"
 
 
@@ -38,6 +39,8 @@ class SleeveMetric:
     numerical_valid: bool
     lineage_valid: bool
     negative_control_state: str
+    robustness_state: str
+    robustness_evidence_hash: str
 
     def validate(self) -> None:
         if (
@@ -97,6 +100,14 @@ class SleeveMetric:
             raise ContractError("gate power/numerical/lineage states must be explicit booleans")
         if self.negative_control_state not in {"PASS", "FAIL", "INCONCLUSIVE"}:
             raise ContractError("gate negative-control state is invalid")
+        if self.robustness_state not in {
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE_ROBUSTNESS",
+            "INVALID",
+        }:
+            raise ContractError("gate robustness state is invalid")
+        require_sha256(self.robustness_evidence_hash, "gate.robustness_evidence_hash")
 
     def as_dict(self) -> dict[str, int | float | bool | str]:
         return {
@@ -116,6 +127,8 @@ class SleeveMetric:
             "numerical_valid": self.numerical_valid,
             "lineage_valid": self.lineage_valid,
             "negative_control_state": self.negative_control_state,
+            "robustness_state": self.robustness_state,
+            "robustness_evidence_hash": self.robustness_evidence_hash,
         }
 
 
@@ -201,21 +214,12 @@ class IndependentGatePolicy:
                 or metric.pbo_failure_threshold != self.pbo_failure_threshold
             ):
                 raise ContractError("gate metric thresholds differ from the preregistered sleeve policy")
-            if not metric.numerical_valid or not metric.lineage_valid:
-                results[sleeve] = GateState.INVALID
-            elif metric.effective_sessions < self.minimum_effective_sessions:
-                results[sleeve] = GateState.INCONCLUSIVE
-            elif (
-                not metric.planned_power_pass
-                or metric.negative_control_state == "INCONCLUSIVE"
-                or (
-                    metric.pbo_applicability == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
-                    and metric.conservative_pbo is not None
-                    and metric.conservative_pbo > self.maximum_conservative_pbo
-                    and metric.conservative_pbo <= self.pbo_failure_threshold
-                )
+            if (
+                not metric.numerical_valid
+                or not metric.lineage_valid
+                or metric.robustness_state == "INVALID"
             ):
-                results[sleeve] = GateState.INCONCLUSIVE
+                results[sleeve] = GateState.INVALID
             elif (
                 metric.after_cost_effect < expected_hurdle
                 or metric.multiplicity_adjusted_confidence_lower <= expected_hurdle
@@ -228,8 +232,23 @@ class IndependentGatePolicy:
                     and metric.conservative_pbo > self.pbo_failure_threshold
                 )
                 or metric.negative_control_state == "FAIL"
+                or metric.robustness_state == "FAIL"
             ):
                 results[sleeve] = GateState.FAIL
+            elif metric.robustness_state == "INCONCLUSIVE_ROBUSTNESS":
+                results[sleeve] = GateState.INCONCLUSIVE_ROBUSTNESS
+            elif (
+                metric.effective_sessions < self.minimum_effective_sessions
+                or not metric.planned_power_pass
+                or metric.negative_control_state == "INCONCLUSIVE"
+                or (
+                    metric.pbo_applicability == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
+                    and metric.conservative_pbo is not None
+                    and metric.conservative_pbo > self.maximum_conservative_pbo
+                    and metric.conservative_pbo <= self.pbo_failure_threshold
+                )
+            ):
+                results[sleeve] = GateState.INCONCLUSIVE
             else:
                 results[sleeve] = GateState.PASS
         return results
@@ -240,6 +259,8 @@ class IndependentGatePolicy:
             return GateState.INVALID
         if any(value is GateState.FAIL for value in results.values()):
             return GateState.FAIL
+        if any(value is GateState.INCONCLUSIVE_ROBUSTNESS for value in results.values()):
+            return GateState.INCONCLUSIVE_ROBUSTNESS
         if any(value is GateState.INCONCLUSIVE for value in results.values()):
             return GateState.INCONCLUSIVE
         return GateState.PASS
@@ -266,6 +287,8 @@ class GateReceipt:
     permit_issued_at: str
     primary_gate_id: str
     policy_hash: str
+    robustness_policy_hash: str
+    robustness_evidence_hash: str
     metrics_hash: str
     state: str
     evaluated_at: str
@@ -294,6 +317,8 @@ class GateReceipt:
             "permit_issued_at": self.permit_issued_at,
             "primary_gate_id": self.primary_gate_id,
             "policy_hash": self.policy_hash,
+            "robustness_policy_hash": self.robustness_policy_hash,
+            "robustness_evidence_hash": self.robustness_evidence_hash,
             "metrics_hash": self.metrics_hash,
             "state": self.state,
             "evaluated_at": self.evaluated_at,
@@ -307,7 +332,7 @@ class GateReceipt:
     def validate(self) -> None:
         if (
             type(self.schema_version) is not int
-            or self.schema_version != 1
+            or self.schema_version != 2
             or self.state not in {item.value for item in GateState}
         ):
             raise ContractError("gate receipt schema/state is invalid")
@@ -341,6 +366,8 @@ class GateReceipt:
             "authorization_receipt_id",
             "primary_gate_id",
             "policy_hash",
+            "robustness_policy_hash",
+            "robustness_evidence_hash",
             "metrics_hash",
             "receipt_id",
         ):
@@ -373,7 +400,7 @@ def _build_gate_receipt_from_issued_permit(
     trusted_clock = require_trusted_clock(clock)
     state = policy.aggregate(metrics)
     unsigned = {
-        "schema_version": 1,
+        "schema_version": 2,
         "trial_registry_binding_id": permit.trial_registry_binding_id,
         "trial_id": permit.trial_id,
         "evaluation_permit_id": permit.permit_id,
@@ -392,6 +419,18 @@ def _build_gate_receipt_from_issued_permit(
         "permit_issued_at": permit.issued_at,
         "primary_gate_id": permit.primary_gate_id,
         "policy_hash": sha256_bytes(canonical_json_bytes(policy.as_dict())),
+        "robustness_policy_hash": permit.robustness_policy_id,
+        "robustness_evidence_hash": sha256_bytes(
+            canonical_json_bytes(
+                {
+                    name: {
+                        "state": metric.robustness_state,
+                        "evidence_hash": metric.robustness_evidence_hash,
+                    }
+                    for name, metric in sorted(metrics.items())
+                }
+            )
+        ),
         "metrics_hash": sha256_bytes(
             canonical_json_bytes({name: metric.as_dict() for name, metric in sorted(metrics.items())})
         ),
@@ -402,6 +441,8 @@ def _build_gate_receipt_from_issued_permit(
     }
     if unsigned["policy_hash"] != permit.primary_gate_id:
         raise ContractError("gate policy differs from the predeclared trial policy")
+    if unsigned["robustness_policy_hash"] != permit.robustness_policy_id:
+        raise ContractError("gate robustness policy differs from the predeclared trial policy")
     receipt = GateReceipt(
         **unsigned,
         receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),

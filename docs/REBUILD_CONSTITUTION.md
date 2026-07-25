@@ -163,7 +163,11 @@ labels/outcomes/WFA reports, substitute sources, or change thresholds.
 Historical research, when separately authorized, requires nested chronological
 tuning, label-interval purging, fold-local transformations, date/session-level
 uncertainty, registered multiple-testing adjustment, costs, simple baselines,
-negative controls, minimum power, and a binding `INCONCLUSIVE` state.
+negative controls, minimum power, and binding inconclusive states. The
+robustness policy hash is frozen in the trial and permit. Exact per-sleeve
+robustness evidence is hashed into the gate receipt, append-only evaluation
+record, and any later bundle candidate, so changing policy or evidence after
+evaluation fails closed.
 
 ## 7. Independent gates
 
@@ -178,6 +182,12 @@ it. At minimum these sleeves are separately gated:
 An absent or underpowered sleeve is `INCONCLUSIVE`, not a pass. Aggregate
 performance cannot hide a failed sleeve. Short results are gross of excluded
 borrow costs and cannot claim deployable net-short economics.
+
+Temporal concentration, registered seed/parameter stability, or source-epoch
+instability in otherwise valid evidence is
+`INCONCLUSIVE_ROBUSTNESS` at both sleeve and book level. A definite statistical,
+economic, control, or robustness failure remains `FAIL`; it cannot be softened
+to inconclusive merely because another gate is underpowered or unstable.
 
 ## 8. Sealed bundle and inference
 
@@ -209,8 +219,13 @@ the fixed end rule. Missed as-received vintages cannot be backfilled and called
 prospective.
 
 Monitoring may pause or abstain for stale data, coverage, drift, provider
-failure, clock error, or bundle age. It cannot silently retrain, retune, change
-sources, extend confirmation, or promote a challenger.
+failure, clock error, or bundle age. Each decision is appended to a hash chain,
+bound to the exact bundle, policy, reference, observation, and predecessor, and
+retained under a separate local head anchor. A paused or invalid predecessor
+cannot resume without an exact signed recovery review binding the corrected
+observation. Monitoring cannot silently retrain, retune, change sources, extend
+confirmation, resume, or promote a challenger; its automatic-action list must
+remain empty.
 
 ## 10. Completion gates
 

@@ -32,15 +32,19 @@ public Nasdaq qualification are complete.
      evidence is qualified; Alpaca remains a guarded prospective lane.
 3. **Historical research ready (mechanical only)**: registered nested-WFA
    executor, dependence-aware statistics, costs, benchmarks, negative controls,
-   and finite gates are mechanically implemented and bound by non-authorizing
-   receipts to a clean commit. This does not authorize real-history execution or
-   establish trusted PIT evidence.
+   finite gates, and sleeve/book robustness propagation are mechanically
+   implemented. Robustness policy and evidence hashes are bound through permits,
+   evaluation records, gate receipts, and bundle candidates. Non-authorizing
+   readiness receipts bind the closure to a clean commit. This does not authorize
+   real-history execution or establish trusted PIT evidence.
 4. **Candidate research**: separately authorized hypothesis and counted
    historical evaluation.
 5. **Prospective confirmation**: sealed prediction protocol, blinded outcome
    maturation, fixed end rule.
-6. **Manual decision support**: monitored fit-free inference, abstention,
-   recovery, shadow operation, and separately approved cutover.
+6. **Manual decision support**: monitored fit-free inference with append-only,
+   bundle/policy/reference-bound records; mandatory abstention while pending,
+   paused, or invalid; signed reviewed recovery with no automatic resume;
+   shadow operation; and separately approved cutover.
 
 ## Non-negotiable separations
 
@@ -51,4 +55,5 @@ public Nasdaq qualification are complete.
 - Feature and outcome artifacts are separate.
 - Prediction records never contain realized outcomes.
 - Stock/ETF and long/short gates are individually binding.
-- Monitoring may pause or abstain but may not retrain or tune.
+- Monitoring may pause or abstain but may not retrain, retune, substitute
+  sources, auto-resume, or promote.

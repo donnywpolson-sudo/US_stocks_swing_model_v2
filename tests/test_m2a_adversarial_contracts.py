@@ -112,6 +112,8 @@ def _gate_metric(*, effect: float = 0.1) -> SleeveMetric:
         numerical_valid=True,
         lineage_valid=True,
         negative_control_state="PASS",
+        robustness_state="PASS",
+        robustness_evidence_hash="a" * 64,
     )
 
 
@@ -295,6 +297,7 @@ def test_trial_permit_content_hash_cannot_be_forged(tmp_path: Path) -> None:
         "trial_family_anchor_id": "7" * 64,
         "governance_contract_hash": "8" * 64,
         "primary_gate_id": "c" * 64,
+        "robustness_policy_id": "d" * 64,
         "release_bindings_hash": "9" * 64,
         "holdout_receipt_id": "a" * 64,
         "authorization_receipt_id": "b" * 64,

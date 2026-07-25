@@ -28,7 +28,13 @@ from .ledger import HashChainLedger
 REAL_EVIDENCE_CLASSES = {"REGISTERED_HISTORICAL_DISCOVERY", "PROSPECTIVE_FINAL"}
 EVALUATION_SCOPES = {"OUTER_SCREEN", "FINAL_HOLDOUT"}
 HOLDOUT_STATES = {"LOCKED", "UNLOCKED_ONCE", "CLOSED"}
-EVALUATION_STATES = {"PASS", "FAIL", "INCONCLUSIVE"}
+EVALUATION_STATES = {
+    "PASS",
+    "FAIL",
+    "INCONCLUSIVE",
+    "INCONCLUSIVE_ROBUSTNESS",
+    "INVALID",
+}
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,7 @@ class TrialSpec:
     model_family: str
     primary_metric: str
     primary_gate_id: str
+    robustness_policy_id: str
     cost_policy_id: str
     trial_family_id: str
     census_anchor_id: str
@@ -73,6 +80,7 @@ class TrialSpec:
             self.model_family,
             self.primary_metric,
             self.primary_gate_id,
+            self.robustness_policy_id,
             self.cost_policy_id,
             self.trial_family_id,
         )
@@ -93,6 +101,7 @@ class TrialSpec:
             "evaluator_closure_hash",
             "governance_contract_hash",
             "primary_gate_id",
+            "robustness_policy_id",
             "code_hash",
             "config_hash",
             "environment_hash",
@@ -243,6 +252,7 @@ class TrialPermit:
     trial_family_anchor_id: str
     governance_contract_hash: str
     primary_gate_id: str
+    robustness_policy_id: str
     release_bindings_hash: str
     holdout_receipt_id: str
     authorization_receipt_id: str
@@ -471,6 +481,7 @@ class TrialRegistry:
             "trial_family_anchor_id": spec.trial_family_anchor_id,
             "governance_contract_hash": spec.governance_contract_hash,
             "primary_gate_id": spec.primary_gate_id,
+            "robustness_policy_id": spec.robustness_policy_id,
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "holdout_receipt_id": holdout_receipt.receipt_id,
         }
@@ -493,6 +504,7 @@ class TrialRegistry:
             "trial_family_anchor_id": spec.trial_family_anchor_id,
             "governance_contract_hash": spec.governance_contract_hash,
             "primary_gate_id": spec.primary_gate_id,
+            "robustness_policy_id": spec.robustness_policy_id,
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "holdout_receipt_id": holdout_receipt.receipt_id,
             "authorization_receipt_id": authorization.receipt_id,
@@ -541,7 +553,13 @@ class TrialRegistry:
             clock=self._clock,
         )
 
-    def record_evaluation(self, permit: TrialPermit, result: Mapping[str, Any]) -> None:
+    def record_evaluation(
+        self,
+        permit: TrialPermit,
+        result: Mapping[str, Any],
+        *,
+        gate_receipt: Any,
+    ) -> None:
         self.verify_issued_permit(permit)
         registration = self.authorize(permit.trial_id)
         registration_hash = sha256_bytes(canonical_json_bytes(registration))
@@ -554,6 +572,9 @@ class TrialRegistry:
             "evaluator_closure_hash",
             "authorization_receipt_id",
             "holdout_receipt_id",
+            "gate_receipt_id",
+            "robustness_policy_id",
+            "robustness_evidence_hash",
             "result_artifact_hash",
             "state",
             "evaluation_closed",
@@ -567,15 +588,49 @@ class TrialRegistry:
             "evaluator_closure_hash": permit.evaluator_closure_hash,
             "authorization_receipt_id": permit.authorization_receipt_id,
             "holdout_receipt_id": permit.holdout_receipt_id,
+            "robustness_policy_id": permit.robustness_policy_id,
         }
         if any(result.get(name) != value for name, value in expected_values.items()):
             raise EvaluationAuthorizationError("evaluation result differs from its permit bindings")
+        from .gates import GateReceipt
+
+        if type(gate_receipt) is not GateReceipt:
+            raise EvaluationAuthorizationError("evaluation requires the exact gate receipt contract")
+        gate_receipt.validate()
+        if (
+            gate_receipt.trial_id != permit.trial_id
+            or gate_receipt.evaluation_permit_id != permit.permit_id
+            or gate_receipt.permit_payload_hash
+            != sha256_bytes(canonical_json_bytes(permit.as_dict()))
+            or gate_receipt.robustness_policy_hash != permit.robustness_policy_id
+            or result.get("gate_receipt_id") != gate_receipt.receipt_id
+            or result.get("robustness_evidence_hash")
+            != gate_receipt.robustness_evidence_hash
+            or result.get("state") != gate_receipt.state
+        ):
+            raise EvaluationAuthorizationError(
+                "evaluation result differs from its gate or robustness bindings"
+            )
         if result.get("state") not in EVALUATION_STATES or result.get("evaluation_closed") is not True:
             raise EvaluationAuthorizationError("evaluation result must be explicitly closed with a valid state")
         try:
             require_sha256(result.get("result_artifact_hash"), "evaluation.result_artifact_hash")
+            require_sha256(
+                result.get("robustness_evidence_hash"),
+                "evaluation.robustness_evidence_hash",
+            )
         except ContractError as exc:
             raise EvaluationAuthorizationError(str(exc)) from exc
+        artifact_payload = {
+            name: result[name]
+            for name in sorted(expected_fields - {"result_artifact_hash"})
+        }
+        if result["result_artifact_hash"] != sha256_bytes(
+            canonical_json_bytes(artifact_payload)
+        ):
+            raise EvaluationAuthorizationError(
+                "evaluation artifact hash differs from its policy/evidence-bound content"
+            )
         evaluated_at = self._clock.now()
         if evaluated_at <= parse_utc_z(permit.issued_at, "permit.issued_at"):
             raise EvaluationAuthorizationError("evaluation must occur after permit issuance")

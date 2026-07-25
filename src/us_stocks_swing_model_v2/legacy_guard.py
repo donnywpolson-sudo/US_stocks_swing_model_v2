@@ -1,4 +1,4 @@
-"""Read-only proof that the frozen legacy stock worktree was not changed."""
+"""Capture and verify a legacy stock worktree before migration detaches it."""
 
 from __future__ import annotations
 
@@ -106,7 +106,9 @@ def capture_legacy_baseline(legacy_root: Path) -> dict[str, Any]:
     return {**core, "baseline_id": _sha256_json(core)}
 
 
-def verify_legacy_baseline(config_path: Path) -> dict[str, Any]:
+def load_legacy_baseline(config_path: Path) -> dict[str, Any]:
+    """Load and authenticate a historical legacy-worktree capture."""
+
     try:
         expected = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -122,6 +124,14 @@ def verify_legacy_baseline(config_path: Path) -> dict[str, Any]:
     expected_core = {key: value for key, value in expected.items() if key != "baseline_id"}
     if _sha256_json(expected_core) != expected["baseline_id"]:
         raise IntegrityError("legacy baseline configuration hash is invalid")
+    return expected
+
+
+def verify_legacy_baseline(config_path: Path) -> dict[str, Any]:
+    """Compare a current legacy worktree with a previously captured baseline."""
+
+    expected = load_legacy_baseline(config_path)
+    required = set(expected)
     observed = capture_legacy_baseline(Path(str(expected["legacy_root"])))
     if canonical_json_bytes(observed) != canonical_json_bytes(expected):
         changed = sorted(key for key in required if observed.get(key) != expected.get(key))

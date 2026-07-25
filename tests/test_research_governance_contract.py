@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "research_readiness_contract.json"
 DOC_PATH = ROOT / "docs" / "HISTORICAL_RESEARCH_HARNESS.md"
+MONITORING_POLICY_PATH = ROOT / "config" / "prospective_monitoring_policy.json"
 
 
 def _contract() -> dict:
@@ -125,3 +126,32 @@ def test_document_does_not_convert_readiness_or_screen_into_alpha_authority() ->
     assert "A diagnostic screen pass does not seal a candidate" in normalized
     assert "all writes to the legacy repository remain hard-paused" in normalized
     assert "Outer OOS is a screen, not the final holdout." in normalized
+
+
+def test_robustness_and_monitoring_governance_are_binding_and_fail_closed() -> None:
+    contract = _contract()
+    robustness = contract["robustness"]
+    assert robustness["policy_hash_must_be_bound_to_trial_and_evaluation"] is True
+    assert (
+        robustness[
+            "evidence_hash_must_be_bound_to_gate_receipt_evaluation_record_and_bundle"
+        ]
+        is True
+    )
+    assert robustness["explicit_sleeve_and_book_state"] == "INCONCLUSIVE_ROBUSTNESS"
+    assert robustness["definite_failure_precedes_inconclusive_robustness"] is True
+    order = contract["binding_gate"]["decision_order"]
+    assert order.index("FAIL_MULTIPLICITY_OR_CONTROL") < order.index(
+        "INCONCLUSIVE_ROBUSTNESS"
+    )
+
+    monitoring = contract["prospective_monitoring"]
+    assert monitoring["records_append_only_and_bundle_bound"] is True
+    assert monitoring["records_locally_head_anchored"] is True
+    assert monitoring["recovery_scope"] == "AUTHORIZE_MONITORING_RECOVERY"
+    assert monitoring["automatic_retraining_retuning_source_substitution_or_resume"] is False
+    policy = json.loads(MONITORING_POLICY_PATH.read_text(encoding="utf-8"))
+    assert policy["record_contract"]["append_only_hash_chain"] is True
+    assert policy["record_contract"]["automatic_actions_must_be_empty"] is True
+    assert policy["recovery"]["automatic_resume"] is False
+    assert policy["recovery"]["signed_review_required_after_paused_or_invalid"] is True
