@@ -26,6 +26,7 @@ from .common import (
 )
 from .errors import ContractError, IntegrityError
 from .clock import TrustedClock, require_trusted_clock
+from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
 from .locking import ExclusiveFileLock
 
@@ -33,6 +34,7 @@ from .locking import ExclusiveFileLock
 COPY_AUTH_ENV = "HASH_COPY_APPROVED"
 APPROVAL_SCOPE = "COPY_TO_NON_ACTIVE_CONTENT_ADDRESSED_MIGRATION_RELEASE"
 COPY_AUTHORIZATION_SCOPE = "AUTHORIZE_CONTROLLED_HASH_COPY"
+SYNTHETIC_COPY_SCOPE = "SYNTHETIC_HASH_COPY_EXECUTION"
 MIGRATION_MANIFEST_SCHEMA_VERSION = 2
 PAYLOAD_LAYOUT_VERSION = "flat_object_160bit_v1"
 _PAYLOAD_OBJECT_PATTERN = re.compile(r"^o/[0-9a-f]{40}$")
@@ -624,6 +626,8 @@ def execute_copy_plan(
     authorization: SignedAuthorizationReceipt | None = None,
     authorization_authority: AuthorizationAuthority | None = None,
     controlled_rebuild_authorization: ControlledRebuildAuthorization | None = None,
+    synthetic_permit: SyntheticOnlyPermit | None = None,
+    synthetic_allowed_root: Path | None = None,
     clock: TrustedClock,
     execute: bool = False,
 ) -> Path:
@@ -635,28 +639,18 @@ def execute_copy_plan(
         raise PermissionError("controlled hash copy requires the production system UTC clock")
     external_mode = authorization is not None or authorization_authority is not None
     controlled_mode = controlled_rebuild_authorization is not None
-    if external_mode == controlled_mode:
-        raise PermissionError(
-            "copy requires exactly one external-signature or controlled-rebuild authority"
-        )
+    synthetic_mode = synthetic_permit is not None or synthetic_allowed_root is not None
     if external_mode:
-        if authorization is None or authorization_authority is None:
-            raise PermissionError("external copy authority is incomplete")
-        if authorization_authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
-            raise PermissionError("controlled hash copy requires external user authority")
-        authorization.validate(
-            authority=authorization_authority,
-            expected_scope=COPY_AUTHORIZATION_SCOPE,
-            expected_subject_id=plan.plan_id,
-            required_bindings=migration_authorization_bindings(plan, approval),
-            clock=trusted_clock,
+        raise PermissionError(
+            "external copy authorization is not implemented; shared-secret "
+            "verification is not signing authority"
         )
-        authorization_evidence = CopyAuthorizationEvidence(
-            receipt_id=authorization.receipt_id,
-            registry_id=authorization.authority_registry_id,
-            authorization_class=authorization.authorization_class,
+    if controlled_mode == synthetic_mode:
+        raise PermissionError(
+            "copy requires exactly one controlled-rebuild authority or "
+            "synthetic-only test permit"
         )
-    else:
+    if controlled_mode:
         assert controlled_rebuild_authorization is not None
         controlled_rebuild_authorization.validate_plan(plan)
         authorization_core = {
@@ -672,6 +666,42 @@ def execute_copy_plan(
             registry_id=controlled_rebuild_authorization.authorization_id,
             authorization_class=CONTROLLED_REBUILD_AUTHORIZATION_CLASS,
         )
+    else:
+        permit = require_synthetic_permit(
+            synthetic_permit,
+            scope=SYNTHETIC_COPY_SCOPE,
+        )
+        if synthetic_allowed_root is None:
+            raise ContractError("synthetic copy requires an explicit allowed root")
+        synthetic_root = Path(synthetic_allowed_root)
+        if not synthetic_root.is_absolute():
+            raise ContractError("synthetic copy allowed root must be absolute")
+        synthetic_root = require_contained_path(synthetic_root, synthetic_root)
+        reject_link(synthetic_root)
+        for label, candidate, must_exist in (
+            ("vault root", Path(plan.allowed_vault_root), True),
+            ("destination", Path(plan.destination_vault), False),
+            *(
+                ("source", Path(source), True)
+                for source in plan.allowed_source_roots
+            ),
+        ):
+            try:
+                require_contained_path(
+                    candidate,
+                    synthetic_root,
+                    must_exist=must_exist,
+                )
+            except ContractError as exc:
+                raise ContractError(
+                    f"synthetic copy {label} escapes the allowed root"
+                ) from exc
+        permit.validate(SYNTHETIC_COPY_SCOPE)
+        authorization_evidence = CopyAuthorizationEvidence(
+            receipt_id=permit.permit_id,
+            registry_id=permit.permit_id,
+            authorization_class="SYNTHETIC_ONLY_NOT_AUTHORITY",
+        )
     vault = Path(plan.destination_vault)
     vault_root = Path(plan.allowed_vault_root)
     require_contained_path(vault, vault_root, must_exist=False)
@@ -684,7 +714,10 @@ def execute_copy_plan(
     # the full binding inside checkpoint.json makes any prefix collision stop.
     staging = vault / ".s" / f"{plan.plan_id[:16]}.{approval.approval_id[:16]}"
     evidence = _evidence_binding(plan, approval, authorization_evidence)
-    with ExclusiveFileLock(vault / ".locks" / "migration.writer.lock"):
+    with ExclusiveFileLock(
+        vault / ".locks" / "migration.writer.lock",
+        allowed_root=vault,
+    ):
         if final.exists():
             _verify_migration_release(final, plan, approval, authorization_evidence)
             return final

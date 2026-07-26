@@ -116,6 +116,7 @@ def test_romano_wolf_plus_one_stepdown_oracle() -> None:
     np.testing.assert_array_equal(result.stepdown_order, np.asarray([0, 1, 2], dtype=np.int64))
     np.testing.assert_allclose(result.stage_p_values, np.asarray([0.4, 0.4, 0.6]))
     np.testing.assert_allclose(result.adjusted_p_values, np.asarray([0.4, 0.4, 0.6]))
+    assert result.null_centered is False
 
 
 def test_romano_wolf_default_resample_floor_fails_closed() -> None:

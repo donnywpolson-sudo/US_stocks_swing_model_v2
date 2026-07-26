@@ -122,6 +122,16 @@ def assess_monitoring(
     numeric = (observation.maximum_psi, observation.maximum_missingness_delta, observation.coverage, observation.sealed_coverage_floor)
     if any(type(value) is not float or not math.isfinite(value) for value in numeric):
         return MonitoringDecision(MonitoringState.MONITORING_INVALID, ("INVALID_NUMERIC_EVIDENCE",))
+    invalid_drift_metrics: list[str] = []
+    if observation.maximum_psi < 0.0:
+        invalid_drift_metrics.append("INVALID_PSI")
+    if observation.maximum_missingness_delta < 0.0:
+        invalid_drift_metrics.append("INVALID_MISSINGNESS_DELTA")
+    if invalid_drift_metrics:
+        return MonitoringDecision(
+            MonitoringState.MONITORING_INVALID,
+            tuple(invalid_drift_metrics),
+        )
     if observation.matured_score_relative_degradation is not None and (
         type(observation.matured_score_relative_degradation) is not float
         or not math.isfinite(observation.matured_score_relative_degradation)

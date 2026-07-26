@@ -93,7 +93,7 @@
       "unknown_security_type_policy": "abstain",
       "qualification_receipt": "config/nasdaq_qualification_receipt.json",
       "latest_snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
-      "status": "qualified_public_snapshot_pending_alpaca_asset_join_and_identity_release"
+      "status": "preserved_snapshot_not_trust_eligible_pending_authenticated_acquisition_receipt"
     },
     "alpha_vantage": {
       "enabled_for_active_pipeline": false,

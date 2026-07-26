@@ -367,19 +367,24 @@ Outcomes are mutually exclusive and applied in this order:
   sleeve, or evidence failure;
 - `INCONCLUSIVE_PIT_IDENTITY`: membership or asset-type evidence cannot support
   the claimed sleeve;
-- `INCONCLUSIVE_DATA_OR_POWER`: any required trusted sleeve has power below 0.80
-  or lacks sufficient dates, securities, folds, predictions, or outcome coverage;
 - `FAIL_NO_EDGE`: the 95% confidence upper bound is at most zero;
 - `FAIL_NOT_ECONOMIC`: after the prior rule, the 95% confidence upper bound is at
   most MEES;
-- `INCONCLUSIVE_EFFECT`: the interval still intersects MEES;
 - `FAIL_MULTIPLICITY_OR_CONTROL`: the effect bound passes but any adjusted test,
   DSR, applicable PBO policy, 25-bps cost, baseline, trusted sleeve, or control
   gate fails;
+- `INCONCLUSIVE_DATA_OR_POWER`: any required trusted sleeve has power below 0.80
+  or lacks sufficient dates, securities, folds, predictions, or outcome coverage;
+- `INCONCLUSIVE_EFFECT`: the interval still intersects MEES;
+- `INCONCLUSIVE_ROBUSTNESS`: required robustness evidence is valid but
+  underpowered or unstable;
 - `PASS_HISTORICAL_DISCOVERY_SCREEN`: the multiplicity-adjusted one-sided 95%
   lower bound exceeds MEES, adjusted p-value is at most 0.05, DSR is at least 0.95
   for the underlying book, applicable PBO policy is satisfied, 25-bps costs pass,
   and all trusted sleeves, baselines, and controls pass.
+
+Definite failures take precedence over data, power, effect, or robustness
+inconclusive outcomes.
 
 Because PIT history is unresolved, the last outcome remains unavailable for a
 trusted four-sleeve historical run. A diagnostic screen pass does not seal a

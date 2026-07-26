@@ -13,6 +13,7 @@ from us_stocks_swing_model_v2.common import canonical_json_bytes, require_sha256
 from us_stocks_swing_model_v2.errors import (
     ContractError,
     EvaluationAuthorizationError,
+    IntegrityError,
 )
 from us_stocks_swing_model_v2.gates import build_gate_receipt
 from us_stocks_swing_model_v2.governance import (
@@ -39,7 +40,9 @@ def _permit(fixture_id: str, scope: str) -> SyntheticOnlyPermit:
     return SyntheticOnlyPermit.create(fixture_id=fixture_id, scope=scope)
 
 
-def test_authority_requires_loader_and_revalidates_active_registry(tmp_path: Path) -> None:
+def test_external_authority_stays_blocked_until_asymmetric_verification(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(TypeError):
         AuthorizationAuthority(  # type: ignore[call-arg]
             registry_id="0" * 64,
@@ -62,15 +65,15 @@ def test_authority_requires_loader_and_revalidates_active_registry(tmp_path: Pat
         }],
     }
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    authority = load_external_authority(
-        registry_path,
-        key_id="external-user",
-        verification_key=key,
-    )
-    registry["status"] = "REVOKED"
-    registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    with pytest.raises(EvaluationAuthorizationError, match="changed after loading"):
-        authority.validate()
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="asymmetric signature verification",
+    ):
+        load_external_authority(
+            registry_path,
+            key_id="external-user",
+            verification_key=key,
+        )
 
 
 def test_network_evidence_has_no_public_capability_or_arbitrary_byte_landing() -> None:
@@ -101,7 +104,12 @@ def test_network_registry_drift_invalidates_loaded_capability_source(tmp_path: P
         "schema_version": 1,
         "project": "US_stocks_swing_model_v2",
         "status": "ACTIVE",
-        "allowed_sources": {"fixture": "https://example.invalid/data"},
+        "allowed_sources": {
+            "fixture": {
+                "origin_path": "https://example.invalid/data",
+                "accepted_http_statuses": [200],
+            }
+        },
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     registry = NetworkAcquisitionRegistry.load(path)
@@ -109,6 +117,68 @@ def test_network_registry_drift_invalidates_loaded_capability_source(tmp_path: P
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ContractError, match="changed after loading"):
         registry.validate()
+
+
+def test_network_snapshot_revalidates_capability_but_never_claims_trust(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.invalid/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(registry_path)
+    store = AsReceivedSnapshotStore(
+        tmp_path / "snapshots",
+        allowed_root=tmp_path,
+        acquisition_registry=registry,
+    )
+    snapshot = store._land_network_response(
+        source="fixture",
+        requested_url="https://example.invalid/data",
+        response_url="https://example.invalid/data",
+        http_status=200,
+        raw=b"network fixture",
+        headers={"content-type": "application/octet-stream"},
+        clock=TrustedClock.production(),
+    )
+    assert snapshot.trust_eligible is False
+    assert store.load(snapshot.root).trust_eligible is False
+    assert snapshot.read_verified_bytes() == b"network fixture"
+
+    without_registry = AsReceivedSnapshotStore(
+        tmp_path / "snapshots",
+        allowed_root=tmp_path,
+    )
+    with pytest.raises(IntegrityError, match="requires its pinned acquisition registry"):
+        without_registry.load(snapshot.root)
+
+    receipt = json.loads((snapshot.root / "receipt.json").read_text(encoding="utf-8"))
+    receipt["acquisition_capability_id"] = "f" * 64
+    unsigned = dict(receipt)
+    unsigned.pop("snapshot_id")
+    receipt["snapshot_id"] = sha256_bytes(canonical_json_bytes(unsigned))
+    forged = snapshot.root.parent / receipt["snapshot_id"]
+    forged.mkdir()
+    (forged / "raw.bin").write_bytes((snapshot.root / "raw.bin").read_bytes())
+    (forged / "headers.json").write_bytes(
+        (snapshot.root / "headers.json").read_bytes()
+    )
+    (forged / "receipt.json").write_bytes(canonical_json_bytes(receipt))
+    with pytest.raises(IntegrityError, match="differs from the pinned registry"):
+        store.load(forged)
 
 
 def test_self_consistent_unpublished_release_is_not_accepted_evidence(tmp_path: Path) -> None:

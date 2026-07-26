@@ -74,6 +74,27 @@ class SleeveGateResult:
     failed_gates: tuple[str, ...]
     mechanics_only: bool = True
 
+    def validate(self, *, require_terminal: bool = False) -> None:
+        require_unique_ascii_ids((self.sleeve_id,), name="sleeve_id")
+        if type(self.state) is not SleeveState:
+            raise ResearchContractError("sleeve state must be an exact SleeveState")
+        if type(self.failed_gates) is not tuple:
+            raise ResearchContractError("failed_gates must be an exact tuple")
+        if self.failed_gates:
+            require_unique_ascii_ids(self.failed_gates, name="failed_gates")
+        if type(self.mechanics_only) is not bool or self.mechanics_only is not True:
+            raise ResearchContractError("sleeve result must be mechanics-only")
+        if self.state is SleeveState.REGISTERED:
+            if require_terminal:
+                raise ResearchContractError("portfolio requires terminal sleeve results")
+            if self.failed_gates:
+                raise ResearchContractError("registered sleeve cannot carry failed gates")
+        elif self.state is SleeveState.MECHANICS_FAIL_CLOSED:
+            if not self.failed_gates:
+                raise ResearchContractError("failed sleeve must identify failed gates")
+        elif self.failed_gates:
+            raise ResearchContractError("non-failed sleeve cannot carry failed gates")
+
 
 @dataclass(frozen=True)
 class PortfolioCharter:
@@ -194,11 +215,13 @@ def evaluate_synthetic_sleeve(
         state = SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     else:
         state = SleeveState.MECHANICS_READY
-    return SleeveGateResult(
+    result = SleeveGateResult(
         sleeve_id=sleeve_id,
         state=state,
         failed_gates=tuple(failed),
     )
+    result.validate(require_terminal=True)
+    return result
 
 
 def evaluate_portfolio_mechanics(
@@ -208,14 +231,16 @@ def evaluate_portfolio_mechanics(
     """Require every preregistered included sleeve to pass independently."""
 
     charter.validate()
+    for result in sleeve_results:
+        if type(result) is not SleeveGateResult:
+            raise ResearchContractError("portfolio requires exact SleeveGateResult values")
+        result.validate(require_terminal=True)
     ids = require_unique_ascii_ids(
         (result.sleeve_id for result in sleeve_results), name="result_sleeves"
     )
     if set(ids) != set(charter.registered_sleeves):
         raise ResearchContractError("results must cover the complete registered sleeve set")
     by_id = {result.sleeve_id: result for result in sleeve_results}
-    if any(result.mechanics_only is not True for result in sleeve_results):
-        raise ResearchContractError("portfolio accepts mechanics-only sleeve results")
     included_states = tuple(by_id[sleeve].state for sleeve in charter.included_sleeves)
     if any(state is SleeveState.MECHANICS_FAIL_CLOSED for state in included_states):
         return PortfolioState.MECHANICS_FAIL_CLOSED
@@ -224,4 +249,6 @@ def evaluate_portfolio_mechanics(
         for state in included_states
     ):
         return PortfolioState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
-    return PortfolioState.MECHANICS_READY
+    if all(state is SleeveState.MECHANICS_READY for state in included_states):
+        return PortfolioState.MECHANICS_READY
+    raise ResearchContractError("portfolio contains an unsupported sleeve state")

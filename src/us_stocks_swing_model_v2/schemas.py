@@ -60,6 +60,8 @@ FORBIDDEN_PREDICTION_FIELDS = FORBIDDEN_FEATURE_FIELDS | {
 
 
 def _forbidden_keys(payload: Mapping[str, object], forbidden: set[str]) -> set[str]:
+    if any(not isinstance(key, str) for key in payload):
+        raise ContractError("mapping keys must be strings")
     lowered = {key.lower(): key for key in payload}
     exact = {lowered[key] for key in forbidden if key in lowered}
     prefixes = {

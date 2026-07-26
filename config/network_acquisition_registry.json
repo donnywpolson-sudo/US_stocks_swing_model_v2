@@ -3,10 +3,25 @@
   "project": "US_stocks_swing_model_v2",
   "status": "ACTIVE",
   "allowed_sources": {
-    "alpaca_assets": "https://paper-api.alpaca.markets/v2/assets",
-    "alpaca_corporate_actions": "https://data.alpaca.markets/v1/corporate-actions",
-    "alpaca_iex_qualification": "https://data.alpaca.markets/v2/stocks/bars",
-    "alpaca_sip_qualification": "https://data.alpaca.markets/v2/stocks/bars",
-    "nasdaqtraded": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
+    "alpaca_assets": {
+      "origin_path": "https://paper-api.alpaca.markets/v2/assets",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_corporate_actions": {
+      "origin_path": "https://data.alpaca.markets/v1/corporate-actions",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_iex_qualification": {
+      "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_sip_qualification": {
+      "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
+      "accepted_http_statuses": [200]
+    },
+    "nasdaqtraded": {
+      "origin_path": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt",
+      "accepted_http_statuses": [200]
+    }
   }
 }

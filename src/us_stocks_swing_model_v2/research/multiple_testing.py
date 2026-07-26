@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class RomanoWolfResult:
 
 def romano_wolf_stepdown(
     observed_statistics: np.ndarray,
-    null_centered_bootstrap_statistics: np.ndarray,
+    bootstrap_statistics: np.ndarray,
     *,
     hypothesis_ids: tuple[str, ...],
     tail: str,
@@ -43,8 +43,8 @@ def romano_wolf_stepdown(
         observed_statistics, name="observed_statistics", ndim=1
     )
     boot = finite_float64(
-        null_centered_bootstrap_statistics,
-        name="null_centered_bootstrap_statistics",
+        bootstrap_statistics,
+        name="bootstrap_statistics",
         ndim=2,
     )
     ids = require_unique_ascii_ids(hypothesis_ids, name="hypothesis_ids")
@@ -92,7 +92,7 @@ def romano_wolf_stepdown(
         stage_p_values=stages,
         adjusted_p_values=adjusted,
         resamples=boot.shape[0],
-        null_centered=True,
+        null_centered=False,
     )
 
 
@@ -148,7 +148,7 @@ def romano_wolf_from_differentials(
             bootstrap_statistics[resample, column] = hac_t_statistic(
                 resampled[:, column], lag=hac_lag
             )
-    return romano_wolf_stepdown(
+    result = romano_wolf_stepdown(
         observed,
         bootstrap_statistics,
         hypothesis_ids=ids,
@@ -156,3 +156,4 @@ def romano_wolf_from_differentials(
         minimum_resamples=minimum_resamples,
         maximum_bootstrap_stat_bytes=maximum_bootstrap_stat_bytes,
     )
+    return replace(result, null_centered=True)

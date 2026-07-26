@@ -1257,7 +1257,7 @@ def publish_hfdl_legacy_discovery(
         environment_hash=environment_hash,
     )
     lock_path = work_root / ".locks" / f"hfdl-{build_id}.lock"
-    with ExclusiveFileLock(lock_path):
+    with ExclusiveFileLock(lock_path, allowed_root=work_root):
         checkpoint = _load_or_create_checkpoint(checkpoint_path, evidence=evidence)
         if checkpoint["state"] == "RELEASES_COMPLETE":
             release_ids = checkpoint["release_ids"]

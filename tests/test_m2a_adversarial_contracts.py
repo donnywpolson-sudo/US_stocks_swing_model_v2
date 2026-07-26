@@ -36,7 +36,12 @@ from us_stocks_swing_model_v2.providers.nasdaq import (
     parse_nasdaq_traded,
 )
 from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
-from us_stocks_swing_model_v2.schemas import FeatureRow, SecurityType, UnderlyingPrediction
+from us_stocks_swing_model_v2.schemas import (
+    FeatureRow,
+    SecurityType,
+    UnderlyingPrediction,
+    assert_underlying_only_payload,
+)
 from us_stocks_swing_model_v2.trials import TrialPermit
 from us_stocks_swing_model_v2.calendar import PinnedSessionCalendar
 
@@ -236,6 +241,34 @@ def test_feature_prefix_poison_and_abstention_uncertainty_fail() -> None:
         )
 
 
+def test_schema_mapping_keys_must_be_strings_before_case_normalization() -> None:
+    with pytest.raises(ContractError, match="mapping keys must be strings"):
+        assert_underlying_only_payload({1: "not-a-string-key"})
+
+    row = FeatureRow(
+        asset_id="id",
+        symbol="ABC",
+        security_type=SecurityType.STOCK,
+        decision_session=date(2026, 7, 15),
+        decision_at=NOW,
+        available_at=NOW,
+        source_release_id="1" * 64,
+        feature_schema_id="schema",
+        identity_release_id="2" * 64,
+        security_type_evidence_id="3" * 64,
+        calendar_release_id="4" * 64,
+        action_release_id="5" * 64,
+        source_epoch="epoch",
+        identity_known_at=NOW,
+        point_in_time_state="PIT_CONFIRMED",
+        prediction_deadline_at=NOW + timedelta(minutes=5),
+        information_barrier_at=NOW + timedelta(days=7),
+        values={1: 0.2},
+    )
+    with pytest.raises(ContractError, match="mapping keys must be strings"):
+        row.validate()
+
+
 def test_action_revisions_and_outcome_availability_are_monotone() -> None:
     action = CorporateAction(
         action_id="a",
@@ -341,25 +374,20 @@ def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
     }
     registry_path = tmp_path / "authorities.json"
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    authority = load_external_authority(
-        registry_path,
-        key_id="user-key",
-        verification_key=key,
-    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="disabled until asymmetric signature verification",
+    ):
+        load_external_authority(
+            registry_path,
+            key_id="user-key",
+            verification_key=key,
+        )
     with pytest.raises(EvaluationAuthorizationError, match="registry/key binding"):
         load_external_authority(
             registry_path,
             key_id="user-key",
             verification_key=b"wrong-key",
-        )
-    with pytest.raises(EvaluationAuthorizationError, match="synthetic-only"):
-        sign_authorization_receipt(
-            scope="AUTHORIZE_OUTER_SCREEN",
-            subject_id="1" * 64,
-            bindings={"evidence": "2" * 64},
-            issued_at="2026-07-15T19:00:00Z",
-            expires_at="2026-07-15T21:00:00Z",
-            authority=authority,
         )
 
     synthetic_authority = AuthorizationAuthority.synthetic(
@@ -378,14 +406,13 @@ def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
         expires_at="2026-07-15T21:00:00Z",
         authority=synthetic_authority,
     )
-    with pytest.raises(EvaluationAuthorizationError, match="pinned external authority"):
-        synthetic_receipt.validate(
-            authority=authority,
-            expected_scope="AUTHORIZE_OUTER_SCREEN",
-            expected_subject_id="1" * 64,
-            required_bindings={"evidence": "2" * 64},
-            clock=_clock(NOW),
-        )
+    synthetic_receipt.validate(
+        authority=synthetic_authority,
+        expected_scope="AUTHORIZE_OUTER_SCREEN",
+        expected_subject_id="1" * 64,
+        required_bindings={"evidence": "2" * 64},
+        clock=_clock(NOW),
+    )
 
 
 def test_gate_policy_and_metrics_reject_nonfinite_values() -> None:

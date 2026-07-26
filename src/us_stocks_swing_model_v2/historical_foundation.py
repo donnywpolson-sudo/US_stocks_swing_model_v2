@@ -905,7 +905,10 @@ def publish_hfdl_historical_foundation(
     build_root = work / "hfdl_foundation" / build_id[:32]
     build_root.mkdir(parents=True, exist_ok=True)
     checkpoint_path = build_root / "checkpoint.json"
-    with ExclusiveFileLock(work / ".locks" / f"hfdl-foundation-{build_id}.lock"):
+    with ExclusiveFileLock(
+        work / ".locks" / f"hfdl-foundation-{build_id}.lock",
+        allowed_root=work,
+    ):
         checkpoint = _checkpoint(checkpoint_path, {**build_unsigned, "build_id": build_id})
         if checkpoint["state"] == "RELEASES_COMPLETE":
             set_id = checkpoint["release_ids"].get("bridge_set")

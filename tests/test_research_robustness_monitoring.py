@@ -153,6 +153,44 @@ def test_monitoring_boundaries_pause_and_abstain() -> None:
     assert invalid.requires_abstention
 
 
+@pytest.mark.parametrize(
+    ("maximum_psi", "maximum_missingness_delta", "expected_reasons"),
+    (
+        (-0.01, 0.0, ("INVALID_PSI",)),
+        (0.0, -0.01, ("INVALID_MISSINGNESS_DELTA",)),
+        (-0.01, -0.02, ("INVALID_PSI", "INVALID_MISSINGNESS_DELTA")),
+        (float("nan"), 0.0, ("INVALID_NUMERIC_EVIDENCE",)),
+        (0.0, float("inf"), ("INVALID_NUMERIC_EVIDENCE",)),
+    ),
+)
+def test_monitoring_rejects_invalid_drift_metric_domains(
+    maximum_psi: float,
+    maximum_missingness_delta: float,
+    expected_reasons: tuple[str, ...],
+) -> None:
+    decision = assess_monitoring(
+        MonitoringObservation(
+            30,
+            500,
+            maximum_psi,
+            maximum_missingness_delta,
+            1.0,
+            1.0,
+            None,
+        )
+    )
+    assert decision.state is MonitoringState.MONITORING_INVALID
+    assert decision.reasons == expected_reasons
+    assert decision.requires_abstention
+
+
+def test_monitoring_accepts_zero_drift_metrics() -> None:
+    decision = assess_monitoring(
+        MonitoringObservation(30, 500, 0.0, 0.0, 1.0, 1.0, None)
+    )
+    assert decision.state is MonitoringState.MONITORING_OK
+
+
 def test_monitoring_ledger_requires_reviewed_recovery_and_exact_bindings(
     tmp_path: Path,
 ) -> None:

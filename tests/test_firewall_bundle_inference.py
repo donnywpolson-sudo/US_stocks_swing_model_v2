@@ -1180,6 +1180,9 @@ def test_all_four_sleeves_are_binding_and_underpowered_is_inconclusive() -> None
     assert policy.aggregate(metrics) is GateState.FAIL
     del metrics["etf_short"]
     assert policy.evaluate(metrics)["etf_short"] is GateState.INCONCLUSIVE
+    assert policy.aggregate(metrics) is GateState.FAIL
+    metrics["etf_short"] = _sleeve_metric(sessions=29)
+    assert policy.aggregate(metrics) is GateState.FAIL
     robustness = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
     robustness["stock_long"] = replace(
         passing,

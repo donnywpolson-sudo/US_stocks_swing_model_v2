@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from us_stocks_swing_model_v2.errors import IntegrityError, LockHeldError
+from us_stocks_swing_model_v2.errors import ContractError, IntegrityError, LockHeldError
 from us_stocks_swing_model_v2.locking import ExclusiveFileLock
+from us_stocks_swing_model_v2 import releases as releases_module
 from us_stocks_swing_model_v2.releases import (
     AtomicReleasePublisher,
     build_manifest,
@@ -34,11 +37,33 @@ def _manifest(stage: Path):
     )
 
 
-def test_atomic_publication_is_content_addressed_idempotent_and_detects_mutation(tmp_path: Path) -> None:
+def _stage(tmp_path: Path) -> Path:
     stage = tmp_path / "stage"
     (stage / "nested").mkdir(parents=True)
     (stage / "a.json").write_text('{"x":1}\n', encoding="utf-8")
     (stage / "nested" / "b.bin").write_bytes(b"two")
+    return stage
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except OSError as exc:
+        if os.name != "nt":
+            pytest.skip(f"directory symlinks unavailable: {exc}")
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"directory links unavailable: {result.stderr.strip()}")
+
+
+def test_atomic_publication_is_content_addressed_idempotent_and_detects_mutation(tmp_path: Path) -> None:
+    stage = _stage(tmp_path)
     manifest = _manifest(stage)
     publisher = AtomicReleasePublisher(tmp_path / "releases")
 
@@ -50,6 +75,54 @@ def test_atomic_publication_is_content_addressed_idempotent_and_detects_mutation
     (published / "a.json").write_text('{"x":2}\n', encoding="utf-8")
     with pytest.raises(IntegrityError, match="hash mismatch"):
         verify_release(published)
+
+
+def test_publication_rejects_linked_dataset_root(tmp_path: Path) -> None:
+    stage = _stage(tmp_path)
+    release_root = tmp_path / "releases"
+    outside = tmp_path / "outside"
+    release_root.mkdir()
+    outside.mkdir()
+    _symlink_or_skip(release_root / "synthetic_bars", outside)
+
+    with pytest.raises(ContractError, match="(links|junction/reparse points) are prohibited"):
+        AtomicReleasePublisher(release_root).publish(stage, _manifest(stage))
+
+
+def test_publication_rejects_linked_destination(tmp_path: Path) -> None:
+    stage = _stage(tmp_path)
+    manifest = _manifest(stage)
+    dataset_root = tmp_path / "releases" / manifest.dataset
+    outside = tmp_path / "outside"
+    dataset_root.mkdir(parents=True)
+    outside.mkdir()
+    _symlink_or_skip(dataset_root / manifest.release_id, outside)
+
+    with pytest.raises(ContractError, match="(links|junction/reparse points) are prohibited"):
+        AtomicReleasePublisher(tmp_path / "releases").publish(stage, manifest)
+
+
+def test_publication_rejects_linked_pending_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = _stage(tmp_path)
+    manifest = _manifest(stage)
+    dataset_root = tmp_path / "releases" / manifest.dataset
+    outside = tmp_path / "outside"
+    dataset_root.mkdir(parents=True)
+    outside.mkdir()
+    fixed_hex = "12345678" + ("0" * 24)
+    pending = dataset_root / f".pending-{manifest.release_id[:12]}-12345678"
+    _symlink_or_skip(pending, outside)
+    monkeypatch.setattr(
+        releases_module.uuid,
+        "uuid4",
+        lambda: type("FixedUuid", (), {"hex": fixed_hex})(),
+    )
+
+    with pytest.raises(ContractError, match="(links|junction/reparse points) are prohibited"):
+        AtomicReleasePublisher(tmp_path / "releases").publish(stage, manifest)
 
 
 def test_manifest_rejects_undeclared_extra_payload(tmp_path: Path) -> None:
@@ -77,15 +150,68 @@ def test_manifest_rejects_undeclared_empty_directory(tmp_path: Path) -> None:
 
 def test_lock_is_non_stealing_and_owned(tmp_path: Path) -> None:
     path = tmp_path / "writer.lock"
-    first = ExclusiveFileLock(path).acquire()
+    first = ExclusiveFileLock(path, allowed_root=tmp_path).acquire()
     try:
         with pytest.raises(LockHeldError):
-            ExclusiveFileLock(path).acquire()
+            ExclusiveFileLock(path, allowed_root=tmp_path).acquire()
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert payload["token"] == first.token
     finally:
         first.release()
     assert not path.exists()
+
+
+def test_lock_requires_path_within_caller_approved_root(tmp_path: Path) -> None:
+    approved = tmp_path / "approved"
+    approved.mkdir()
+    with pytest.raises(ContractError, match="escapes its approved root"):
+        ExclusiveFileLock(
+            tmp_path / "outside.lock",
+            allowed_root=approved,
+        ).acquire()
+
+
+def test_lock_rejects_linked_path_component(tmp_path: Path) -> None:
+    approved = tmp_path / "approved"
+    outside = tmp_path / "outside"
+    approved.mkdir()
+    outside.mkdir()
+    linked_parent = approved / "linked"
+    _symlink_or_skip(linked_parent, outside)
+
+    with pytest.raises(
+        ContractError,
+        match="(links|junction/reparse points) are prohibited",
+    ):
+        ExclusiveFileLock(
+            linked_parent / "writer.lock",
+            allowed_root=approved,
+        ).acquire()
+
+
+def test_lock_release_refuses_changed_pathname_identity(tmp_path: Path) -> None:
+    path = tmp_path / "writer.lock"
+    lock = ExclusiveFileLock(path, allowed_root=tmp_path).acquire()
+    displaced = tmp_path / "displaced.lock"
+    try:
+        path.replace(displaced)
+    except PermissionError as exc:
+        lock.release()
+        pytest.skip(f"platform prevents replacement of an open lock: {exc}")
+    path.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "created_at": "2026-07-15T00:00:00Z",
+                "token": lock.token,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(LockHeldError, match="identity changed"):
+        lock.release()
+    assert path.exists()
+    assert displaced.exists()
 
 
 def test_orphan_recovery_quarantines_without_deleting(tmp_path: Path) -> None:

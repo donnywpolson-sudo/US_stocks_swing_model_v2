@@ -13,7 +13,7 @@
   ],
   "project": "US_stocks_swing_model_v2",
   "raw_sha256": "cfbf42108b072407dc57aa580f33d72d54d22aa91da01916996d3e678e5ba070",
-  "receipt_id": "3ff84048d00f7a7cc6a51aa10f915893cae23a461f010101360553af51eec2b7",
+  "receipt_id": "3163ace9f5a71e403f1c030e1d06ef8bc42ea77cb03c71a1b63436882d87feca",
   "record_count": 13050,
   "retrieved_at": "2026-07-15T10:52:19.218586Z",
   "schema_version": 1,
@@ -23,6 +23,6 @@
     "UNKNOWN": 2472
   },
   "snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
-  "snapshot_store_code_sha256": "5a110c424e8ca2e2018ef7a7ceccd19f434001ef3618434fdbb25c4eec7f6b4e",
+  "snapshot_store_code_sha256": "393f119fac42c5ad4073592187ccb9940efe3d27b51c780e3b2d4709742ea61e",
   "unknown_or_nonstandard_count": 2472
 }

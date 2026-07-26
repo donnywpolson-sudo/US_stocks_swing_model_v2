@@ -9,7 +9,14 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
-from ..common import canonical_json_bytes, require_aware_utc, sha256_bytes
+from ..common import (
+    canonical_json_bytes,
+    iso_z,
+    parse_utc_z,
+    require_aware_utc,
+    require_sha256,
+    sha256_bytes,
+)
 from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from .alpaca import AUTH_ENVIRONMENT_TOKEN, HttpResponseEvidence
@@ -90,8 +97,117 @@ class CorporateActionEvidence:
     received_at: datetime
     snapshot_id: str
     raw_row_sha256: str
+    acquisition_mode: str
+    evidence_state: str
+    acquisition_capability_id: str
+    synthetic_permit_ids: tuple[str, ...]
     source_epoch: str = CORPORATE_ACTION_SOURCE_EPOCH
     provider_process_date_is_causal: bool = False
+
+    def validate(self) -> None:
+        if (
+            not isinstance(self.provider_action_id, str)
+            or not self.provider_action_id
+            or not isinstance(self.provider_group, str)
+            or self.provider_group not in ACTION_GROUPS
+        ):
+            raise ContractError("corporate-action evidence identity/group is invalid")
+        if self.symbol is not None and (
+            not isinstance(self.symbol, str)
+            or not self.symbol
+            or self.symbol != self.symbol.strip().upper()
+        ):
+            raise ContractError("corporate-action evidence symbol is not canonical")
+        if type(self.provider_process_date) is not date:
+            raise ContractError("corporate-action process date must be an exact date")
+        if self.effective_session is not None and type(self.effective_session) is not date:
+            raise ContractError("corporate-action effective session must be an exact date")
+        require_aware_utc(self.received_at, "corporate_action.received_at")
+        require_sha256(self.snapshot_id, "corporate_action.snapshot_id")
+        require_sha256(self.raw_row_sha256, "corporate_action.raw_row_sha256")
+        require_sha256(
+            self.acquisition_capability_id,
+            "corporate_action.acquisition_capability_id",
+        )
+        if not isinstance(self.evidence_state, str):
+            raise ContractError("corporate-action evidence state is invalid")
+        if type(self.synthetic_permit_ids) is not tuple:
+            raise ContractError("corporate-action synthetic permit IDs must be an exact tuple")
+        if self.synthetic_permit_ids != tuple(sorted(set(self.synthetic_permit_ids))):
+            raise ContractError("corporate-action synthetic permit IDs must be sorted and unique")
+        for index, permit_id in enumerate(self.synthetic_permit_ids):
+            require_sha256(permit_id, f"corporate_action.synthetic_permit_ids[{index}]")
+        if self.acquisition_mode == "NETWORK_AS_RECEIVED":
+            if self.evidence_state != "NETWORK_AS_RECEIVED" or self.synthetic_permit_ids:
+                raise ContractError("network corporate-action evidence binding is inconsistent")
+        elif self.acquisition_mode == "SYNTHETIC_DIRECT_NOT_AS_RECEIVED":
+            if (
+                self.evidence_state != "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+                or len(self.synthetic_permit_ids) != 1
+                or self.synthetic_permit_ids[0] != self.acquisition_capability_id
+            ):
+                raise ContractError("synthetic corporate-action evidence binding is inconsistent")
+        else:
+            raise ContractError("corporate-action acquisition mode is invalid")
+        if self.source_epoch != CORPORATE_ACTION_SOURCE_EPOCH:
+            raise ContractError("corporate-action source epoch differs from the frozen contract")
+        if type(self.provider_process_date_is_causal) is not bool or self.provider_process_date_is_causal:
+            raise ContractError("provider process date cannot be asserted causal")
+
+    def as_dict(self) -> dict[str, object]:
+        self.validate()
+        return {
+            "provider_action_id": self.provider_action_id,
+            "provider_group": self.provider_group,
+            "symbol": self.symbol,
+            "provider_process_date": self.provider_process_date.isoformat(),
+            "effective_session": (
+                self.effective_session.isoformat()
+                if self.effective_session is not None
+                else None
+            ),
+            "received_at": iso_z(self.received_at),
+            "snapshot_id": self.snapshot_id,
+            "raw_row_sha256": self.raw_row_sha256,
+            "acquisition_mode": self.acquisition_mode,
+            "evidence_state": self.evidence_state,
+            "acquisition_capability_id": self.acquisition_capability_id,
+            "synthetic_permit_ids": list(self.synthetic_permit_ids),
+            "source_epoch": self.source_epoch,
+            "provider_process_date_is_causal": self.provider_process_date_is_causal,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "CorporateActionEvidence":
+        if type(payload) is not dict or set(payload) != set(cls.__dataclass_fields__):
+            raise ContractError("corporate-action evidence fields differ from the exact contract")
+        if type(payload["synthetic_permit_ids"]) is not list:
+            raise ContractError("corporate-action synthetic permit IDs require an exact JSON array")
+        try:
+            evidence = cls(
+                provider_action_id=payload["provider_action_id"],
+                provider_group=payload["provider_group"],
+                symbol=payload["symbol"],
+                provider_process_date=date.fromisoformat(payload["provider_process_date"]),
+                effective_session=(
+                    date.fromisoformat(payload["effective_session"])
+                    if payload["effective_session"] is not None
+                    else None
+                ),
+                received_at=parse_utc_z(payload["received_at"], "corporate_action.received_at"),
+                snapshot_id=payload["snapshot_id"],
+                raw_row_sha256=payload["raw_row_sha256"],
+                acquisition_mode=payload["acquisition_mode"],
+                evidence_state=payload["evidence_state"],
+                acquisition_capability_id=payload["acquisition_capability_id"],
+                synthetic_permit_ids=tuple(payload["synthetic_permit_ids"]),
+                source_epoch=payload["source_epoch"],
+                provider_process_date_is_causal=payload["provider_process_date_is_causal"],
+            )
+        except (TypeError, ValueError) as exc:
+            raise ContractError("corporate-action evidence values are invalid") from exc
+        evidence.validate()
+        return evidence
 
 
 def guarded_fetch_corporate_action_pages(
@@ -178,6 +294,21 @@ def parse_landed_corporate_actions(
         ):
             raise ContractError("corporate-action page request token chain is broken")
         payload = _page_payload(snapshot)
+        if snapshot.acquisition_mode == "NETWORK_AS_RECEIVED":
+            if not snapshot.trust_eligible:
+                raise ContractError("network corporate-action snapshot is not trust eligible")
+            evidence_state = "NETWORK_AS_RECEIVED"
+            synthetic_permit_ids: tuple[str, ...] = ()
+        elif snapshot.acquisition_mode == "SYNTHETIC_DIRECT_NOT_AS_RECEIVED":
+            if (
+                snapshot.synthetic_permit_id is None
+                or snapshot.acquisition_capability_id != snapshot.synthetic_permit_id
+            ):
+                raise ContractError("synthetic corporate-action snapshot binding is inconsistent")
+            evidence_state = "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+            synthetic_permit_ids = (snapshot.synthetic_permit_id,)
+        else:
+            raise ContractError("corporate-action snapshot acquisition mode is invalid")
         actions = payload["corporate_actions"]
         for group, rows in actions.items():
             if group not in ACTION_GROUPS or not isinstance(rows, list):
@@ -195,19 +326,23 @@ def parse_landed_corporate_actions(
                     raise ContractError("corporate-action process_date is invalid") from exc
                 if not initial.start <= process_date <= initial.end:
                     raise ContractError("corporate-action process_date escapes the request interval")
-                output.append(
-                    CorporateActionEvidence(
-                        provider_action_id=row["id"],
-                        provider_group=group,
-                        symbol=_symbol(row),
-                        provider_process_date=process_date,
-                        effective_session=_effective_session(row),
-                        received_at=snapshot.retrieved_at,
-                        snapshot_id=snapshot.snapshot_id,
-                        raw_row_sha256=sha256_bytes(canonical_json_bytes(row)),
-                        provider_process_date_is_causal=False,
-                    )
+                evidence = CorporateActionEvidence(
+                    provider_action_id=row["id"],
+                    provider_group=group,
+                    symbol=_symbol(row),
+                    provider_process_date=process_date,
+                    effective_session=_effective_session(row),
+                    received_at=snapshot.retrieved_at,
+                    snapshot_id=snapshot.snapshot_id,
+                    raw_row_sha256=sha256_bytes(canonical_json_bytes(row)),
+                    acquisition_mode=snapshot.acquisition_mode,
+                    evidence_state=evidence_state,
+                    acquisition_capability_id=snapshot.acquisition_capability_id,
+                    synthetic_permit_ids=synthetic_permit_ids,
+                    provider_process_date_is_causal=False,
                 )
+                evidence.validate()
+                output.append(evidence)
         token = payload["next_page_token"]
         if token is not None:
             if not isinstance(token, str) or not token or token in seen_next:
@@ -218,6 +353,20 @@ def parse_landed_corporate_actions(
             raise ContractError("corporate-action pagination terminated before the final landed page")
     if expected_token is not None:
         raise ContractError("corporate-action landed pagination is incomplete")
+    if not output:
+        raise ContractError(
+            "empty corporate-action response is unresolved absence evidence"
+        )
+    if initial.symbols:
+        observed_symbols = {
+            evidence.symbol for evidence in output if evidence.symbol is not None
+        }
+        missing_symbols = sorted(set(initial.symbols) - observed_symbols)
+        if missing_symbols:
+            raise ContractError(
+                "corporate-action requested-symbol coverage is incomplete: "
+                + ",".join(missing_symbols)
+            )
     return tuple(output)
 
 

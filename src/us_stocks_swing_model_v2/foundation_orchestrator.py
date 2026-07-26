@@ -64,6 +64,7 @@ AGGREGATE_SOURCE_EPOCH = "hfdl_two_epoch_legacy_discovery_no_pooling"
 AGGREGATE_ROLE = "legacy_discovery_only"
 AGGREGATE_QUALITY = "LEGACY_CAVEATED"
 AGGREGATE_COMPONENT_COUNT = 11
+SYNTHETIC_EXECUTION_SCOPE = "SYNTHETIC_FOUNDATION_EXECUTION"
 PHASES = ("migration", "calendar", "hfdl", "bridge", "aggregate")
 _ATOMIC_TEMP = re.compile(r"^\.aw\.[^.]+\.tmp$")
 _INDEX_FIELDS = {
@@ -955,9 +956,28 @@ def run_stock_historical_foundation(
     calendar_release_directory: Path | None = None,
     hfdl_contract: HfdlPublishContract | None = None,
     hfdl_synthetic_permit: SyntheticOnlyPermit | None = None,
+    execution_synthetic_permit: SyntheticOnlyPermit | None = None,
+    execution_allowed_root: Path | None = None,
 ) -> StockHistoricalFoundationResult:
-    """Build and verify the complete non-active historical foundation."""
+    """Build mechanics-only fixtures; production publication is not configured."""
 
+    execution_permit = require_synthetic_permit(
+        execution_synthetic_permit,
+        scope=SYNTHETIC_EXECUTION_SCOPE,
+    )
+    if execution_allowed_root is None:
+        raise ContractError(
+            "synthetic foundation execution requires an explicit allowed root"
+        )
+    execution_root = Path(execution_allowed_root)
+    if not execution_root.is_absolute():
+        raise ContractError("foundation execution allowed root must be absolute")
+    execution_root = require_contained_path(execution_root, execution_root)
+    reject_link(execution_root)
+    if hfdl_contract is None or hfdl_contract.synthetic_permit_id is None:
+        raise PermissionError(
+            "production foundation execution is disabled; use the plan-only CLI"
+        )
     accepted = Path(accepted_release_root)
     work = Path(derived_work_root)
     prepared = _prepare_inputs(
@@ -969,10 +989,28 @@ def run_stock_historical_foundation(
         hfdl_contract=hfdl_contract,
         hfdl_synthetic_permit=hfdl_synthetic_permit,
     )
+    if (
+        prepared.synthetic_permit is None
+        or prepared.synthetic_permit.fixture_id != execution_permit.fixture_id
+    ):
+        raise ContractError(
+            "foundation execution and input permits must bind the same synthetic fixture"
+        )
+    execution_permit.validate(SYNTHETIC_EXECUTION_SCOPE)
+    for label, path, must_exist in (
+        ("migration", prepared.migration.root, True),
+        ("accepted", accepted, False),
+        ("work", work, False),
+        ("calendar", prepared.calendar_directory, True),
+    ):
+        try:
+            require_contained_path(path, execution_root, must_exist=must_exist)
+        except ContractError as exc:
+            raise ContractError(
+                f"foundation {label} path escapes the synthetic execution root"
+            ) from exc
     if not work.is_absolute():
         raise ContractError("foundation derived-work root must be absolute")
-    if prepared.synthetic_permit is None:
-        require_contained_path(work, _repo_root(), must_exist=False)
     work.mkdir(parents=True, exist_ok=True)
     reject_link(work)
     for left, right in (
@@ -1006,7 +1044,7 @@ def run_stock_historical_foundation(
     build_root.mkdir(parents=True, exist_ok=True)
     checkpoint_path = build_root / "checkpoint.json"
     lock_path = work / ".locks" / f"foundation-{prepared.build_id}.lock"
-    with ExclusiveFileLock(lock_path):
+    with ExclusiveFileLock(lock_path, allowed_root=work):
         _cleanup_owned_atomic_temps(build_root)
         checkpoint = _load_or_create_checkpoint(checkpoint_path, prepared=prepared)
 

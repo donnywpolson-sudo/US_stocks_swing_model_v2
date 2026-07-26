@@ -73,23 +73,10 @@ class AuthorizationAuthority:
             if self.synthetic_permit_id != self.registry_id or self.registry_path is not None:
                 raise EvaluationAuthorizationError("synthetic authority lacks its mechanics permit")
         elif self.authorization_class == "EXTERNAL_USER_AUTHORITY":
-            if self.synthetic_permit_id is not None or self.registry_path is None:
-                raise EvaluationAuthorizationError("external authority cannot carry a synthetic permit")
-            payload, registry_id = _read_authority_registry(Path(self.registry_path))
-            if registry_id != self.registry_id:
-                raise EvaluationAuthorizationError("external authority registry changed after loading")
-            matches = [
-                row
-                for row in payload["authorities"]
-                if isinstance(row, dict) and row.get("key_id") == self.key_id
-            ]
-            expected = {
-                "key_id": self.key_id,
-                "key_sha256": self.key_sha256,
-                "authorization_class": self.authorization_class,
-            }
-            if payload["status"] != "ACTIVE" or matches != [expected]:
-                raise EvaluationAuthorizationError("external authority is no longer pinned and active")
+            raise EvaluationAuthorizationError(
+                "external authorization is disabled until asymmetric signature "
+                "verification is implemented"
+            )
         else:
             raise EvaluationAuthorizationError("authorization authority class is invalid")
 

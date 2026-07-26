@@ -4,7 +4,7 @@ import json
 import os
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Mapping
@@ -80,6 +80,7 @@ class NetworkAcquisitionRegistry:
     registry_id: str
     registry_path: str
     allowed_origin_paths: Mapping[str, str]
+    accepted_http_statuses: Mapping[str, tuple[int, ...]]
 
     @classmethod
     def load(cls, registry_path: Path) -> "NetworkAcquisitionRegistry":
@@ -107,9 +108,16 @@ class NetworkAcquisitionRegistry:
         ):
             raise ContractError("network acquisition registry is not active for this project")
         allowed: dict[str, str] = {}
-        for source, origin_path in payload["allowed_sources"].items():
+        statuses: dict[str, tuple[int, ...]] = {}
+        for source, policy in payload["allowed_sources"].items():
             if not isinstance(source, str) or not SAFE_SOURCE.fullmatch(source):
                 raise ContractError("network acquisition registry source is invalid")
+            if not isinstance(policy, dict) or set(policy) != {
+                "origin_path",
+                "accepted_http_statuses",
+            }:
+                raise ContractError("network acquisition registry source policy is invalid")
+            origin_path = policy["origin_path"]
             parsed = urlparse(origin_path) if isinstance(origin_path, str) else None
             if (
                 parsed is None
@@ -119,13 +127,32 @@ class NetworkAcquisitionRegistry:
                 or parsed.query
             ):
                 raise ContractError("network acquisition registry origin/path is invalid")
+            accepted_statuses = policy["accepted_http_statuses"]
+            if (
+                not isinstance(accepted_statuses, list)
+                or not accepted_statuses
+                or any(
+                    type(status) is not int or not 200 <= status <= 299
+                    for status in accepted_statuses
+                )
+                or accepted_statuses != sorted(set(accepted_statuses))
+            ):
+                raise ContractError(
+                    "network acquisition accepted HTTP statuses are invalid"
+                )
             allowed[source] = origin_path
+            statuses[source] = tuple(accepted_statuses)
         if not allowed:
             raise ContractError("network acquisition registry has no allowed sources")
         registry = object.__new__(cls)
         object.__setattr__(registry, "registry_id", sha256_bytes(canonical_json_bytes(payload)))
         object.__setattr__(registry, "registry_path", str(path))
         object.__setattr__(registry, "allowed_origin_paths", dict(sorted(allowed.items())))
+        object.__setattr__(
+            registry,
+            "accepted_http_statuses",
+            dict(sorted(statuses.items())),
+        )
         registry.validate()
         return registry
 
@@ -155,6 +182,10 @@ class NetworkAcquisitionRegistry:
         origin_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if self.allowed_origin_paths.get(source) != origin_path:
             raise ContractError("network request source/origin/path is not registry-approved")
+        if http_status not in self.accepted_http_statuses.get(source, ()):
+            raise ContractError(
+                "network response status is not approved for this source"
+            )
         normalized_headers = normalize_response_headers(headers)
         unsigned = {
             "registry_id": self.registry_id,
@@ -212,6 +243,8 @@ class NetworkAcquisitionCapability:
             or parsed.scheme != "https"
             or f"{parsed.scheme}://{parsed.netloc}{parsed.path}" != self.approved_origin_path
             or registry.allowed_origin_paths.get(self.source) != self.approved_origin_path
+            or self.http_status
+            not in registry.accepted_http_statuses.get(self.source, ())
             or self.response_url != self.requested_url
             or isinstance(self.http_status, bool)
             or not isinstance(self.http_status, int)
@@ -240,14 +273,17 @@ class LandedSnapshot:
     acquisition_capability_id: str
     time_authority: str
     synthetic_permit_id: str | None
+    acquisition_registry: NetworkAcquisitionRegistry | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def trust_eligible(self) -> bool:
-        return (
-            self.acquisition_mode == "NETWORK_AS_RECEIVED"
-            and self.time_authority == "PRODUCTION_SYSTEM_UTC"
-            and self.synthetic_permit_id is None
-        )
+        # The current receipt is self-hashed, not independently authenticated.
+        # Preserve it as acquisition evidence but never promote it to trust.
+        return False
 
     @property
     def raw_path(self) -> Path:
@@ -260,6 +296,7 @@ class LandedSnapshot:
             store_root=self.store_root,
             allowed_root=self.allowed_root,
             allow_pending=False,
+            acquisition_registry=self.acquisition_registry,
         )
         if loaded != self:
             raise IntegrityError("snapshot receipt changed after it was loaded")
@@ -408,7 +445,10 @@ class AsReceivedSnapshotStore:
         final = source_root / snapshot_id
         require_contained_path(source_root, self.allowed_root, must_exist=False)
         require_contained_path(final, self.allowed_root, must_exist=False)
-        with ExclusiveFileLock(self.root / ".locks" / f"{source}.lock"):
+        with ExclusiveFileLock(
+            self.root / ".locks" / f"{source}.lock",
+            allowed_root=self.allowed_root,
+        ):
             if final.exists():
                 return self.load(final)
             source_root.mkdir(parents=True, exist_ok=True)
@@ -427,6 +467,11 @@ class AsReceivedSnapshotStore:
                 store_root=self.root,
                 allowed_root=self.allowed_root,
                 allow_pending=True,
+                acquisition_registry=(
+                    self.acquisition_registry
+                    if acquisition_mode == "NETWORK_AS_RECEIVED"
+                    else None
+                ),
             )
             if loaded.snapshot_id != snapshot_id:
                 raise IntegrityError("staged snapshot identity mismatch")
@@ -439,6 +484,7 @@ class AsReceivedSnapshotStore:
             store_root=self.root,
             allowed_root=self.allowed_root,
             allow_pending=False,
+            acquisition_registry=self.acquisition_registry,
         )
         return loaded
 
@@ -449,6 +495,7 @@ def _load_snapshot(
     store_root: Path,
     allowed_root: Path,
     allow_pending: bool,
+    acquisition_registry: NetworkAcquisitionRegistry | None,
 ) -> tuple[LandedSnapshot, bytes]:
     directory = require_contained_path(Path(directory), allowed_root)
     store_root = require_contained_path(Path(store_root), allowed_root)
@@ -530,6 +577,27 @@ def _load_snapshot(
     if acquisition_mode == "NETWORK_AS_RECEIVED":
         if time_authority != "PRODUCTION_SYSTEM_UTC" or synthetic_permit_id is not None:
             raise IntegrityError("network snapshot time/acquisition provenance is invalid")
+        if acquisition_registry is None:
+            raise IntegrityError(
+                "network snapshot requires its pinned acquisition registry"
+            )
+        try:
+            capability = acquisition_registry._issue_response_capability(
+                source=str(receipt["source"]),
+                requested_url=str(receipt["url"]),
+                response_url=str(receipt["url"]),
+                http_status=int(receipt["http_status"]),
+                raw=raw,
+                headers=headers,
+            )
+        except ContractError as exc:
+            raise IntegrityError(
+                "network snapshot capability cannot be revalidated"
+            ) from exc
+        if capability.capability_id != receipt["acquisition_capability_id"]:
+            raise IntegrityError(
+                "network snapshot capability differs from the pinned registry"
+            )
     elif acquisition_mode == "SYNTHETIC_DIRECT_NOT_AS_RECEIVED":
         if (
             time_authority != "SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE"
@@ -564,5 +632,10 @@ def _load_snapshot(
         acquisition_capability_id=str(receipt["acquisition_capability_id"]),
         time_authority=time_authority,
         synthetic_permit_id=(str(synthetic_permit_id) if synthetic_permit_id is not None else None),
+        acquisition_registry=(
+            acquisition_registry
+            if acquisition_mode == "NETWORK_AS_RECEIVED"
+            else None
+        ),
     )
     return loaded, raw

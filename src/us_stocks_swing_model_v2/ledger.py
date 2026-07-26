@@ -60,7 +60,7 @@ class HashChainLedger:
     def read_verified(self) -> list[dict[str, Any]]:
         self._verify_plain_paths()
         if self._journal_path.exists():
-            with ExclusiveFileLock(self._lock_path):
+            with ExclusiveFileLock(self._lock_path, allowed_root=self.path.parent):
                 self._recover_locked()
         return self._read_verified_raw()
 
@@ -140,7 +140,7 @@ class HashChainLedger:
             payload_validator(payload)
         self._verify_plain_paths()
         parsed_recorded = require_aware_utc(self._clock.now(), "ledger.clock")
-        with ExclusiveFileLock(self._lock_path):
+        with ExclusiveFileLock(self._lock_path, allowed_root=self.path.parent):
             self._recover_locked()
             history = self._read_verified_raw()
             actual_head = history[-1]["record_hash"] if history else "0" * 64
@@ -196,7 +196,7 @@ class HashChainLedger:
             raise ContractError("atomic ledger batch unique keys are missing or duplicated")
         self._verify_plain_paths()
         recorded = require_aware_utc(self._clock.now(), "ledger.clock")
-        with ExclusiveFileLock(self._lock_path):
+        with ExclusiveFileLock(self._lock_path, allowed_root=self.path.parent):
             self._recover_locked()
             history = self._read_verified_raw()
             actual_head = history[-1]["record_hash"] if history else "0" * 64

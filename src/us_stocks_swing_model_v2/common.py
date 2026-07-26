@@ -89,8 +89,8 @@ def safe_relative_path(value: str) -> PurePosixPath:
 def reject_link(path: Path) -> None:
     if path.is_symlink():
         raise ContractError(f"links are prohibited: {path}")
-    if os.name == "nt" and path.exists():
-        attrs = getattr(path.stat(), "st_file_attributes", 0)
+    if os.name == "nt" and os.path.lexists(path):
+        attrs = getattr(os.lstat(path), "st_file_attributes", 0)
         reparse_flag = getattr(__import__("stat"), "FILE_ATTRIBUTE_REPARSE_POINT", 0)
         if reparse_flag and attrs & reparse_flag:
             raise ContractError(f"junction/reparse points are prohibited: {path}")
@@ -112,8 +112,7 @@ def require_contained_path(path: Path, allowed_root: Path, *, must_exist: bool =
         raise ContractError(f"approved root does not exist: {root}")
     for part in relative.parts:
         current = current / part
-        if current.exists():
-            reject_link(current)
+        reject_link(current)
     if must_exist and not candidate.exists():
         raise ContractError(f"required contained path does not exist: {candidate}")
     resolved_root = root.resolve(strict=True)

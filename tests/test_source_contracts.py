@@ -300,8 +300,24 @@ def test_nasdaq_identity_is_conservative_and_unknown_abstains(tmp_path) -> None:
         headers={"content-type": "text/plain", "content-length": str(len(raw))},
         clock=TrustedClock.production(),
     )
-    with pytest.raises(ContractError, match="byte count fails"):
+    assert network_snapshot.acquisition_mode == "NETWORK_AS_RECEIVED"
+    assert network_snapshot.trust_eligible is False
+    with pytest.raises(ContractError, match="network as-received"):
         parse_nasdaq_traded(network_snapshot)
+    with pytest.raises(ContractError, match="status is not approved"):
+        AsReceivedSnapshotStore(
+            tmp_path / "network-error-snapshots",
+            allowed_root=tmp_path,
+            acquisition_registry=network_registry,
+        )._land_network_response(
+            source="nasdaqtraded",
+            requested_url=NASDAQ_TRADED_URL,
+            response_url=NASDAQ_TRADED_URL,
+            http_status=503,
+            raw=b"service unavailable",
+            headers={"content-type": "text/plain"},
+            clock=TrustedClock.production(),
+        )
     with pytest.raises(ContractError, match="count drop"):
         parse_nasdaq_traded(
             snapshot,

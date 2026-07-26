@@ -207,6 +207,27 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
     with np.testing.assert_raises_regex(ValueError, "charter hash"):
         evaluate_portfolio_mechanics(forged_charter, (stock_long, etf_short))
 
+    with np.testing.assert_raises_regex(ValueError, "exact SleeveState"):
+        evaluate_portfolio_mechanics(
+            preregistered_exclusion,
+            (replace(stock_long, state="MECHANICS_READY"), etf_short),
+        )
+    with np.testing.assert_raises_regex(ValueError, "terminal sleeve"):
+        evaluate_portfolio_mechanics(
+            preregistered_exclusion,
+            (replace(stock_long, state=SleeveState.REGISTERED), etf_short),
+        )
+    with np.testing.assert_raises_regex(ValueError, "non-failed sleeve"):
+        evaluate_portfolio_mechanics(
+            preregistered_exclusion,
+            (replace(stock_long, failed_gates=("FORGED",)), etf_short),
+        )
+    with np.testing.assert_raises_regex(ValueError, "identify failed gates"):
+        evaluate_portfolio_mechanics(
+            all_included,
+            (stock_long, replace(etf_short, failed_gates=())),
+        )
+
 
 def test_research_package_has_no_io_fit_network_or_alpha_transition() -> None:
     package = (

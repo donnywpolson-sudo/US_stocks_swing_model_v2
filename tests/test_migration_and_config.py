@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
-import hashlib
-import hmac
 import os
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.common import canonical_json_bytes, iso_z, sha256_bytes
-from us_stocks_swing_model_v2.cli.hash_copy import main as hash_copy_main
+from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
+from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
+from us_stocks_swing_model_v2.cli.hash_copy import (
+    main as hash_copy_main,
+    parser as hash_copy_parser,
+)
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.migration import (
     COPY_AUTHORIZATION_SCOPE,
@@ -28,14 +29,11 @@ from us_stocks_swing_model_v2.migration import (
     migration_payload_object_relative,
     migration_authorization_bindings,
     plan_migration,
+    SYNTHETIC_COPY_SCOPE,
 )
 from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
     CompletedMigrationRelease,
     verify_completed_migration_release,
-)
-from us_stocks_swing_model_v2.governance import (
-    SignedAuthorizationReceipt,
-    load_external_authority,
 )
 import us_stocks_swing_model_v2.migration as migration_module
 
@@ -54,53 +52,17 @@ def completed_real_migration() -> tuple[MigrationApproval, CompletedMigrationRel
     return approval, release
 
 
-def _external_execution_kwargs(
+def _synthetic_execution_kwargs(
     tmp_path: Path,
     plan,
     approval: MigrationApproval,
 ) -> dict[str, object]:
-    key = b"externally-controlled-test-key"
-    registry = {
-        "schema_version": 1,
-        "project": "US_stocks_swing_model_v2",
-        "status": "ACTIVE",
-        "authorities": [
-            {
-                "key_id": "migration-user-key",
-                "key_sha256": sha256_bytes(key),
-                "authorization_class": "EXTERNAL_USER_AUTHORITY",
-            }
-        ],
-    }
-    registry_path = tmp_path / "external-authority-registry.json"
-    registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    authority = load_external_authority(
-        registry_path,
-        key_id="migration-user-key",
-        verification_key=key,
-    )
-    now = datetime.now(timezone.utc)
-    signing = {
-        "schema_version": 1,
-        "scope": COPY_AUTHORIZATION_SCOPE,
-        "subject_id": plan.plan_id,
-        "bindings": dict(sorted(migration_authorization_bindings(plan, approval).items())),
-        "issued_at": iso_z(now - timedelta(minutes=1)),
-        "expires_at": iso_z(now + timedelta(hours=1)),
-        "key_id": authority.key_id,
-        "authority_registry_id": authority.registry_id,
-        "authorization_class": authority.authorization_class,
-    }
-    signature = hmac.new(key, canonical_json_bytes(signing), hashlib.sha256).hexdigest()
-    unsigned = {**signing, "signature": signature}
-    authorization = SignedAuthorizationReceipt(
-        **signing,
-        signature=signature,
-        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
-    )
     return {
-        "authorization": authorization,
-        "authorization_authority": authority,
+        "synthetic_permit": SyntheticOnlyPermit.create(
+            fixture_id=f"migration-{plan.plan_id}",
+            scope=SYNTHETIC_COPY_SCOPE,
+        ),
+        "synthetic_allowed_root": tmp_path,
         "clock": TrustedClock.production(),
     }
 
@@ -124,7 +86,7 @@ def test_checked_in_source_roles_and_exclusions_are_fail_closed() -> None:
     }
     nasdaq = sources["nasdaq_symbol_directory"]
     assert nasdaq["status"] == (
-        "qualified_public_snapshot_pending_alpaca_asset_join_and_identity_release"
+        "preserved_snapshot_not_trust_eligible_pending_authenticated_acquisition_receipt"
     )
     assert nasdaq["qualification_receipt"] == "config/nasdaq_qualification_receipt.json"
     assert len(nasdaq["latest_snapshot_id"]) == 64
@@ -169,7 +131,7 @@ def test_synthetic_hash_copy_is_dry_by_default_and_verifies_bytes(tmp_path: Path
     approval = MigrationApproval.from_dict(
         approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
     )
-    execution = _external_execution_kwargs(tmp_path, plan, approval)
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
     assert len(plan) == 1
     assert plan.migration_manifest_schema_version == MIGRATION_MANIFEST_SCHEMA_VERSION
     assert plan.payload_layout_version == PAYLOAD_LAYOUT_VERSION
@@ -311,7 +273,7 @@ def test_migration_checkpoint_resumes_without_partial_promotion(tmp_path: Path, 
     approval = MigrationApproval.from_dict(
         approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
     )
-    execution = _external_execution_kwargs(tmp_path, plan, approval)
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
     monkeypatch.setenv("HASH_COPY_APPROVED", "YES")
     original = migration_module.shutil.copyfile
     calls = 0
@@ -346,7 +308,7 @@ def test_resume_recovers_owned_copy_and_atomic_write_temps(
     approval = MigrationApproval.from_dict(
         approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
     )
-    execution = _external_execution_kwargs(tmp_path, plan, approval)
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
     monkeypatch.setenv("HASH_COPY_APPROVED", "YES")
     original_copy = migration_module.shutil.copyfile
 
@@ -397,7 +359,7 @@ def test_resume_is_idempotent_across_finalization_kill_windows(
     approval = MigrationApproval.from_dict(
         approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
     )
-    execution = _external_execution_kwargs(tmp_path, plan, approval)
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
     monkeypatch.setenv("HASH_COPY_APPROVED", "YES")
     original_atomic = migration_module.atomic_write
     crashed = False
@@ -484,7 +446,7 @@ def test_new_approval_uses_a_new_stage_and_preserves_old_partial(
             plan,
             approval=old_approval,
             execute=True,
-            **_external_execution_kwargs(tmp_path, plan, old_approval),
+            **_synthetic_execution_kwargs(tmp_path, plan, old_approval),
         )
     old_stage = (
         tmp_path
@@ -499,7 +461,7 @@ def test_new_approval_uses_a_new_stage_and_preserves_old_partial(
         plan,
         approval=new_approval,
         execute=True,
-        **_external_execution_kwargs(tmp_path, plan, new_approval),
+        **_synthetic_execution_kwargs(tmp_path, plan, new_approval),
     )
     assert release.is_dir()
     assert (old_stage / "checkpoint.json").is_file()
@@ -565,7 +527,7 @@ def test_long_logical_destination_uses_only_the_sealed_flat_payload_object(
         plan,
         approval=approval,
         execute=True,
-        **_external_execution_kwargs(tmp_path, plan, approval),
+        **_synthetic_execution_kwargs(tmp_path, plan, approval),
     )
     flat = release / "payload" / plan[0].payload_object
     assert flat.read_bytes() == b"fixture"
@@ -684,3 +646,17 @@ def test_hash_copy_dry_run_is_concise_unless_detailed_is_requested(
     assert detailed["entries"][0]["sha256"] == plan_migration(
         load_migration_config(config)
     )[0].sha256
+
+
+def test_hash_copy_cli_exposes_no_shared_secret_authority_inputs() -> None:
+    options = {
+        option
+        for action in hash_copy_parser()._actions
+        for option in action.option_strings
+    }
+    assert not {
+        "--authorization",
+        "--authority-registry",
+        "--authority-key-id",
+        "--verification-key-file",
+    } & options

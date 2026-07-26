@@ -23,9 +23,16 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
   `479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82`.
 - The complete non-active aggregate foundation release is
   `stock_historical_foundation_set/22d6c19ce3f7be6779f4763ad99129ea571b31b021cf9347fc4e7e74eaac4c66`.
-- A bounded public Nasdaq snapshot was qualified as identity evidence only.
-  Alpaca remains unqualified because credentials were unavailable to this
-  process; no bulk Alpaca backfill was attempted.
+- A bounded public Nasdaq snapshot is preserved as acquisition evidence only.
+  Its self-hashed capability is not independently authenticated and is no
+  longer trust-eligible. Alpaca remains unqualified because credentials were
+  unavailable to this process; no bulk Alpaca backfill was attempted.
+- The historical-foundation CLI is plan-only. Mutating foundation mechanics
+  are synthetic-fixture-only and root-bound; there is no production
+  publication authority.
+- External authorization is explicitly unavailable. The authority registry
+  remains `NOT_CONFIGURED`, shared-secret receipts grant no authority, and the
+  completed controlled-rebuild receipt cannot be reused.
 - No real-history hypothesis, model fit, WFA, candidate, or alpha evaluation
   ran.
 - Non-authorizing `REBUILD_COMPLETE` and mechanical
@@ -53,7 +60,8 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
 - Prospective Alpaca: guarded and empty pending an authenticated, bounded feed
   qualification. SIP and IEX remain candidates; neither is assumed active.
 - Nasdaq: one public as-received qualification snapshot is preserved, but it
-  is not an active identity release until the asset join is implemented.
+  is not trust-eligible. Requalification requires an independently
+  authenticated acquisition receipt before any asset join or identity release.
 - Completed migration capsule: the immutable 4,911-file release is the
   post-migration source of truth. The allowlist, approval, and legacy baseline
   remain historical review evidence and are not replanned from current legacy
@@ -65,4 +73,7 @@ Stop at the controlled-rebuild boundary. Real-history hypothesis/WFA execution,
 candidate sealing, destructive cutover, external push, and trading require new
 authorization. `HISTORICAL_RESEARCH_READY` means only that the discovery
 harness is mechanically runnable; PIT truth, exact legacy-trial census, alpha,
-candidates, live use, options, and deployable shorts remain blocked.
+candidates, live use, options, and deployable shorts remain blocked. The next
+source/authentication work must design an independently authenticated network
+acquisition receipt and asymmetric external authorization before either path
+can be enabled.

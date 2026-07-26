@@ -338,19 +338,40 @@ class AtomicReleasePublisher:
         if not self.release_root.is_absolute():
             raise ContractError("accepted release root must be absolute")
 
+    def _authenticate(self, path: Path, *, must_exist: bool) -> Path:
+        authenticated = require_contained_path(
+            path,
+            self.release_root,
+            must_exist=must_exist,
+        )
+        if authenticated.exists():
+            reject_link(authenticated)
+        return authenticated
+
     def publish(self, staging_root: Path, manifest: ReleaseManifest) -> Path:
         manifest.validate()
         root = self.release_root
+        root.mkdir(parents=True, exist_ok=True)
+        require_contained_path(root, root)
         dataset_root = root / manifest.dataset
         destination = dataset_root / manifest.release_id
         lock_path = root / ".locks" / f"{manifest.dataset}.lock"
-        with ExclusiveFileLock(lock_path):
+        with ExclusiveFileLock(lock_path, allowed_root=root):
+            self._authenticate(dataset_root, must_exist=False)
+            self._authenticate(destination, must_exist=False)
             if destination.exists():
-                verify_release(destination, manifest)
+                verify_accepted_release(
+                    destination,
+                    accepted_root=root,
+                    expected=manifest,
+                )
                 return destination
             dataset_root.mkdir(parents=True, exist_ok=True)
+            self._authenticate(dataset_root, must_exist=True)
             pending = dataset_root / f".pending-{manifest.release_id[:12]}-{uuid.uuid4().hex[:8]}"
+            self._authenticate(pending, must_exist=False)
             pending.mkdir()
+            self._authenticate(pending, must_exist=True)
             try:
                 stage = Path(staging_root).resolve(strict=True)
                 for entry in manifest.files:
@@ -362,16 +383,29 @@ class AtomicReleasePublisher:
                     if not source.is_file() or source.stat().st_nlink != 1:
                         raise IntegrityError(f"staging payload is not an independent plain file: {entry.path}")
                     target = pending.joinpath(*relative.parts)
+                    self._authenticate(target.parent, must_exist=False)
+                    self._authenticate(target, must_exist=False)
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    self._authenticate(target.parent, must_exist=True)
                     shutil.copyfile(source, target)
+                    self._authenticate(target, must_exist=True)
                     with target.open("r+b") as copied:
                         os.fsync(copied.fileno())
                     if target.stat().st_nlink != 1 or os.path.samefile(source, target):
                         raise IntegrityError(f"copy unexpectedly shares file identity: {entry.path}")
-                atomic_write(pending / MANIFEST_NAME, canonical_json_bytes(manifest.as_dict()))
+                manifest_path = pending / MANIFEST_NAME
+                self._authenticate(manifest_path, must_exist=False)
+                atomic_write(manifest_path, canonical_json_bytes(manifest.as_dict()))
+                self._authenticate(manifest_path, must_exist=True)
                 verify_release(pending, manifest)
+                self._authenticate(pending, must_exist=True)
+                self._authenticate(destination, must_exist=False)
                 os.replace(pending, destination)
-                verify_release(destination, manifest)
+                verify_accepted_release(
+                    destination,
+                    accepted_root=root,
+                    expected=manifest,
+                )
                 return destination
             except Exception:
                 # Preserve partial work for explicit quarantine/recovery; never
@@ -390,7 +424,7 @@ class AtomicReleasePublisher:
             return []
         moved: list[Path] = []
         lock_path = self.release_root / ".locks" / f"{dataset}.lock"
-        with ExclusiveFileLock(lock_path):
+        with ExclusiveFileLock(lock_path, allowed_root=self.release_root):
             quarantine = self.release_root / ".quarantine" / dataset
             require_contained_path(quarantine, self.release_root, must_exist=False)
             for pending in sorted(dataset_root.glob(".pending-*")):
