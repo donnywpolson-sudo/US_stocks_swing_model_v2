@@ -172,6 +172,7 @@ def guarded_fetch_json(
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
     url = request.url(policy)
+    trusted_clock = require_trusted_clock(clock)
     assert_authorized_network_request(
         authorization_session,
         source=f"alpaca_{policy.feed}_qualification",
@@ -180,6 +181,7 @@ def guarded_fetch_json(
         max_response_bytes=MAX_ALPACA_RESPONSE_BYTES,
         page_index=page_index,
         expected_page_token=expected_page_token,
+        clock=trusted_clock,
     )
     http_request = Request(
         url,
@@ -221,7 +223,7 @@ def guarded_fetch_json(
         status=status,
         raw_bytes=payload_bytes,
         headers=headers,
-        retrieved_at=require_trusted_clock(clock).now(),
+        retrieved_at=trusted_clock.now(),
     )
     return evidence
 

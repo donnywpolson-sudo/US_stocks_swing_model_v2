@@ -353,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             max_response_bytes=MAX_NASDAQ_RESPONSE_BYTES,
             page_index=0,
             expected_page_token=None,
+            clock=trusted_clock,
         )
         with open_without_redirects(
             Request(url, method="GET"), timeout_seconds=30

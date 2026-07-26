@@ -248,6 +248,7 @@ def guarded_fetch_corporate_action_pages(
             max_response_bytes=MAX_RESPONSE_BYTES,
             page_index=page_index,
             expected_page_token=request.page_token,
+            clock=trusted_clock,
         )
         evidence = _fetch_page(
             request,

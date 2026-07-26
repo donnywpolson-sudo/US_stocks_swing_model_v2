@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import threading
 from typing import Mapping
 from urllib.parse import parse_qsl, urlparse
 from weakref import WeakKeyDictionary
@@ -109,6 +110,7 @@ class NetworkAuthorizationSession:
     receipt_id: str
     nonce: str
     consumed_at: str
+    expires_at: str
 
     def _assert_request(
         self,
@@ -164,8 +166,9 @@ class NetworkAuthorizationSession:
 
 
 _ISSUED_SESSIONS: WeakKeyDictionary[
-    NetworkAuthorizationSession, tuple[Path, str]
+    NetworkAuthorizationSession, dict[str, object]
 ] = WeakKeyDictionary()
+_ISSUED_SESSIONS_LOCK = threading.Lock()
 
 
 def assert_authorized_network_request(
@@ -177,43 +180,58 @@ def assert_authorized_network_request(
     max_response_bytes: int,
     page_index: int,
     expected_page_token: str | None,
+    clock: TrustedClock,
 ) -> None:
     if type(session) is not NetworkAuthorizationSession:
         raise EvaluationAuthorizationError(
             "network request lacks a store-issued authorization session"
         )
-    issued = _ISSUED_SESSIONS.get(session)
-    if issued is None:
-        raise EvaluationAuthorizationError(
-            "network authorization session was not issued by the use store"
+    with _ISSUED_SESSIONS_LOCK:
+        issued = _ISSUED_SESSIONS.get(session)
+        if issued is None:
+            raise EvaluationAuthorizationError(
+                "network authorization session was not issued by the use store"
+            )
+        marker_path = issued["marker_path"]
+        assert isinstance(marker_path, Path)
+        try:
+            marker_bytes = marker_path.read_bytes()
+            marker = json.loads(marker_bytes)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise EvaluationAuthorizationError(
+                "network authorization consumption marker is unavailable"
+            ) from exc
+        if (
+            sha256_bytes(marker_bytes) != issued["marker_sha256"]
+            or not isinstance(marker, dict)
+            or marker.get("plan_id") != session.plan.plan_id
+            or marker.get("receipt_id") != session.receipt_id
+            or marker.get("authorization_nonce") != session.nonce
+            or marker.get("consumed_at") != session.consumed_at
+            or marker.get("expires_at") != session.expires_at
+        ):
+            raise EvaluationAuthorizationError(
+                "network authorization consumption marker differs"
+            )
+        if require_trusted_clock(clock).now() >= parse_utc_z(
+            session.expires_at, "network_authorization.expires_at"
+        ):
+            raise EvaluationAuthorizationError(
+                "network authorization session has expired"
+            )
+        if page_index != issued["next_page"]:
+            raise EvaluationAuthorizationError(
+                "network authorization page was reused or is out of sequence"
+            )
+        session._assert_request(
+            source=source,
+            url=url,
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
+            page_index=page_index,
+            expected_page_token=expected_page_token,
         )
-    marker_path, marker_sha256 = issued
-    try:
-        marker_bytes = marker_path.read_bytes()
-        marker = json.loads(marker_bytes)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise EvaluationAuthorizationError(
-            "network authorization consumption marker is unavailable"
-        ) from exc
-    if (
-        sha256_bytes(marker_bytes) != marker_sha256
-        or not isinstance(marker, dict)
-        or marker.get("plan_id") != session.plan.plan_id
-        or marker.get("receipt_id") != session.receipt_id
-        or marker.get("authorization_nonce") != session.nonce
-        or marker.get("consumed_at") != session.consumed_at
-    ):
-        raise EvaluationAuthorizationError(
-            "network authorization consumption marker differs"
-        )
-    session._assert_request(
-        source=source,
-        url=url,
-        timeout_seconds=timeout_seconds,
-        max_response_bytes=max_response_bytes,
-        page_index=page_index,
-        expected_page_token=expected_page_token,
-    )
+        issued["next_page"] = page_index + 1
 
 
 class NetworkAuthorizationUseStore:
@@ -269,8 +287,9 @@ class NetworkAuthorizationUseStore:
                     "plan_id": plan.plan_id,
                     "receipt_id": receipt.receipt_id,
                     "authorization_nonce": nonce,
-                    "consumed_at": iso_z(observed),
-                    "time_authority": trusted_clock.mode,
+                        "consumed_at": iso_z(observed),
+                        "expires_at": receipt.expires_at,
+                        "time_authority": trusted_clock.mode,
                 }
             )
             atomic_write(
@@ -282,7 +301,12 @@ class NetworkAuthorizationUseStore:
         object.__setattr__(session, "receipt_id", receipt.receipt_id)
         object.__setattr__(session, "nonce", nonce)
         object.__setattr__(session, "consumed_at", iso_z(observed))
-        _ISSUED_SESSIONS[session] = (marker, sha256_bytes(marker_payload))
+        object.__setattr__(session, "expires_at", receipt.expires_at)
+        _ISSUED_SESSIONS[session] = {
+            "marker_path": marker,
+            "marker_sha256": sha256_bytes(marker_payload),
+            "next_page": 0,
+        }
         return session
 
 

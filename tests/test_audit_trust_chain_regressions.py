@@ -231,7 +231,26 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
         max_response_bytes=32 * 1024 * 1024,
         page_index=0,
         expected_page_token=None,
+        clock=clock,
     )
+    expired_clock = TrustedClock.synthetic_fixed(
+        at + timedelta(minutes=10),
+        permit=_permit(
+            "network-authorization-expired-clock",
+            "TRUSTED_CLOCK_FIXED_TIME",
+        ),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="has expired"):
+        assert_authorized_network_request(
+            session,
+            source="nasdaqtraded",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=1,
+            expected_page_token=None,
+            clock=expired_clock,
+        )
     with pytest.raises(EvaluationAuthorizationError, match="already been consumed"):
         store.authorize(
             plan=plan,
@@ -239,7 +258,7 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
             authority=authority,
             clock=clock,
         )
-    with pytest.raises(EvaluationAuthorizationError, match="initial network request"):
+    with pytest.raises(EvaluationAuthorizationError, match="reused or is out of sequence"):
         assert_authorized_network_request(
             session,
             source="nasdaqtraded",
@@ -248,12 +267,14 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
             max_response_bytes=32 * 1024 * 1024,
             page_index=0,
             expected_page_token=None,
+            clock=clock,
         )
     forged = object.__new__(NetworkAuthorizationSession)
     object.__setattr__(forged, "plan", plan)
     object.__setattr__(forged, "receipt_id", receipt.receipt_id)
     object.__setattr__(forged, "nonce", "A" * 43)
     object.__setattr__(forged, "consumed_at", clock.now().isoformat())
+    object.__setattr__(forged, "expires_at", receipt.expires_at)
     with pytest.raises(EvaluationAuthorizationError, match="not issued"):
         assert_authorized_network_request(
             forged,
@@ -263,6 +284,7 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
             max_response_bytes=32 * 1024 * 1024,
             page_index=0,
             expected_page_token=None,
+            clock=clock,
         )
 
 
