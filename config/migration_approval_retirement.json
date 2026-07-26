@@ -1,0 +1,10 @@
+{
+  "approval_id": "06b0acdbc332e88e1d21ccd4144740d522c03d4e054295703b1a80de651cf336",
+  "plan_id": "479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82",
+  "reason": "Implementation closure changed after the completed migration; preserve this approval only as historical evidence.",
+  "replacement_approval_id": null,
+  "retired_at": "2026-07-25T00:00:00Z",
+  "retirement_id": "f20dc26ccdd0790bcf70b37858f52055b6d78da79e8ac7e7a34234fe51347adc",
+  "schema_version": 1,
+  "status": "RETIRED_NON_AUTHORIZING_HISTORICAL_EVIDENCE_ONLY"
+}

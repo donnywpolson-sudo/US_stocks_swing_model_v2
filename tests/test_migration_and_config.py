@@ -24,6 +24,7 @@ from us_stocks_swing_model_v2.migration import (
     approval_payload_for_review,
     execute_copy_plan,
     load_migration_approval,
+    load_migration_approval_retirement,
     load_sealed_migration_approval,
     load_migration_config,
     migration_payload_object_relative,
@@ -231,6 +232,29 @@ def test_checked_in_migration_approval_binds_completed_reviewed_capsule(
     assert approval.total_bytes == 345_845_816
     assert len(release.entries) == approval.file_count
     assert sum(entry.size for entry in release.entries) == approval.total_bytes
+    retirement = load_migration_approval_retirement()
+    assert retirement.approval_id == approval.approval_id
+    assert retirement.plan_id == approval.plan_id
+    assert retirement.replacement_approval_id is None
+    tampered_retirement = migration_module.MigrationApprovalRetirement.from_dict(
+        {**retirement.unsigned_dict(), "retirement_id": "0" * 64}
+    )
+    with pytest.raises(PermissionError, match="retirement_id"):
+        tampered_retirement.validate()
+    with pytest.raises(PermissionError, match="historical evidence only"):
+        approval.validate(
+            migration_module.MigrationPlan(
+                entries=tuple(),
+                config_sha256=approval.config_sha256,
+                inventory_sha256=approval.inventory_sha256,
+                plan_id=approval.plan_id,
+                destination_vault="historical",
+                allowed_vault_root="historical",
+                allowed_source_roots=tuple(),
+                migration_manifest_schema_version=MIGRATION_MANIFEST_SCHEMA_VERSION,
+                payload_layout_version=PAYLOAD_LAYOUT_VERSION,
+            )
+        )
 
 
 def test_migration_checkpoint_resumes_without_partial_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

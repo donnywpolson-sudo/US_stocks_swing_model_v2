@@ -11,6 +11,7 @@ from us_stocks_swing_model_v2.bundle import (
     BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID,
     BLOCKED_READINESS_RECEIPT_ID,
     SealedBundleMetadata,
+    _require_reachable_sealing_time,
     build_metadata,
     load_bundle,
     prepare_bundle_candidate,
@@ -18,7 +19,12 @@ from us_stocks_swing_model_v2.bundle import (
 )
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
+from us_stocks_swing_model_v2.common import (
+    canonical_json_bytes,
+    iso_z,
+    parse_utc_z,
+    sha256_bytes,
+)
 from us_stocks_swing_model_v2.errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from us_stocks_swing_model_v2.eligibility import (
     ELIGIBILITY_CENSUS_CONTRACT_ID,
@@ -165,7 +171,12 @@ def _accepted_release(
     return AtomicReleasePublisher(root / "accepted").publish(stage, manifest)
 
 
-def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None) -> Path:
+def _bundle(
+    tmp_path: Path,
+    *,
+    model_overrides: dict[str, object] | None = None,
+    production_sealing: bool = False,
+) -> Path:
     root = tmp_path / "bundle"
     root.mkdir(parents=True)
     model = {
@@ -258,6 +269,12 @@ def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None)
         policy=_gate_policy(),
         metrics={name: _sleeve_metric() for name in ("stock_long", "stock_short", "etf_long", "etf_short")},
     )
+    if production_sealing:
+        sealing_clock = TrustedClock.production()
+        sealing_observed_at = sealing_clock.now()
+    else:
+        sealing_observed_at = datetime(2026, 7, 15, 3, tzinfo=timezone.utc)
+        sealing_clock = _clock(sealing_observed_at)
     candidate = prepare_bundle_candidate(
         root,
         ["model.json"],
@@ -272,7 +289,7 @@ def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None)
         feature_names=("momentum", "volatility"),
         feature_types={"momentum": "float64", "volatility": "float64"},
         training_cutoff="2026-06-30T20:00:00Z",
-        sealed_at="2026-07-15T03:00:00Z",
+        sealed_at=iso_z(sealing_observed_at),
         data_release_ids=tuple(sorted(value["release_id"] for value in manifests.values())),
         training_release_ids=tuple(
             sorted(
@@ -305,21 +322,21 @@ def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None)
         scope="AUTHORIZE_CANDIDATE_SEALING",
         subject_id=candidate.candidate_id,
         bindings=candidate.sealing_bindings(),
-        issued_at="2026-07-15T02:30:00Z",
-        expires_at="2026-07-15T04:00:00Z",
+        issued_at=iso_z(sealing_observed_at - timedelta(minutes=1)),
+        expires_at=iso_z(sealing_observed_at + timedelta(minutes=30)),
         authority=_authority(),
     )
     metadata = build_metadata(
         candidate,
         sealing_authorization=authorization,
         authorization_authority=_authority(),
-        clock=_clock(datetime(2026, 7, 15, 3, tzinfo=timezone.utc)),
+        clock=sealing_clock,
     )
     seal_bundle(
         root,
         metadata,
         authorization_authority=_authority(),
-        clock=_clock(datetime(2026, 7, 15, 3, tzinfo=timezone.utc)),
+        clock=sealing_clock,
     )
     assert load_bundle(root, authorization_authority=_authority()) == metadata
     return root
@@ -327,6 +344,27 @@ def _bundle(tmp_path: Path, *, model_overrides: dict[str, object] | None = None)
 
 def _load_bundle(bundle_path: Path):
     return load_bundle(bundle_path, authorization_authority=_authority())
+
+
+def test_bundle_sealing_is_reachable_with_production_clock(tmp_path: Path) -> None:
+    bundle_path = _bundle(tmp_path, production_sealing=True)
+    metadata = _load_bundle(bundle_path)
+    assert parse_utc_z(metadata.sealed_at, "sealed_at") <= TrustedClock.production().now()
+
+
+def test_bundle_sealing_window_rejects_future_and_stale_times() -> None:
+    observed_at = datetime(2026, 7, 15, 3, 15, tzinfo=timezone.utc)
+    with pytest.raises(ContractError, match="future"):
+        _require_reachable_sealing_time(
+            "2026-07-15T03:15:00.000001Z",
+            observed_at,
+        )
+    with pytest.raises(ContractError, match="bounded sealing window"):
+        _require_reachable_sealing_time(
+            "2026-07-15T02:59:59.999999Z",
+            observed_at,
+        )
+    _require_reachable_sealing_time("2026-07-15T03:00:00Z", observed_at)
 
 
 def _engine(bundle_path: Path, *, clock: TrustedClock) -> FitFreeInferenceEngine:
