@@ -83,12 +83,22 @@ def normalize_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
 class NetworkAcquisitionRegistry:
     registry_id: str
     registry_path: str
+    registry_root: str
     allowed_origin_paths: Mapping[str, str]
     accepted_http_statuses: Mapping[str, tuple[int, ...]]
 
     @classmethod
-    def load(cls, registry_path: Path) -> "NetworkAcquisitionRegistry":
-        path = Path(registry_path).resolve(strict=True)
+    def load(
+        cls,
+        registry_path: Path,
+        *,
+        allowed_root: Path,
+    ) -> "NetworkAcquisitionRegistry":
+        candidate = Path(registry_path)
+        root = Path(allowed_root)
+        require_contained_path(candidate, root)
+        path = candidate.resolve(strict=True)
+        resolved_root = root.resolve(strict=True)
         reject_link(path)
         if not path.is_file() or path.stat().st_nlink != 1:
             raise ContractError("network acquisition registry must be an independent plain file")
@@ -151,6 +161,7 @@ class NetworkAcquisitionRegistry:
         registry = object.__new__(cls)
         object.__setattr__(registry, "registry_id", sha256_bytes(canonical_json_bytes(payload)))
         object.__setattr__(registry, "registry_path", str(path))
+        object.__setattr__(registry, "registry_root", str(resolved_root))
         object.__setattr__(registry, "allowed_origin_paths", dict(sorted(allowed.items())))
         object.__setattr__(
             registry,
@@ -162,7 +173,11 @@ class NetworkAcquisitionRegistry:
 
     def validate(self) -> None:
         path = Path(self.registry_path)
+        root = Path(self.registry_root)
+        require_contained_path(path, root)
         reject_link(path)
+        if not path.is_file() or path.stat().st_nlink != 1:
+            raise ContractError("network acquisition registry must remain an independent plain file")
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -693,13 +708,17 @@ class AsReceivedSnapshotStore:
         authority: AuthorizationAuthority,
         clock: TrustedClock,
     ) -> LandedSnapshot:
+        contained_attestation = require_contained_path(
+            Path(attestation_path),
+            self.allowed_root,
+        )
         snapshot = self.load(snapshot_dir)
         trusted_clock = require_trusted_clock(clock)
         if not trusted_clock.trust_eligible:
             raise ContractError(
                 "network attestation verification requires the production UTC clock"
             )
-        receipt = load_signed_network_acquisition_receipt(attestation_path)
+        receipt = load_signed_network_acquisition_receipt(contained_attestation)
         observed_at = trusted_clock.now()
         receipt.validate(
             snapshot=snapshot,

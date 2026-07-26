@@ -9,7 +9,7 @@ import pytest
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
-from us_stocks_swing_model_v2.errors import ContractError
+from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.ledger import HashChainLedger, OutcomeLedger, PredictionLedger
 from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, build_manifest
 from us_stocks_swing_model_v2.schemas import OutcomeRow, OutcomeStatus, SecurityType, UnderlyingPrediction
@@ -125,6 +125,23 @@ def test_hash_ledger_recovers_precommit_journal_atomically(tmp_path: Path) -> No
     path.with_suffix(".jsonl.pending.json").write_bytes(canonical_json_bytes(pending))
     assert [row["payload"]["id"] for row in ledger.read_verified()] == [1, 2]
     assert not path.with_suffix(".jsonl.pending.json").exists()
+
+
+@pytest.mark.parametrize("pending", [[], "text", 7, True, None])
+def test_hash_ledger_rejects_non_object_recovery_journal(
+    tmp_path: Path, pending: object
+) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = HashChainLedger(
+        path,
+        "fixture_v1",
+        clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
+    )
+    path.with_suffix(".jsonl.pending.json").write_text(
+        json.dumps(pending), encoding="utf-8"
+    )
+    with pytest.raises(IntegrityError, match="must be a JSON object"):
+        ledger.read_verified()
 
 
 def test_outcome_ledger_requires_prior_earlier_prediction(tmp_path: Path) -> None:

@@ -31,6 +31,25 @@ _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
 )
 
 
+def _reviewed_external_authority_registry_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "authorization_authorities.json"
+    )
+
+
+def _require_reviewed_external_authority_registry(registry_path: Path) -> Path:
+    path = Path(registry_path)
+    reviewed = _reviewed_external_authority_registry_path()
+    if not path.is_absolute() or path != reviewed:
+        raise EvaluationAuthorizationError(
+            "external authority must use the reviewed project registry"
+        )
+    reject_link(path)
+    return path
+
+
 def _decode_base64url_uint(value: object, *, label: str) -> int:
     if not isinstance(value, str) or _BASE64URL_UINT.fullmatch(value) is None:
         raise EvaluationAuthorizationError(f"{label} is not canonical base64url")
@@ -154,7 +173,10 @@ class AuthorizationAuthority:
             ):
                 raise EvaluationAuthorizationError("external authority key class/algorithm is invalid")
             _parse_external_public_jwk(self.verification_key)
-            payload, registry_id = _read_authority_registry(Path(self.registry_path))
+            path = _require_reviewed_external_authority_registry(
+                Path(self.registry_path)
+            )
+            payload, registry_id = _read_authority_registry(path)
             if registry_id != self.registry_id:
                 raise EvaluationAuthorizationError("external authority registry changed after loading")
             matches = [
@@ -221,8 +243,8 @@ def load_external_authority(
     key_id: str,
     verification_key: bytes,
 ) -> AuthorizationAuthority:
-    """Load a pinned authority registry that is outside candidate/trial inputs."""
-    path = Path(registry_path).resolve(strict=True)
+    """Load only the separately reviewed, checked-in production trust anchor."""
+    path = _require_reviewed_external_authority_registry(Path(registry_path))
     payload, registry_id = _read_authority_registry(path)
     matches = [row for row in payload["authorities"] if isinstance(row, dict) and row.get("key_id") == key_id]
     if payload["status"] != "ACTIVE" or len(matches) != 1:

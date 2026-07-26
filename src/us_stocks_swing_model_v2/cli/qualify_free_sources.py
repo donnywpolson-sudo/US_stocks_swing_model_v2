@@ -6,13 +6,16 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
-from ..common import iso_z, sha256_bytes
+from ..common import atomic_write, canonical_json_bytes, iso_z, sha256_bytes
 from ..clock import TrustedClock
 from ..errors import NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
-from ..governance import load_external_authority
+from ..governance import (
+    load_external_authority,
+    load_signed_authorization_receipt,
+)
 from ..providers.alpaca import (
     AUTH_ENVIRONMENT_TOKEN,
     AlpacaBarsPolicy,
@@ -21,6 +24,13 @@ from ..providers.alpaca import (
     qualify_landed_pages,
 )
 from ..providers.nasdaq import NASDAQ_TRADED_URL, parse_nasdaq_traded
+from ..providers.http import open_without_redirects
+from ..providers.network_authorization import (
+    NetworkAuthorizationUseStore,
+    NetworkRequestPlan,
+    assert_authorized_network_request,
+    network_authorization_request,
+)
 from ..providers.snapshots import (
     ALLOWED_RESPONSE_HEADERS,
     AsReceivedSnapshotStore,
@@ -52,9 +62,27 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--start", default="2024-01-02T00:00:00Z")
     value.add_argument("--end", default="2024-01-10T00:00:00Z")
     value.add_argument("--acquisition-attestation", type=Path)
-    value.add_argument("--attestation-authority-registry", type=Path)
+    value.add_argument(
+        "--attestation-authority-registry",
+        type=Path,
+        help="exact reviewed config/authorization_authorities.json",
+    )
     value.add_argument("--attestation-key-id")
     value.add_argument("--attestation-public-key-file", type=Path)
+    value.add_argument(
+        "--prior-nasdaq-accepted-record-count",
+        type=int,
+        help="trusted count from the immediately preceding accepted Nasdaq receipt",
+    )
+    value.add_argument("--network-authorization", action="append", type=Path, default=[])
+    value.add_argument(
+        "--network-authority-registry",
+        type=Path,
+        help="exact reviewed config/authorization_authorities.json",
+    )
+    value.add_argument("--network-key-id")
+    value.add_argument("--network-public-key-file", type=Path)
+    value.add_argument("--authorization-request-directory", type=Path)
     return value
 
 
@@ -73,6 +101,40 @@ def main(argv: list[str] | None = None) -> int:
     use_alpaca = not args.nasdaq_only and not verify_nasdaq
     use_nasdaq = not args.alpaca_only
     alpaca_policies = tuple(AlpacaBarsPolicy(feed=feed, asof=None) for feed in ("sip", "iex"))
+    repo_root = Path(__file__).resolve().parents[3]
+    source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
+    acquisition_registry = NetworkAcquisitionRegistry.load(
+        repo_root / "config" / "network_acquisition_registry.json",
+        allowed_root=repo_root / "config",
+    )
+    trusted_clock = TrustedClock.production()
+    request_plans: dict[str, NetworkRequestPlan] = {}
+    if use_alpaca:
+        for policy in alpaca_policies:
+            source = f"alpaca_{policy.feed}_qualification"
+            request_plans[source] = NetworkRequestPlan.create(
+                registry=acquisition_registry,
+                source=source,
+                initial_url=alpaca_request.url(policy),
+                timeout_seconds=30,
+                max_response_bytes=64 * 1024 * 1024,
+                max_pages=10,
+                pagination_parameter="page_token",
+            )
+    if use_nasdaq:
+        request_plans["nasdaqtraded"] = NetworkRequestPlan.create(
+            registry=acquisition_registry,
+            source="nasdaqtraded",
+            initial_url=NASDAQ_TRADED_URL,
+            timeout_seconds=30,
+            max_response_bytes=MAX_NASDAQ_RESPONSE_BYTES,
+            max_pages=1,
+            pagination_parameter=None,
+        )
+    authorization_requests = {
+        source: network_authorization_request(plan_item, clock=trusted_clock)
+        for source, plan_item in sorted(request_plans.items())
+    }
     plan: dict[str, object] = {
         "mode": (
             "verify_attested_nasdaq_snapshot"
@@ -87,14 +149,43 @@ def main(argv: list[str] | None = None) -> int:
         } if use_alpaca else {"selected": False},
         "nasdaq": {"urls": NASDAQ_URLS, "purpose": "as_received_identity_type_snapshot"} if use_nasdaq else {"selected": False},
         "prohibitions": ["model_fit", "alpha_metric", "order_endpoint", "historical_backfill"],
+        "authorization_requests": authorization_requests,
     }
+    network_authority_inputs = (
+        args.network_authorization,
+        args.network_authority_registry,
+        args.network_key_id,
+        args.network_public_key_file,
+    )
     if not args.execute_network and not verify_nasdaq:
+        if any(network_authority_inputs):
+            raise NetworkGuardError(
+                "network authorization inputs are accepted only with --execute-network"
+            )
+        if args.authorization_request_directory is not None:
+            destination = args.authorization_request_directory
+            if not destination.is_absolute() or destination.exists():
+                raise NetworkGuardError(
+                    "authorization request directory must be a new absolute path"
+                )
+            destination.mkdir(parents=True)
+            for source, request_payload in authorization_requests.items():
+                atomic_write(
+                    destination / f"{source}.json",
+                    canonical_json_bytes(request_payload),
+                )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
+    if args.authorization_request_directory is not None:
+        raise NetworkGuardError(
+            "authorization request output is available only in plan-only mode"
+        )
     if args.execute_network and os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(f"require {AUTH_ENVIRONMENT_TOKEN}=YES")
-    repo_root = Path(__file__).resolve().parents[3]
-    source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
+    if verify_nasdaq and any(network_authority_inputs):
+        raise NetworkGuardError(
+            "network authorization inputs cannot be used for offline verification"
+        )
     pinned_store_root = Path(str(source_config["snapshot_store_root"]))
     expected_store_root = repo_root / "data" / "vault" / "qualification" / "as_received"
     if pinned_store_root != expected_store_root or source_config.get("project") != "US_stocks_swing_model_v2":
@@ -121,15 +212,54 @@ def main(argv: list[str] | None = None) -> int:
             calendar_release,
             accepted_release_root=expected_calendar_root,
         )
-    acquisition_registry = NetworkAcquisitionRegistry.load(
-        repo_root / "config" / "network_acquisition_registry.json"
-    )
     store = AsReceivedSnapshotStore(
         pinned_store_root,
         allowed_root=repo_root,
         acquisition_registry=acquisition_registry,
     )
-    trusted_clock = TrustedClock.production()
+    network_sessions = {}
+    if args.execute_network:
+        missing_network_authority = [
+            name
+            for name, value in {
+                "--network-authorization": args.network_authorization,
+                "--network-authority-registry": args.network_authority_registry,
+                "--network-key-id": args.network_key_id,
+                "--network-public-key-file": args.network_public_key_file,
+            }.items()
+            if not value
+        ]
+        if missing_network_authority:
+            raise NetworkGuardError(
+                "network execution requires: " + ", ".join(missing_network_authority)
+            )
+        authority = load_external_authority(
+            args.network_authority_registry,
+            key_id=args.network_key_id,
+            verification_key=args.network_public_key_file.read_bytes(),
+        )
+        receipts = [
+            load_signed_authorization_receipt(path)
+            for path in args.network_authorization
+        ]
+        by_subject = {receipt.subject_id: receipt for receipt in receipts}
+        if len(by_subject) != len(receipts) or set(by_subject) != {
+            item.plan_id for item in request_plans.values()
+        }:
+            raise NetworkGuardError(
+                "network authorization receipts must exactly cover selected request plans"
+            )
+        use_store = NetworkAuthorizationUseStore(
+            repo_root / "data" / "vault" / "qualification" / "network_authorization_uses",
+            allowed_root=repo_root,
+        )
+        for source, plan_item in request_plans.items():
+            network_sessions[source] = use_store.authorize(
+                plan=plan_item,
+                receipt=by_subject[plan_item.plan_id],
+                authority=authority,
+                clock=trusted_clock,
+            )
     result: dict[str, object] = {}
     if verify_nasdaq:
         required_attestation = {
@@ -160,7 +290,10 @@ def main(argv: list[str] | None = None) -> int:
             raise NetworkGuardError(
                 "attested snapshot is not the exact contracted Nasdaq source"
             )
-        records = parse_nasdaq_traded(snapshot)
+        records = parse_nasdaq_traded(
+            snapshot,
+            prior_accepted_record_count=args.prior_nasdaq_accepted_record_count,
+        )
         file_created_values = {iso_z(record.file_created_at) for record in records}
         if len(file_created_values) != 1:
             raise ValueError(
@@ -195,6 +328,9 @@ def main(argv: list[str] | None = None) -> int:
                 policy=policy,
                 network_enabled=True,
                 clock=trusted_clock,
+                authorization_session=network_sessions[
+                    f"alpaca_{policy.feed}_qualification"
+                ],
             )
             qualification = qualify_landed_pages(
                 alpaca_request,
@@ -226,7 +362,19 @@ def main(argv: list[str] | None = None) -> int:
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "www.nasdaqtrader.com":
             raise NetworkGuardError("Nasdaq URL is outside the frozen host")
-        with urlopen(Request(url, method="GET"), timeout=30) as response:  # noqa: S310 - host pinned above
+        assert_authorized_network_request(
+            network_sessions["nasdaqtraded"],
+            source="nasdaqtraded",
+            url=url,
+            timeout_seconds=30,
+            max_response_bytes=MAX_NASDAQ_RESPONSE_BYTES,
+            page_index=0,
+            expected_page_token=None,
+            clock=trusted_clock,
+        )
+        with open_without_redirects(
+            Request(url, method="GET"), timeout_seconds=30
+        ) as response:
             raw = response.read(MAX_NASDAQ_RESPONSE_BYTES + 1)
             headers = normalize_response_headers(
                 {

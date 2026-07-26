@@ -165,6 +165,12 @@
   `NOT_CONFIGURED`, no external authority is active. Activation requires a
   separately reviewed public-key registry change and an externally signed,
   exact, current receipt.
+- Provider execution additionally requires a single-use
+  `AUTHORIZE_NETWORK_ACQUISITION` receipt bound to the exact source, initial
+  URL, network registry, timeout, response limit, pagination bound, expiry,
+  and nonce. Consume it before the first request; interruption spends it and
+  requires a fresh external signature. The environment token is never
+  sufficient authority.
 - `build_historical_foundation` is plan-only. Foundation publication mechanics
   require an explicit synthetic-only permit and exact containing fixture root;
   there is no production publication authority.

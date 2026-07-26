@@ -8,13 +8,18 @@ import math
 from typing import Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 from zoneinfo import ZoneInfo
 
 from ..common import require_aware_utc, sha256_bytes
 from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
+from .http import open_without_redirects
+from .network_authorization import (
+    NetworkAuthorizationSession,
+    assert_authorized_network_request,
+)
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -156,6 +161,9 @@ def guarded_fetch_json(
     network_enabled: bool = False,
     timeout_seconds: int = 30,
     clock: TrustedClock | None = None,
+    authorization_session: NetworkAuthorizationSession | None = None,
+    page_index: int = 0,
+    expected_page_token: str | None = None,
 ) -> HttpResponseEvidence:
     if not network_enabled or os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(
@@ -164,13 +172,26 @@ def guarded_fetch_json(
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
     url = request.url(policy)
+    trusted_clock = require_trusted_clock(clock)
+    assert_authorized_network_request(
+        authorization_session,
+        source=f"alpaca_{policy.feed}_qualification",
+        url=url,
+        timeout_seconds=timeout_seconds,
+        max_response_bytes=MAX_ALPACA_RESPONSE_BYTES,
+        page_index=page_index,
+        expected_page_token=expected_page_token,
+        clock=trusted_clock,
+    )
     http_request = Request(
         url,
         headers={"APCA-API-KEY-ID": api_key_id, "APCA-API-SECRET-KEY": api_secret_key},
         method="GET",
     )
     try:
-        with urlopen(http_request, timeout=timeout_seconds) as response:  # noqa: S310 - host is policy pinned
+        with open_without_redirects(
+            http_request, timeout_seconds=timeout_seconds
+        ) as response:
             payload_bytes = response.read(MAX_ALPACA_RESPONSE_BYTES + 1)
             headers = normalize_response_headers(
                 {
@@ -202,7 +223,7 @@ def guarded_fetch_json(
         status=status,
         raw_bytes=payload_bytes,
         headers=headers,
-        retrieved_at=require_trusted_clock(clock).now(),
+        retrieved_at=trusted_clock.now(),
     )
     return evidence
 
@@ -217,6 +238,7 @@ def guarded_fetch_landed_pages(
     network_enabled: bool = False,
     max_pages: int = 10,
     clock: TrustedClock | None = None,
+    authorization_session: NetworkAuthorizationSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not 1 <= max_pages <= MAX_QUALIFICATION_PAGES:
         raise ContractError(f"max_pages must be in [1,{MAX_QUALIFICATION_PAGES}]")
@@ -224,7 +246,7 @@ def guarded_fetch_landed_pages(
     trusted_clock = require_trusted_clock(clock)
     request = initial
     seen_tokens: set[str] = set()
-    for _ in range(max_pages):
+    for page_index in range(max_pages):
         evidence = guarded_fetch_json(
             request,
             api_key_id=api_key_id,
@@ -232,6 +254,9 @@ def guarded_fetch_landed_pages(
             policy=policy,
             network_enabled=network_enabled,
             clock=trusted_clock,
+            authorization_session=authorization_session,
+            page_index=page_index,
+            expected_page_token=request.page_token,
         )
         source = f"alpaca_{policy.feed}_qualification"
         snapshot = snapshot_store._land_network_response(

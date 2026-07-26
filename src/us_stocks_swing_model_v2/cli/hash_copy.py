@@ -34,7 +34,11 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="repository-pinned authority for the completed controlled rebuild",
     )
-    value.add_argument("--authority-registry", type=Path, help="pinned external authority registry")
+    value.add_argument(
+        "--authority-registry",
+        type=Path,
+        help="exact reviewed config/authorization_authorities.json",
+    )
     value.add_argument("--authority-key-id", help="active external authority key ID")
     value.add_argument("--public-key-file", type=Path, help="external RSA public JWK")
     value.add_argument("--execute", action="store_true", help="requires HASH_COPY_APPROVED=YES")

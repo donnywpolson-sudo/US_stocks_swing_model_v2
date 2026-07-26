@@ -31,6 +31,10 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
   Network capture now emits an exact signing request but makes no qualification
   claim; only an externally signed, registry-bound receipt can be verified
   offline and promote the matching immutable snapshot.
+- Provider entrypoints now require a separate, single-use externally signed
+  request authorization before network access. The receipt binds the exact
+  initial URL, registry, limits, pagination family, expiry, and nonce; an
+  interrupted use is spent rather than replayed.
 - The historical-foundation CLI is plan-only. Mutating foundation mechanics
   are synthetic-fixture-only and root-bound; there is no production
   publication authority.

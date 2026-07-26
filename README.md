@@ -236,7 +236,9 @@ shared-secret receipts are rejected, and no authority is active while the
 checked registry is `NOT_CONFIGURED`. See
 `docs/EXTERNAL_AUTHORIZATION.md`. Network capture and offline detached-
 attestation verification are separate operations; an unattested capture is
-never qualified. See `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
+never qualified. Provider execution also consumes a separate externally signed
+request authorization before opening a connection. See
+`docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
 commands operate only on accepted local releases and make no provider or
 historical-research calls.
 

@@ -21,6 +21,16 @@ revocation invalidates an already loaded authority.
 The checked-in registry is deliberately `NOT_CONFIGURED`. Therefore no current
 receipt can authorize production activity.
 
+Production verification accepts only that exact checked-in registry path. A
+caller-created registry is rejected even when it is schema-valid, marked
+`ACTIVE`, and matches the caller's public key. Activation therefore requires a
+separately reviewed change to the checked-in trust anchor.
+
+Authorization assembly also requires an existing absolute
+`--allowed-output-root`. Signing payloads and assembled receipts must be new
+paths contained under that root; outside-root and link-mediated destinations
+are rejected before parent directories are created.
+
 ## Separation of authority
 
 The repository:
@@ -45,7 +55,7 @@ An externally authorized copy requires all of:
 --execute
 --approval <reviewed migration approval>
 --authorization <externally signed receipt>
---authority-registry <active pinned registry>
+--authority-registry <exact reviewed config/authorization_authorities.json>
 --authority-key-id <exact key ID>
 --public-key-file <matching RSA public JWK>
 ```
@@ -57,3 +67,16 @@ exclusive.
 
 Public-key configuration, external signing, and execution each require their
 own explicit review and authorization.
+
+## Provider network authorization
+
+Every provider request additionally requires an externally signed
+`AUTHORIZE_NETWORK_ACQUISITION` receipt. The receipt identifies one exact
+bounded acquisition plan and is durably consumed before transmission. The
+environment token and execution flag remain separate gates. Missing, expired,
+replayed, over-broad, wrong-source, wrong-URL, or wrong-registry receipts fail
+before a provider connection is opened.
+
+Nasdaq authorizes one exact GET. Alpaca bar and corporate-action receipts
+authorize a bounded pagination family: the signed initial URL is exact and
+only a verified preceding response may supply the next `page_token`.

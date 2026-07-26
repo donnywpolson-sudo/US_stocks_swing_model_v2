@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from typing import Iterable
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from ..common import (
     canonical_json_bytes,
@@ -20,6 +20,11 @@ from ..common import (
 from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from .alpaca import AUTH_ENVIRONMENT_TOKEN, HttpResponseEvidence
+from .http import open_without_redirects
+from .network_authorization import (
+    NetworkAuthorizationSession,
+    assert_authorized_network_request,
+)
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -220,6 +225,7 @@ def guarded_fetch_corporate_action_pages(
     max_pages: int = 10,
     timeout_seconds: int = 30,
     clock: TrustedClock | None = None,
+    authorization_session: NetworkAuthorizationSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not network_enabled or os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(
@@ -233,7 +239,17 @@ def guarded_fetch_corporate_action_pages(
     trusted_clock = require_trusted_clock(clock)
     request = initial
     seen_tokens: set[str] = set()
-    for _ in range(max_pages):
+    for page_index in range(max_pages):
+        assert_authorized_network_request(
+            authorization_session,
+            source="alpaca_corporate_actions",
+            url=request.url(),
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=MAX_RESPONSE_BYTES,
+            page_index=page_index,
+            expected_page_token=request.page_token,
+            clock=trusted_clock,
+        )
         evidence = _fetch_page(
             request,
             api_key_id=api_key_id,
@@ -388,7 +404,9 @@ def _fetch_page(
         method="GET",
     )
     try:
-        with urlopen(http_request, timeout=timeout_seconds) as response:  # noqa: S310 - host is pinned above
+        with open_without_redirects(
+            http_request, timeout_seconds=timeout_seconds
+        ) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             headers = normalize_response_headers(
                 {

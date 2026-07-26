@@ -175,6 +175,10 @@ def parse_nasdaq_traded(
                 }
             )
         )
+    if completeness.synthetic_permit is None and prior_accepted_record_count is None:
+        raise ContractError(
+            "production Nasdaq parse requires a trusted prior accepted record count"
+        )
     raw = snapshot.read_verified_bytes()
     if not completeness.minimum_bytes <= len(raw) <= completeness.maximum_bytes:
         raise ContractError("nasdaqtraded.txt byte count fails the completeness policy")
