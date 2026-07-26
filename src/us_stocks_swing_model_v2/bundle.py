@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -31,6 +31,7 @@ from .governance import (
 
 
 BUNDLE_MANIFEST = "sealed_bundle.json"
+BUNDLE_SEALING_MAX_AGE = timedelta(minutes=15)
 BLOCKED_READINESS_RECEIPT_ID = sha256_bytes(
     canonical_json_bytes({"state": "NOT_ISSUED_BLOCKS_PRODUCTION", "schema": 1})
 )
@@ -44,6 +45,16 @@ TRUST_ELIGIBLE_ROLES = {
     "feature_only",
     "outcome_only",
 }
+
+
+def _require_reachable_sealing_time(sealed_at: str, observed_at: datetime) -> None:
+    """Require a recent, non-future candidate time without instant equality."""
+
+    sealed = parse_utc_z(sealed_at, "sealed_at")
+    if sealed > observed_at:
+        raise ContractError("bundle sealed_at cannot be in the future")
+    if observed_at - sealed > BUNDLE_SEALING_MAX_AGE:
+        raise ContractError("bundle sealed_at is outside the bounded sealing window")
 
 
 @dataclass(frozen=True)
@@ -598,8 +609,10 @@ def build_metadata(
 ) -> SealedBundleMetadata:
     candidate_payload = candidate.candidate_dict()
     trusted_clock = require_trusted_clock(clock)
-    if parse_utc_z(str(candidate_payload["sealed_at"]), "sealed_at") != trusted_clock.now():
-        raise ContractError("bundle sealed_at must come from the trusted sealing clock")
+    _require_reachable_sealing_time(
+        str(candidate_payload["sealed_at"]),
+        trusted_clock.now(),
+    )
     sealing_authorization.validate(
         authority=authorization_authority,
         expected_scope="AUTHORIZE_CANDIDATE_SEALING",
@@ -627,8 +640,7 @@ def seal_bundle(
 ) -> Path:
     metadata.validate()
     trusted_clock = require_trusted_clock(clock)
-    if parse_utc_z(metadata.sealed_at, "sealed_at") != trusted_clock.now():
-        raise ContractError("bundle sealing must occur at its trusted sealed_at")
+    _require_reachable_sealing_time(metadata.sealed_at, trusted_clock.now())
     metadata.sealing_authorization.validate(
         authority=authorization_authority,
         expected_scope="AUTHORIZE_CANDIDATE_SEALING",

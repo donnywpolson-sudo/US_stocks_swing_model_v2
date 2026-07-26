@@ -37,6 +37,16 @@ COPY_AUTHORIZATION_SCOPE = "AUTHORIZE_CONTROLLED_HASH_COPY"
 SYNTHETIC_COPY_SCOPE = "SYNTHETIC_HASH_COPY_EXECUTION"
 MIGRATION_MANIFEST_SCHEMA_VERSION = 2
 PAYLOAD_LAYOUT_VERSION = "flat_object_160bit_v1"
+MIGRATION_APPROVAL_RETIREMENT_PATH = "config/migration_approval_retirement.json"
+RETIRED_MIGRATION_APPROVAL_ID = (
+    "06b0acdbc332e88e1d21ccd4144740d522c03d4e054295703b1a80de651cf336"
+)
+RETIRED_MIGRATION_PLAN_ID = (
+    "479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82"
+)
+MIGRATION_APPROVAL_RETIRED_STATUS = (
+    "RETIRED_NON_AUTHORIZING_HISTORICAL_EVIDENCE_ONLY"
+)
 _PAYLOAD_OBJECT_PATTERN = re.compile(r"^o/[0-9a-f]{40}$")
 _COPY_TEMP_PATTERN = re.compile(r"^\.cp\.([0-9a-f]{40})\.[0-9a-f]{8}\.tmp$")
 _ATOMIC_TEMP_PATTERN = re.compile(r"^\.aw\.[^.]+\.tmp$")
@@ -374,6 +384,15 @@ class MigrationApproval:
 
     def validate(self, plan: MigrationPlan) -> None:
         self.validate_sealed()
+        retirement = load_migration_approval_retirement()
+        if self.approval_id == retirement.approval_id:
+            if self.plan_id != retirement.plan_id:
+                raise PermissionError(
+                    "retired migration approval differs from its bound historical plan"
+                )
+            raise PermissionError(
+                "migration approval is retired and remains historical evidence only"
+            )
         expected = {
             "migration_manifest_schema_version": plan.migration_manifest_schema_version,
             "payload_layout_version": plan.payload_layout_version,
@@ -398,6 +417,71 @@ class MigrationApproval:
             for key, value in dict(fields["migration_implementation_manifest"]).items()
         }
         return cls(**fields)
+
+
+@dataclass(frozen=True)
+class MigrationApprovalRetirement:
+    schema_version: int
+    status: str
+    approval_id: str
+    plan_id: str
+    retired_at: str
+    reason: str
+    replacement_approval_id: None
+    retirement_id: str
+
+    def unsigned_dict(self) -> dict[str, Any]:
+        value = asdict(self)
+        value.pop("retirement_id")
+        return value
+
+    def validate(self) -> None:
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 1
+            or self.status != MIGRATION_APPROVAL_RETIRED_STATUS
+            or self.approval_id != RETIRED_MIGRATION_APPROVAL_ID
+            or self.plan_id != RETIRED_MIGRATION_PLAN_ID
+            or not isinstance(self.reason, str)
+            or not self.reason.strip()
+            or self.replacement_approval_id is not None
+        ):
+            raise PermissionError("migration approval retirement contract is invalid")
+        parse_utc_z(self.retired_at, "retired_at")
+        require_sha256(self.approval_id, "retirement.approval_id")
+        require_sha256(self.plan_id, "retirement.plan_id")
+        if self.retirement_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
+            raise PermissionError("migration approval retirement_id does not match its content")
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "MigrationApprovalRetirement":
+        if set(payload) != set(cls.__dataclass_fields__):
+            raise PermissionError(
+                "migration approval retirement fields differ from the exact contract"
+            )
+        return cls(**payload)
+
+
+def load_migration_approval_retirement() -> MigrationApprovalRetirement:
+    """Load the repository-pinned record that makes the old approval non-authorizing."""
+
+    repository = Path(__file__).resolve().parents[2]
+    retirement_path = repository.joinpath(
+        *safe_relative_path(MIGRATION_APPROVAL_RETIREMENT_PATH).parts
+    )
+    require_contained_path(retirement_path, repository)
+    reject_link(retirement_path)
+    if not retirement_path.is_file() or retirement_path.stat().st_nlink != 1:
+        raise PermissionError(
+            "migration approval retirement must be a repository-pinned independent plain file"
+        )
+    try:
+        payload = json.loads(retirement_path.read_text(encoding="utf-8"))
+        retirement = MigrationApprovalRetirement.from_dict(payload)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
+        raise PermissionError("migration approval retirement is invalid") from exc
+    retirement.validate()
+    return retirement
 
 
 def approval_payload_for_review(plan: MigrationPlan, approved_at: str) -> dict[str, Any]:
