@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -111,7 +112,7 @@ def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorizat
         qualification_main(["--execute-network"])
 
 
-def test_nasdaq_only_qualification_does_not_require_an_alpaca_calendar(
+def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -132,7 +133,11 @@ def test_nasdaq_only_qualification_does_not_require_an_alpaca_calendar(
             return NASDAQ_TRADED_URL
 
     class Snapshot:
+        snapshot_id = "1" * 64
+        root = Path("C:/fixture/snapshot")
+        raw_sha256 = "2" * 64
         retrieved_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+        trust_eligible = False
 
     class Store:
         def __init__(self, *args, **kwargs):
@@ -141,17 +146,82 @@ def test_nasdaq_only_qualification_does_not_require_an_alpaca_calendar(
         def _land_network_response(self, **kwargs):
             return Snapshot()
 
-    class Record:
-        file_created_at = datetime(2026, 7, 14, 22, tzinfo=timezone.utc)
-
     monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
     monkeypatch.setattr(qualification_cli, "urlopen", lambda *args, **kwargs: Response())
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
-    monkeypatch.setattr(qualification_cli, "parse_nasdaq_traded", lambda snapshot: (Record(),))
+    monkeypatch.setattr(
+        qualification_cli,
+        "network_acquisition_attestation_bindings",
+        lambda snapshot: {"raw_sha256": snapshot.raw_sha256},
+    )
     assert qualification_main(["--execute-network", "--nasdaq-only"]) == 0
     output = capsys.readouterr().out
-    assert '"record_count": 1' in output
+    assert '"mode": "network_capture"' in output
+    assert '"trust_eligible": false' in output
+    assert '"attestation_request"' in output
+    assert '"record_count"' not in output
     assert '"nasdaq"' in output
+
+
+def test_attested_nasdaq_verification_is_offline_and_reports_trust(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class Store:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def load_attested(self, *args, **kwargs):
+            return SimpleNamespace(
+                source="nasdaqtraded",
+                url=NASDAQ_TRADED_URL,
+                snapshot_id="1" * 64,
+                acquisition_attestation=SimpleNamespace(receipt_id="2" * 64),
+                raw_sha256="3" * 64,
+                retrieved_at=datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
+                trust_eligible=True,
+            )
+
+    class Record:
+        file_created_at = datetime(2026, 7, 14, 22, tzinfo=timezone.utc)
+
+    def unexpected_network(*args, **kwargs):
+        raise AssertionError("offline attestation verification attempted network access")
+
+    attestation = tmp_path / "attestation.json"
+    registry = tmp_path / "authority-registry.json"
+    public_key = tmp_path / "public.jwk"
+    for path in (attestation, registry, public_key):
+        path.write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(qualification_cli, "urlopen", unexpected_network)
+    monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
+    monkeypatch.setattr(
+        qualification_cli,
+        "load_external_authority",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        qualification_cli,
+        "parse_nasdaq_traded",
+        lambda snapshot: (Record(),),
+    )
+    assert qualification_main([
+        "--verify-nasdaq-snapshot",
+        str(tmp_path / "snapshot"),
+        "--acquisition-attestation",
+        str(attestation),
+        "--attestation-authority-registry",
+        str(registry),
+        "--attestation-key-id",
+        "external-user",
+        "--attestation-public-key-file",
+        str(public_key),
+    ]) == 0
+    output = capsys.readouterr().out
+    assert '"mode": "verify_attested_nasdaq_snapshot"' in output
+    assert '"trust_eligible": true' in output
+    assert '"record_count": 1' in output
 
 
 def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(

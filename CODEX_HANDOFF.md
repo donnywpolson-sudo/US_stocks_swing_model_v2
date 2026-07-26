@@ -27,6 +27,10 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
   Its self-hashed capability is not independently authenticated and is no
   longer trust-eligible. Alpaca remains unqualified because credentials were
   unavailable to this process; no bulk Alpaca backfill was attempted.
+- Detached network-acquisition attestation verification is implemented.
+  Network capture now emits an exact signing request but makes no qualification
+  claim; only an externally signed, registry-bound receipt can be verified
+  offline and promote the matching immutable snapshot.
 - The historical-foundation CLI is plan-only. Mutating foundation mechanics
   are synthetic-fixture-only and root-bound; there is no production
   publication authority.
@@ -76,6 +80,7 @@ candidate sealing, destructive cutover, external push, and trading require new
 authorization. `HISTORICAL_RESEARCH_READY` means only that the discovery
 harness is mechanically runnable; PIT truth, exact legacy-trial census, alpha,
 candidates, live use, options, and deployable shorts remain blocked. The next
-source/authentication work must implement an independently authenticated
-network-acquisition receipt, then separately review and configure an external
-public authority before either path can be enabled.
+source/authentication work must separately review and configure an external
+public authority, capture one bounded fresh Nasdaq response, obtain its detached
+signature outside the repository, and verify it offline before the source can
+be requalified.

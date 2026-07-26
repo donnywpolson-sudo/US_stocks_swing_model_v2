@@ -115,10 +115,12 @@
   `config/sources.json` at `sources.nasdaq_symbol_directory.qualification_receipt`
   (currently `config/nasdaq_qualification_receipt.json`). That receipt and its
   snapshot are preserved historical acquisition evidence only: the current
-  self-hashed network capability is not independent provenance and is never
-  trust-eligible. A future accepted identity release requires a separately
-  authenticated acquisition receipt bound to the registry, response, and raw
-  bytes. Missing, malformed, stale-code, stale-registry, or non-matching
+  self-hashed network capability is not independent provenance and is not
+  trust-eligible by itself. A future accepted identity release requires a
+  detached, externally signed acquisition receipt bound to the snapshot,
+  registry capability, response metadata, receipt time, and raw bytes. Only
+  `AsReceivedSnapshotStore.load_attested` can promote that exact evidence.
+  Missing, malformed, stale-code, stale-registry, unsigned, or non-matching
   receipt/snapshot evidence fails closed.
 - HF Data Library is isolated `legacy_discovery` evidence only. The existing
   780-symbol Alpaca capsule and separate 30-symbol probe are failed source-

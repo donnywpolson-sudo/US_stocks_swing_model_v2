@@ -234,10 +234,11 @@ CLI operation is plan-only; its mutating mechanics are synthetic-fixture-only
 and root-bound. External authorization verification is RSA-public-key-only;
 shared-secret receipts are rejected, and no authority is active while the
 checked registry is `NOT_CONFIGURED`. See
-`docs/EXTERNAL_AUTHORIZATION.md`. Network snapshots remain non-trust-eligible
-until independently authenticated acquisition receipts are implemented.
-Readiness commands operate only on accepted local releases and make no provider
-or historical-research calls.
+`docs/EXTERNAL_AUTHORIZATION.md`. Network capture and offline detached-
+attestation verification are separate operations; an unattested capture is
+never qualified. See `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
+commands operate only on accepted local releases and make no provider or
+historical-research calls.
 
 ## Completion language
 

@@ -173,6 +173,19 @@ class AuthorizationAuthority:
         else:
             raise EvaluationAuthorizationError("authorization authority class is invalid")
 
+    def verify_external_signature(self, *, message: bytes, signature_hex: str) -> None:
+        self.validate()
+        if self.authorization_class != "EXTERNAL_USER_AUTHORITY":
+            raise EvaluationAuthorizationError(
+                "external signature verification requires external user authority"
+            )
+        if not _verify_external_signature(
+            public_jwk=self.verification_key,
+            message=message,
+            signature_hex=signature_hex,
+        ):
+            raise EvaluationAuthorizationError("external signature is invalid")
+
 
 def _read_authority_registry(registry_path: Path) -> tuple[dict[str, Any], str]:
     path = Path(registry_path)
@@ -447,11 +460,14 @@ class SignedAuthorizationReceipt:
                 ).hexdigest(),
             )
         else:
-            valid_signature = _verify_external_signature(
-                public_jwk=authority.verification_key,
-                message=message,
-                signature_hex=self.signature,
-            )
+            try:
+                authority.verify_external_signature(
+                    message=message,
+                    signature_hex=self.signature,
+                )
+                valid_signature = True
+            except EvaluationAuthorizationError:
+                valid_signature = False
         if not valid_signature:
             raise EvaluationAuthorizationError("authorization signature is invalid")
 

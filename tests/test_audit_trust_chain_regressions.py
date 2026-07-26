@@ -27,8 +27,12 @@ from us_stocks_swing_model_v2.governance import (
 )
 from us_stocks_swing_model_v2.providers.snapshots import (
     AsReceivedSnapshotStore,
+    LandedSnapshot,
     NetworkAcquisitionCapability,
     NetworkAcquisitionRegistry,
+    NETWORK_ACQUISITION_ATTESTATION_SCOPE,
+    SignedNetworkAcquisitionReceipt,
+    network_acquisition_attestation_bindings,
     normalize_response_headers,
 )
 from us_stocks_swing_model_v2.releases import (
@@ -100,22 +104,12 @@ def _rsa_sign_for_fixture(message: bytes) -> str:
     return signature.to_bytes(width, "big").hex()
 
 
-def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registry(
+def _external_authority(
     tmp_path: Path,
-) -> None:
-    with pytest.raises(TypeError):
-        AuthorizationAuthority(  # type: ignore[call-arg]
-            registry_id="0" * 64,
-            key_id="forged",
-            key_sha256="1" * 64,
-            authorization_class="EXTERNAL_USER_AUTHORITY",
-            signature_algorithm=EXTERNAL_SIGNATURE_ALGORITHM,
-            verification_key=b"forged",
-        )
-
+) -> tuple[AuthorizationAuthority, Path, dict[str, object]]:
     public_jwk = _external_public_jwk()
     registry_path = tmp_path / "authority_registry.json"
-    registry = {
+    registry: dict[str, object] = {
         "schema_version": 1,
         "project": "US_stocks_swing_model_v2",
         "status": "ACTIVE",
@@ -132,6 +126,23 @@ def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registr
         key_id="external-user",
         verification_key=public_jwk,
     )
+    return authority, registry_path, registry
+
+
+def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registry(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(TypeError):
+        AuthorizationAuthority(  # type: ignore[call-arg]
+            registry_id="0" * 64,
+            key_id="forged",
+            key_sha256="1" * 64,
+            authorization_class="EXTERNAL_USER_AUTHORITY",
+            signature_algorithm=EXTERNAL_SIGNATURE_ALGORITHM,
+            verification_key=b"forged",
+        )
+
+    authority, registry_path, registry = _external_authority(tmp_path)
     signing = {
         "schema_version": 1,
         "scope": "AUTHORIZE_FIXTURE",
@@ -185,6 +196,8 @@ def test_network_evidence_has_no_public_capability_or_arbitrary_byte_landing() -
     assert not hasattr(NetworkAcquisitionCapability, "issue")
     assert not hasattr(AsReceivedSnapshotStore, "land_network_response")
     with pytest.raises(TypeError):
+        LandedSnapshot()  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
         NetworkAcquisitionCapability(  # type: ignore[call-arg]
             registry_id="0" * 64,
             registry_path="forged",
@@ -224,7 +237,7 @@ def test_network_registry_drift_invalidates_loaded_capability_source(tmp_path: P
         registry.validate()
 
 
-def test_network_snapshot_revalidates_capability_but_never_claims_trust(
+def test_network_snapshot_requires_independent_attestation_for_trust(
     tmp_path: Path,
 ) -> None:
     registry_path = tmp_path / "network_registry.json"
@@ -262,6 +275,35 @@ def test_network_snapshot_revalidates_capability_but_never_claims_trust(
     assert snapshot.trust_eligible is False
     assert store.load(snapshot.root).trust_eligible is False
     assert snapshot.read_verified_bytes() == b"network fixture"
+
+    authority, _, _ = _external_authority(tmp_path)
+    signing = {
+        "schema_version": 1,
+        "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
+        "snapshot_id": snapshot.snapshot_id,
+        "bindings": network_acquisition_attestation_bindings(snapshot),
+        "signed_at": snapshot.retrieved_at.isoformat().replace("+00:00", "Z"),
+        "key_id": authority.key_id,
+        "authority_registry_id": authority.registry_id,
+        "authorization_class": authority.authorization_class,
+    }
+    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
+    unsigned = {**signing, "signature": signature}
+    attestation = SignedNetworkAcquisitionReceipt(
+        **signing,
+        signature=signature,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    attestation_path = tmp_path / "network-attestation.json"
+    attestation_path.write_bytes(canonical_json_bytes(attestation.as_dict()))
+    trusted = store.load_attested(
+        snapshot.root,
+        attestation_path=attestation_path,
+        authority=authority,
+        clock=TrustedClock.production(),
+    )
+    assert trusted.trust_eligible is True
+    assert trusted.read_verified_bytes() == b"network fixture"
 
     without_registry = AsReceivedSnapshotStore(
         tmp_path / "snapshots",

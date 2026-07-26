@@ -12,6 +12,7 @@ from ..common import iso_z, sha256_bytes
 from ..clock import TrustedClock
 from ..errors import NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
+from ..governance import load_external_authority
 from ..providers.alpaca import (
     AUTH_ENVIRONMENT_TOKEN,
     AlpacaBarsPolicy,
@@ -24,6 +25,8 @@ from ..providers.snapshots import (
     ALLOWED_RESPONSE_HEADERS,
     AsReceivedSnapshotStore,
     NetworkAcquisitionRegistry,
+    NETWORK_ACQUISITION_ATTESTATION_SCOPE,
+    network_acquisition_attestation_bindings,
     normalize_response_headers,
 )
 
@@ -35,13 +38,23 @@ MAX_NASDAQ_RESPONSE_BYTES = 32 * 1024 * 1024
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Plan or run bounded free-source qualification")
     value.add_argument("--plan-only", action="store_true", help="documentary flag; this is the default")
-    value.add_argument("--execute-network", action="store_true", help=f"also requires {AUTH_ENVIRONMENT_TOKEN}=YES")
+    mode = value.add_mutually_exclusive_group()
+    mode.add_argument("--execute-network", action="store_true", help=f"also requires {AUTH_ENVIRONMENT_TOKEN}=YES")
+    mode.add_argument(
+        "--verify-nasdaq-snapshot",
+        type=Path,
+        help="verify one already captured Nasdaq snapshot with a detached attestation",
+    )
     selection = value.add_mutually_exclusive_group()
     selection.add_argument("--nasdaq-only", action="store_true")
     selection.add_argument("--alpaca-only", action="store_true")
     value.add_argument("--symbols", default="AAPL,SPY")
     value.add_argument("--start", default="2024-01-02T00:00:00Z")
     value.add_argument("--end", default="2024-01-10T00:00:00Z")
+    value.add_argument("--acquisition-attestation", type=Path)
+    value.add_argument("--attestation-authority-registry", type=Path)
+    value.add_argument("--attestation-key-id")
+    value.add_argument("--attestation-public-key-file", type=Path)
     return value
 
 
@@ -51,14 +64,21 @@ def _parse_time(value: str) -> datetime:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    verify_nasdaq = args.verify_nasdaq_snapshot is not None
+    if verify_nasdaq and args.alpaca_only:
+        raise NetworkGuardError("Nasdaq snapshot verification cannot select Alpaca")
     requested_at = datetime.now(timezone.utc)
     symbols = tuple(sorted(set(item.strip().upper() for item in args.symbols.split(",") if item.strip())))
     alpaca_request = AlpacaBarsRequest(symbols, _parse_time(args.start), _parse_time(args.end), requested_at)
-    use_alpaca = not args.nasdaq_only
+    use_alpaca = not args.nasdaq_only and not verify_nasdaq
     use_nasdaq = not args.alpaca_only
     alpaca_policies = tuple(AlpacaBarsPolicy(feed=feed, asof=None) for feed in ("sip", "iex"))
     plan: dict[str, object] = {
-        "mode": "network" if args.execute_network else "plan_only",
+        "mode": (
+            "verify_attested_nasdaq_snapshot"
+            if verify_nasdaq
+            else ("network_capture" if args.execute_network else "plan_only")
+        ),
         "alpaca": {
             "requests_without_credentials": [
                 {"feed": policy.feed, "url": alpaca_request.url(policy)} for policy in alpaca_policies
@@ -68,10 +88,10 @@ def main(argv: list[str] | None = None) -> int:
         "nasdaq": {"urls": NASDAQ_URLS, "purpose": "as_received_identity_type_snapshot"} if use_nasdaq else {"selected": False},
         "prohibitions": ["model_fit", "alpha_metric", "order_endpoint", "historical_backfill"],
     }
-    if not args.execute_network:
+    if not args.execute_network and not verify_nasdaq:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
-    if os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
+    if args.execute_network and os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(f"require {AUTH_ENVIRONMENT_TOKEN}=YES")
     repo_root = Path(__file__).resolve().parents[3]
     source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
@@ -111,6 +131,58 @@ def main(argv: list[str] | None = None) -> int:
     )
     trusted_clock = TrustedClock.production()
     result: dict[str, object] = {}
+    if verify_nasdaq:
+        required_attestation = {
+            "--acquisition-attestation": args.acquisition_attestation,
+            "--attestation-authority-registry": args.attestation_authority_registry,
+            "--attestation-key-id": args.attestation_key_id,
+            "--attestation-public-key-file": args.attestation_public_key_file,
+        }
+        missing = [
+            name for name, value in required_attestation.items() if value is None
+        ]
+        if missing:
+            raise NetworkGuardError(
+                "attested Nasdaq verification requires: " + ", ".join(missing)
+            )
+        authority = load_external_authority(
+            args.attestation_authority_registry,
+            key_id=args.attestation_key_id,
+            verification_key=args.attestation_public_key_file.read_bytes(),
+        )
+        snapshot = store.load_attested(
+            args.verify_nasdaq_snapshot,
+            attestation_path=args.acquisition_attestation,
+            authority=authority,
+            clock=trusted_clock,
+        )
+        if snapshot.source != "nasdaqtraded" or snapshot.url != NASDAQ_TRADED_URL:
+            raise NetworkGuardError(
+                "attested snapshot is not the exact contracted Nasdaq source"
+            )
+        records = parse_nasdaq_traded(snapshot)
+        file_created_values = {iso_z(record.file_created_at) for record in records}
+        if len(file_created_values) != 1:
+            raise ValueError(
+                "Nasdaq parse did not preserve one file-creation receipt time"
+            )
+        result["nasdaq"] = [{
+            "url": snapshot.url,
+            "snapshot_id": snapshot.snapshot_id,
+            "attestation_receipt_id": (
+                snapshot.acquisition_attestation.receipt_id
+                if snapshot.acquisition_attestation is not None
+                else None
+            ),
+            "sha256": snapshot.raw_sha256,
+            "record_count": len(records),
+            "retrieved_at": iso_z(snapshot.retrieved_at),
+            "file_created_at": next(iter(file_created_values)),
+            "trust_eligible": snapshot.trust_eligible,
+        }]
+        plan["result"] = result
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
     if use_alpaca:
         assert calendar_release is not None and expected_calendar_root is not None
         feed_results: list[dict[str, object]] = []
@@ -179,19 +251,20 @@ def main(argv: list[str] | None = None) -> int:
             clock=trusted_clock,
             max_bytes=MAX_NASDAQ_RESPONSE_BYTES,
         )
-        records = parse_nasdaq_traded(snapshot)
-        file_created_values = {
-            iso_z(record.file_created_at) for record in records
-        }
-        if len(file_created_values) != 1:
-            raise ValueError("Nasdaq parse did not preserve one file-creation receipt time")
         nasdaq_results.append(
             {
                 "url": url,
+                "snapshot_id": snapshot.snapshot_id,
+                "snapshot_directory": str(snapshot.root),
                 "sha256": sha256_bytes(raw),
-                "record_count": len(records),
                 "retrieved_at": iso_z(snapshot.retrieved_at),
-                "file_created_at": next(iter(file_created_values)),
+                "trust_eligible": snapshot.trust_eligible,
+                "attestation_request": {
+                    "schema_version": 1,
+                    "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
+                    "snapshot_id": snapshot.snapshot_id,
+                    "bindings": network_acquisition_attestation_bindings(snapshot),
+                },
             }
         )
     if use_nasdaq:
