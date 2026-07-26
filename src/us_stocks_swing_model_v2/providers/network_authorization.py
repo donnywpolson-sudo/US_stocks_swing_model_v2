@@ -312,6 +312,33 @@ def assemble_network_authorization_receipt(
     authority: AuthorizationAuthority,
     clock: TrustedClock,
 ) -> SignedAuthorizationReceipt:
+    signing_payload = network_authorization_signing_payload(
+        request,
+        authority=authority,
+    )
+    signing = json.loads(signing_payload)
+    unsigned = {**signing, "signature": signature_hex}
+    receipt = SignedAuthorizationReceipt.from_dict(
+        {
+            **unsigned,
+            "receipt_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        }
+    )
+    receipt.validate_at(
+        authority=authority,
+        expected_scope=NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
+        expected_subject_id=receipt.subject_id,
+        required_bindings=receipt.bindings,
+        observed_at=require_trusted_clock(clock).now(),
+    )
+    return receipt
+
+
+def network_authorization_signing_payload(
+    request: Mapping[str, object],
+    *,
+    authority: AuthorizationAuthority,
+) -> bytes:
     if set(request) != {
         "schema_version",
         "scope",
@@ -323,35 +350,27 @@ def assemble_network_authorization_receipt(
         raise EvaluationAuthorizationError(
             "network authorization request fields differ"
         )
+    if authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
+        raise EvaluationAuthorizationError(
+            "network authorization signing payload requires external authority"
+        )
+    nonce = str(request["bindings"].get("authorization_nonce", ""))
+    if not _NONCE.fullmatch(nonce):
+        raise EvaluationAuthorizationError(
+            "network authorization nonce must be 256-bit base64url"
+        )
+    issued = parse_utc_z(str(request["issued_at"]), "network_authorization.issued_at")
+    expires = parse_utc_z(
+        str(request["expires_at"]), "network_authorization.expires_at"
+    )
+    if issued >= expires or expires - issued > MAX_NETWORK_AUTHORIZATION_LIFETIME:
+        raise EvaluationAuthorizationError(
+            "network authorization lifetime exceeds ten minutes"
+        )
     signing = {
         **request,
         "key_id": authority.key_id,
         "authority_registry_id": authority.registry_id,
         "authorization_class": authority.authorization_class,
     }
-    unsigned = {**signing, "signature": signature_hex}
-    receipt = SignedAuthorizationReceipt.from_dict(
-        {
-            **unsigned,
-            "receipt_id": sha256_bytes(canonical_json_bytes(unsigned)),
-        }
-    )
-    nonce = str(receipt.bindings.get("authorization_nonce", ""))
-    if not _NONCE.fullmatch(nonce):
-        raise EvaluationAuthorizationError(
-            "network authorization nonce must be 256-bit base64url"
-        )
-    issued = parse_utc_z(receipt.issued_at, "network_authorization.issued_at")
-    expires = parse_utc_z(receipt.expires_at, "network_authorization.expires_at")
-    if expires - issued > MAX_NETWORK_AUTHORIZATION_LIFETIME:
-        raise EvaluationAuthorizationError(
-            "network authorization lifetime exceeds ten minutes"
-        )
-    receipt.validate_at(
-        authority=authority,
-        expected_scope=NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
-        expected_subject_id=receipt.subject_id,
-        required_bindings=receipt.bindings,
-        observed_at=require_trusted_clock(clock).now(),
-    )
-    return receipt
+    return canonical_json_bytes(signing)

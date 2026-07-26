@@ -37,7 +37,19 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --authorization-request-directory C:\absolute\new\request-directory
 ```
 
-The external authority signs the canonical request outside the repository.
+After the public authority is active, prepare the exact canonical signing
+bytes:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
+  --request C:\absolute\request\nasdaqtraded.json `
+  --signing-payload-output C:\absolute\new-signing-payload.bin `
+  --authority-registry C:\absolute\active-registry.json `
+  --authority-key-id <key-id> `
+  --public-key-file C:\absolute\public.jwk
+```
+
+The external authority signs those bytes outside the repository.
 The request binds `AUTHORIZE_NETWORK_ACQUISITION`, the initial URL, source,
 network registry, 30-second timeout, response limit, page limit, pagination
 policy, ten-minute expiry, and a 256-bit nonce. Assemble and verify the
