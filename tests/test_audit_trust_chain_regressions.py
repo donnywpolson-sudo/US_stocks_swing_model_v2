@@ -465,6 +465,19 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
     assert trusted.trust_eligible is True
     assert trusted.read_verified_bytes() == b"network fixture"
 
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-attestation.json"
+    outside.write_bytes(canonical_json_bytes(attestation.as_dict()))
+    try:
+        with pytest.raises(ContractError, match="escapes its approved root"):
+            store.load_attested(
+                snapshot.root,
+                attestation_path=outside,
+                authority=authority,
+                clock=TrustedClock.production(),
+            )
+    finally:
+        outside.unlink()
+
     without_registry = AsReceivedSnapshotStore(
         tmp_path / "snapshots",
         allowed_root=tmp_path,

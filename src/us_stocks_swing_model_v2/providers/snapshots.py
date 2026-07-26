@@ -693,13 +693,17 @@ class AsReceivedSnapshotStore:
         authority: AuthorizationAuthority,
         clock: TrustedClock,
     ) -> LandedSnapshot:
+        contained_attestation = require_contained_path(
+            Path(attestation_path),
+            self.allowed_root,
+        )
         snapshot = self.load(snapshot_dir)
         trusted_clock = require_trusted_clock(clock)
         if not trusted_clock.trust_eligible:
             raise ContractError(
                 "network attestation verification requires the production UTC clock"
             )
-        receipt = load_signed_network_acquisition_receipt(attestation_path)
+        receipt = load_signed_network_acquisition_receipt(contained_attestation)
         observed_at = trusted_clock.now()
         receipt.validate(
             snapshot=snapshot,

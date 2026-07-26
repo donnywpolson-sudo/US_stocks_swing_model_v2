@@ -88,8 +88,10 @@ change; all other signed URL parameters remain exact.
 
 The external signer independently reviews the captured bytes and request
 metadata, adds the exact signature fields, signs the canonical receipt outside
-the repository, and returns a detached JSON receipt. Production private-key
-material must never enter this checkout.
+the repository, and returns a detached JSON receipt. Copy the public receipt
+into the configured ignored qualification root before verification; the
+verifier rejects receipt paths outside its approved root. Production
+private-key material must never enter this checkout.
 
 Offline verification uses:
 
