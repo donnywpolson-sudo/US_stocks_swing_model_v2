@@ -369,6 +369,7 @@ def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
                 "key_id": "user-key",
                 "key_sha256": sha256_bytes(key),
                 "authorization_class": "EXTERNAL_USER_AUTHORITY",
+                "signature_algorithm": "RSASSA_PKCS1_V1_5_SHA256",
             }
         ],
     }
@@ -376,7 +377,7 @@ def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
     with pytest.raises(
         EvaluationAuthorizationError,
-        match="entry fields differ",
+        match="reviewed project registry",
     ):
         load_external_authority(
             registry_path,

@@ -19,6 +19,7 @@ from us_stocks_swing_model_v2.errors import (
     IntegrityError,
 )
 from us_stocks_swing_model_v2.gates import build_gate_receipt
+import us_stocks_swing_model_v2.governance as governance_module
 from us_stocks_swing_model_v2.governance import (
     AuthorizationAuthority,
     EXTERNAL_SIGNATURE_ALGORITHM,
@@ -115,6 +116,7 @@ def _rsa_sign_for_fixture(message: bytes) -> str:
 
 def _external_authority(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[AuthorizationAuthority, Path, dict[str, object]]:
     public_jwk = _external_public_jwk()
     registry_path = tmp_path / "authority_registry.json"
@@ -130,6 +132,11 @@ def _external_authority(
         }],
     }
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    monkeypatch.setattr(
+        governance_module,
+        "_reviewed_external_authority_registry_path",
+        lambda: registry_path,
+    )
     authority = load_external_authority(
         registry_path,
         key_id="external-user",
@@ -171,7 +178,10 @@ def _network_authorization_receipt(
     )
 
 
-def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
+def test_network_authorization_is_exact_and_single_use(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry_path = tmp_path / "network_registry.json"
     registry_path.write_text(
         json.dumps(
@@ -207,7 +217,7 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
         max_pages=1,
         pagination_parameter=None,
     )
-    authority, _, _ = _external_authority(tmp_path)
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
     at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
     clock = TrustedClock.synthetic_fixed(
         at,
@@ -291,7 +301,10 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
         )
 
 
-def test_network_authorization_rejects_excessive_lifetime(tmp_path: Path) -> None:
+def test_network_authorization_rejects_excessive_lifetime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry_path = tmp_path / "network_registry.json"
     registry_path.write_text(
         json.dumps(
@@ -321,7 +334,7 @@ def test_network_authorization_rejects_excessive_lifetime(tmp_path: Path) -> Non
         max_pages=1,
         pagination_parameter=None,
     )
-    authority, _, _ = _external_authority(tmp_path)
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
     at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
     clock = TrustedClock.synthetic_fixed(
         at,
@@ -338,6 +351,7 @@ def test_network_authorization_rejects_excessive_lifetime(tmp_path: Path) -> Non
 
 def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registry(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with pytest.raises(TypeError):
         AuthorizationAuthority(  # type: ignore[call-arg]
@@ -349,7 +363,10 @@ def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registr
             verification_key=b"forged",
         )
 
-    authority, registry_path, registry = _external_authority(tmp_path)
+    authority, registry_path, registry = _external_authority(
+        tmp_path,
+        monkeypatch,
+    )
     signing = {
         "schema_version": 1,
         "scope": "AUTHORIZE_FIXTURE",
@@ -480,6 +497,7 @@ def test_network_registry_must_remain_inside_its_approved_root(
 
 def test_network_snapshot_requires_independent_attestation_for_trust(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     registry_path = tmp_path / "network_registry.json"
     registry_path.write_text(
@@ -520,7 +538,7 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
     assert store.load(snapshot.root).trust_eligible is False
     assert snapshot.read_verified_bytes() == b"network fixture"
 
-    authority, _, _ = _external_authority(tmp_path)
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
     signing = {
         "schema_version": 1,
         "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,

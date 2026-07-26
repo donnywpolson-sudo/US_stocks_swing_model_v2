@@ -62,7 +62,11 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--start", default="2024-01-02T00:00:00Z")
     value.add_argument("--end", default="2024-01-10T00:00:00Z")
     value.add_argument("--acquisition-attestation", type=Path)
-    value.add_argument("--attestation-authority-registry", type=Path)
+    value.add_argument(
+        "--attestation-authority-registry",
+        type=Path,
+        help="exact reviewed config/authorization_authorities.json",
+    )
     value.add_argument("--attestation-key-id")
     value.add_argument("--attestation-public-key-file", type=Path)
     value.add_argument(
@@ -71,7 +75,11 @@ def parser() -> argparse.ArgumentParser:
         help="trusted count from the immediately preceding accepted Nasdaq receipt",
     )
     value.add_argument("--network-authorization", action="append", type=Path, default=[])
-    value.add_argument("--network-authority-registry", type=Path)
+    value.add_argument(
+        "--network-authority-registry",
+        type=Path,
+        help="exact reviewed config/authorization_authorities.json",
+    )
     value.add_argument("--network-key-id")
     value.add_argument("--network-public-key-file", type=Path)
     value.add_argument("--authorization-request-directory", type=Path)

@@ -21,6 +21,11 @@ revocation invalidates an already loaded authority.
 The checked-in registry is deliberately `NOT_CONFIGURED`. Therefore no current
 receipt can authorize production activity.
 
+Production verification accepts only that exact checked-in registry path. A
+caller-created registry is rejected even when it is schema-valid, marked
+`ACTIVE`, and matches the caller's public key. Activation therefore requires a
+separately reviewed change to the checked-in trust anchor.
+
 ## Separation of authority
 
 The repository:
@@ -45,7 +50,7 @@ An externally authorized copy requires all of:
 --execute
 --approval <reviewed migration approval>
 --authorization <externally signed receipt>
---authority-registry <active pinned registry>
+--authority-registry <exact reviewed config/authorization_authorities.json>
 --authority-key-id <exact key ID>
 --public-key-file <matching RSA public JWK>
 ```

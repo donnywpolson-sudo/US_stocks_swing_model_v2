@@ -44,7 +44,7 @@ bytes:
 python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
   --request C:\absolute\request\nasdaqtraded.json `
   --signing-payload-output C:\absolute\new-signing-payload.bin `
-  --authority-registry C:\absolute\active-registry.json `
+  --authority-registry C:\absolute\project\config\authorization_authorities.json `
   --authority-key-id <key-id> `
   --public-key-file C:\absolute\public.jwk
 ```
@@ -59,7 +59,7 @@ detached signature offline:
 python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
   --request C:\absolute\request\nasdaqtraded.json `
   --detached-signature C:\absolute\signature.txt `
-  --authority-registry C:\absolute\active-registry.json `
+  --authority-registry C:\absolute\project\config\authorization_authorities.json `
   --authority-key-id <key-id> `
   --public-key-file C:\absolute\public.jwk `
   --output C:\absolute\new-network-authorization.json
@@ -79,7 +79,7 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --execute-network `
   --nasdaq-only `
   --network-authorization C:\absolute\new-network-authorization.json `
-  --network-authority-registry C:\absolute\active-registry.json `
+  --network-authority-registry C:\absolute\project\config\authorization_authorities.json `
   --network-key-id <key-id> `
   --network-public-key-file C:\absolute\public.jwk
 ```
@@ -111,7 +111,7 @@ Offline verification uses:
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --verify-nasdaq-snapshot <absolute-snapshot-directory> `
   --acquisition-attestation <absolute-signed-receipt> `
-  --attestation-authority-registry <absolute-active-registry> `
+  --attestation-authority-registry <exact-reviewed-project-registry> `
   --attestation-key-id <key-id> `
   --attestation-public-key-file <absolute-public-jwk> `
   --prior-nasdaq-accepted-record-count <trusted-prior-count>

@@ -21,7 +21,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--request", type=Path, required=True)
     value.add_argument("--detached-signature", type=Path)
     value.add_argument("--signing-payload-output", type=Path)
-    value.add_argument("--authority-registry", type=Path, required=True)
+    value.add_argument(
+        "--authority-registry",
+        type=Path,
+        required=True,
+        help="must be the exact reviewed config/authorization_authorities.json",
+    )
     value.add_argument("--authority-key-id", required=True)
     value.add_argument("--public-key-file", type=Path, required=True)
     value.add_argument("--output", type=Path)
