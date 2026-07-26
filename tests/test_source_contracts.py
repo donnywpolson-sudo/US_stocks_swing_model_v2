@@ -21,7 +21,6 @@ from us_stocks_swing_model_v2.providers.alpaca import (
 import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
 from us_stocks_swing_model_v2.providers.http import _RejectRedirects
 from us_stocks_swing_model_v2.providers.network_authorization import (
-    NetworkAuthorizationSession,
     NetworkRequestPlan,
 )
 from us_stocks_swing_model_v2.providers.nasdaq import (
@@ -102,30 +101,6 @@ def test_network_fetch_is_disabled_without_dual_authorization(monkeypatch: pytes
     )
 
 
-def _alpaca_authorization_session(
-    request: AlpacaBarsRequest, policy: AlpacaBarsPolicy
-) -> NetworkAuthorizationSession:
-    root = Path(__file__).resolve().parents[1]
-    registry = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json"
-    )
-    plan = NetworkRequestPlan.create(
-        registry=registry,
-        source=f"alpaca_{policy.feed}_qualification",
-        initial_url=request.url(policy),
-        timeout_seconds=30,
-        max_response_bytes=alpaca_module.MAX_ALPACA_RESPONSE_BYTES,
-        max_pages=10,
-        pagination_parameter="page_token",
-    )
-    return NetworkAuthorizationSession._construct(
-        plan=plan,
-        receipt_id="a" * 64,
-        nonce="A" * 43,
-        consumed_at="2026-07-15T00:00:00Z",
-    )
-
-
 def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorization(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -179,16 +154,12 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         def _land_network_response(self, **kwargs):
             return Snapshot()
 
-    class Session:
-        def assert_request(self, **kwargs):
-            return None
-
     class UseStore:
         def __init__(self, *args, **kwargs):
             pass
 
         def authorize(self, **kwargs):
-            return Session()
+            return object()
 
     root = Path(__file__).resolve().parents[1]
     registry_contract = NetworkAcquisitionRegistry.load(
@@ -215,6 +186,11 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
     )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
     monkeypatch.setattr(qualification_cli, "NetworkAuthorizationUseStore", UseStore)
+    monkeypatch.setattr(
+        qualification_cli,
+        "assert_authorized_network_request",
+        lambda *args, **kwargs: None,
+    )
     monkeypatch.setattr(
         qualification_cli, "load_external_authority", lambda *args, **kwargs: object()
     )
@@ -315,6 +291,11 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        alpaca_module,
+        "assert_authorized_network_request",
+        lambda *args, **kwargs: None,
+    )
 
     class Response:
         status = 200
@@ -351,9 +332,7 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
         api_secret_key="secret",
         policy=AlpacaBarsPolicy(feed="iex", asof=None),
         network_enabled=True,
-        authorization_session=_alpaca_authorization_session(
-            request, AlpacaBarsPolicy(feed="iex", asof=None)
-        ),
+        authorization_session=object(),
     )
     assert evidence.retrieved_at >= observed["read_finished"]
     assert "feed=iex" in evidence.url
@@ -373,9 +352,7 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
             api_secret_key="secret",
             policy=AlpacaBarsPolicy(feed="iex"),
             network_enabled=True,
-            authorization_session=_alpaca_authorization_session(
-                request, AlpacaBarsPolicy(feed="iex")
-            ),
+            authorization_session=object(),
         )
 
     monkeypatch.setattr(alpaca_module, "MAX_ALPACA_RESPONSE_BYTES", 4)
@@ -396,9 +373,7 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
             api_secret_key="secret",
             policy=AlpacaBarsPolicy(feed="sip"),
             network_enabled=True,
-            authorization_session=_alpaca_authorization_session(
-                request, AlpacaBarsPolicy(feed="sip")
-            ),
+            authorization_session=object(),
         )
 
 

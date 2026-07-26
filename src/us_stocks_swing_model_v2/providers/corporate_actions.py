@@ -21,7 +21,10 @@ from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from .alpaca import AUTH_ENVIRONMENT_TOKEN, HttpResponseEvidence
 from .http import open_without_redirects
-from .network_authorization import NetworkAuthorizationSession
+from .network_authorization import (
+    NetworkAuthorizationSession,
+    assert_authorized_network_request,
+)
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -237,11 +240,8 @@ def guarded_fetch_corporate_action_pages(
     request = initial
     seen_tokens: set[str] = set()
     for page_index in range(max_pages):
-        if authorization_session is None:
-            raise NetworkGuardError(
-                "corporate-action request requires external network authorization"
-            )
-        authorization_session.assert_request(
+        assert_authorized_network_request(
+            authorization_session,
             source="alpaca_corporate_actions",
             url=request.url(),
             timeout_seconds=timeout_seconds,

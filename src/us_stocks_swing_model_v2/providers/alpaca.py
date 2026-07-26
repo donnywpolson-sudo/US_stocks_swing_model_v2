@@ -16,7 +16,10 @@ from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
 from .http import open_without_redirects
-from .network_authorization import NetworkAuthorizationSession
+from .network_authorization import (
+    NetworkAuthorizationSession,
+    assert_authorized_network_request,
+)
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -169,9 +172,8 @@ def guarded_fetch_json(
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
     url = request.url(policy)
-    if authorization_session is None:
-        raise NetworkGuardError("Alpaca request requires external network authorization")
-    authorization_session.assert_request(
+    assert_authorized_network_request(
+        authorization_session,
         source=f"alpaca_{policy.feed}_qualification",
         url=url,
         timeout_seconds=timeout_seconds,

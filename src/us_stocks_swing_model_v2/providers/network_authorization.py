@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import json
 from pathlib import Path
 import re
 import secrets
 from typing import Mapping
 from urllib.parse import parse_qsl, urlparse
+from weakref import WeakKeyDictionary
 
 from ..clock import TrustedClock, require_trusted_clock
 from ..common import (
@@ -101,30 +103,14 @@ class NetworkRequestPlan:
         }
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, init=False, eq=False)
 class NetworkAuthorizationSession:
     plan: NetworkRequestPlan
     receipt_id: str
     nonce: str
     consumed_at: str
 
-    @classmethod
-    def _construct(
-        cls,
-        *,
-        plan: NetworkRequestPlan,
-        receipt_id: str,
-        nonce: str,
-        consumed_at: str,
-    ) -> "NetworkAuthorizationSession":
-        value = object.__new__(cls)
-        object.__setattr__(value, "plan", plan)
-        object.__setattr__(value, "receipt_id", receipt_id)
-        object.__setattr__(value, "nonce", nonce)
-        object.__setattr__(value, "consumed_at", consumed_at)
-        return value
-
-    def assert_request(
+    def _assert_request(
         self,
         *,
         source: str,
@@ -177,6 +163,59 @@ class NetworkAuthorizationSession:
             )
 
 
+_ISSUED_SESSIONS: WeakKeyDictionary[
+    NetworkAuthorizationSession, tuple[Path, str]
+] = WeakKeyDictionary()
+
+
+def assert_authorized_network_request(
+    session: NetworkAuthorizationSession | None,
+    *,
+    source: str,
+    url: str,
+    timeout_seconds: int,
+    max_response_bytes: int,
+    page_index: int,
+    expected_page_token: str | None,
+) -> None:
+    if type(session) is not NetworkAuthorizationSession:
+        raise EvaluationAuthorizationError(
+            "network request lacks a store-issued authorization session"
+        )
+    issued = _ISSUED_SESSIONS.get(session)
+    if issued is None:
+        raise EvaluationAuthorizationError(
+            "network authorization session was not issued by the use store"
+        )
+    marker_path, marker_sha256 = issued
+    try:
+        marker_bytes = marker_path.read_bytes()
+        marker = json.loads(marker_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EvaluationAuthorizationError(
+            "network authorization consumption marker is unavailable"
+        ) from exc
+    if (
+        sha256_bytes(marker_bytes) != marker_sha256
+        or not isinstance(marker, dict)
+        or marker.get("plan_id") != session.plan.plan_id
+        or marker.get("receipt_id") != session.receipt_id
+        or marker.get("authorization_nonce") != session.nonce
+        or marker.get("consumed_at") != session.consumed_at
+    ):
+        raise EvaluationAuthorizationError(
+            "network authorization consumption marker differs"
+        )
+    session._assert_request(
+        source=source,
+        url=url,
+        timeout_seconds=timeout_seconds,
+        max_response_bytes=max_response_bytes,
+        page_index=page_index,
+        expected_page_token=expected_page_token,
+    )
+
+
 class NetworkAuthorizationUseStore:
     def __init__(self, root: Path, *, allowed_root: Path):
         self.root = Path(root)
@@ -223,26 +262,28 @@ class NetworkAuthorizationUseStore:
                 raise EvaluationAuthorizationError(
                     "network authorization receipt has already been consumed"
                 )
+            marker_payload = canonical_json_bytes(
+                {
+                    "schema_version": 1,
+                    "scope": NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
+                    "plan_id": plan.plan_id,
+                    "receipt_id": receipt.receipt_id,
+                    "authorization_nonce": nonce,
+                    "consumed_at": iso_z(observed),
+                    "time_authority": trusted_clock.mode,
+                }
+            )
             atomic_write(
                 marker,
-                canonical_json_bytes(
-                    {
-                        "schema_version": 1,
-                        "scope": NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
-                        "plan_id": plan.plan_id,
-                        "receipt_id": receipt.receipt_id,
-                        "authorization_nonce": nonce,
-                        "consumed_at": iso_z(observed),
-                        "time_authority": trusted_clock.mode,
-                    }
-                ),
+                marker_payload,
             )
-        return NetworkAuthorizationSession._construct(
-            plan=plan,
-            receipt_id=receipt.receipt_id,
-            nonce=nonce,
-            consumed_at=iso_z(observed),
-        )
+        session = object.__new__(NetworkAuthorizationSession)
+        object.__setattr__(session, "plan", plan)
+        object.__setattr__(session, "receipt_id", receipt.receipt_id)
+        object.__setattr__(session, "nonce", nonce)
+        object.__setattr__(session, "consumed_at", iso_z(observed))
+        _ISSUED_SESSIONS[session] = (marker, sha256_bytes(marker_payload))
+        return session
 
 
 def network_authorization_request(

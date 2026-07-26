@@ -28,6 +28,7 @@ from ..providers.http import open_without_redirects
 from ..providers.network_authorization import (
     NetworkAuthorizationUseStore,
     NetworkRequestPlan,
+    assert_authorized_network_request,
     network_authorization_request,
 )
 from ..providers.snapshots import (
@@ -344,7 +345,8 @@ def main(argv: list[str] | None = None) -> int:
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "www.nasdaqtrader.com":
             raise NetworkGuardError("Nasdaq URL is outside the frozen host")
-        network_sessions["nasdaqtraded"].assert_request(
+        assert_authorized_network_request(
+            network_sessions["nasdaqtraded"],
             source="nasdaqtraded",
             url=url,
             timeout_seconds=30,

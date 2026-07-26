@@ -38,8 +38,10 @@ from us_stocks_swing_model_v2.providers.snapshots import (
 from us_stocks_swing_model_v2.providers.network_authorization import (
     NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
     NetworkAuthorizationUseStore,
+    NetworkAuthorizationSession,
     NetworkRequestPlan,
     assemble_network_authorization_receipt,
+    assert_authorized_network_request,
     network_authorization_request,
 )
 from us_stocks_swing_model_v2.releases import (
@@ -221,7 +223,8 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
         authority=authority,
         clock=clock,
     )
-    session.assert_request(
+    assert_authorized_network_request(
+        session,
         source="nasdaqtraded",
         url=plan.initial_url,
         timeout_seconds=30,
@@ -237,9 +240,25 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
             clock=clock,
         )
     with pytest.raises(EvaluationAuthorizationError, match="initial network request"):
-        session.assert_request(
+        assert_authorized_network_request(
+            session,
             source="nasdaqtraded",
             url=plan.initial_url + "?changed=true",
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+        )
+    forged = object.__new__(NetworkAuthorizationSession)
+    object.__setattr__(forged, "plan", plan)
+    object.__setattr__(forged, "receipt_id", receipt.receipt_id)
+    object.__setattr__(forged, "nonce", "A" * 43)
+    object.__setattr__(forged, "consumed_at", clock.now().isoformat())
+    with pytest.raises(EvaluationAuthorizationError, match="not issued"):
+        assert_authorized_network_request(
+            forged,
+            source="nasdaqtraded",
+            url=plan.initial_url,
             timeout_seconds=30,
             max_response_bytes=32 * 1024 * 1024,
             page_index=0,
