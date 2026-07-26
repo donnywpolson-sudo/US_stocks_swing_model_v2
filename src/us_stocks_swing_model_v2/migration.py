@@ -640,17 +640,29 @@ def execute_copy_plan(
     external_mode = authorization is not None or authorization_authority is not None
     controlled_mode = controlled_rebuild_authorization is not None
     synthetic_mode = synthetic_permit is not None or synthetic_allowed_root is not None
+    if sum((external_mode, controlled_mode, synthetic_mode)) != 1:
+        raise PermissionError(
+            "copy requires exactly one asymmetric external, controlled-rebuild, "
+            "or synthetic-only authority mode"
+        )
     if external_mode:
-        raise PermissionError(
-            "external copy authorization is not implemented; shared-secret "
-            "verification is not signing authority"
+        if authorization is None or authorization_authority is None:
+            raise PermissionError("external copy authority is incomplete")
+        if authorization_authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
+            raise PermissionError("controlled hash copy requires external user authority")
+        authorization.validate(
+            authority=authorization_authority,
+            expected_scope=COPY_AUTHORIZATION_SCOPE,
+            expected_subject_id=plan.plan_id,
+            required_bindings=migration_authorization_bindings(plan, approval),
+            clock=trusted_clock,
         )
-    if controlled_mode == synthetic_mode:
-        raise PermissionError(
-            "copy requires exactly one controlled-rebuild authority or "
-            "synthetic-only test permit"
+        authorization_evidence = CopyAuthorizationEvidence(
+            receipt_id=authorization.receipt_id,
+            registry_id=authorization.authority_registry_id,
+            authorization_class=authorization.authorization_class,
         )
-    if controlled_mode:
+    elif controlled_mode:
         assert controlled_rebuild_authorization is not None
         controlled_rebuild_authorization.validate_plan(plan)
         authorization_core = {

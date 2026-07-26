@@ -30,9 +30,11 @@ Status: `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`.
 - The historical-foundation CLI is plan-only. Mutating foundation mechanics
   are synthetic-fixture-only and root-bound; there is no production
   publication authority.
-- External authorization is explicitly unavailable. The authority registry
-  remains `NOT_CONFIGURED`, shared-secret receipts grant no authority, and the
-  completed controlled-rebuild receipt cannot be reused.
+- Asymmetric external-authorization verification is implemented for pinned
+  RSA public JWKs. The authority registry remains `NOT_CONFIGURED`, so no
+  external authority is active; shared-secret receipts grant no authority,
+  production private keys remain outside the repository, and the completed
+  controlled-rebuild receipt cannot be reused.
 - No real-history hypothesis, model fit, WFA, candidate, or alpha evaluation
   ran.
 - Non-authorizing `REBUILD_COMPLETE` and mechanical
@@ -74,6 +76,6 @@ candidate sealing, destructive cutover, external push, and trading require new
 authorization. `HISTORICAL_RESEARCH_READY` means only that the discovery
 harness is mechanically runnable; PIT truth, exact legacy-trial census, alpha,
 candidates, live use, options, and deployable shorts remain blocked. The next
-source/authentication work must design an independently authenticated network
-acquisition receipt and asymmetric external authorization before either path
-can be enabled.
+source/authentication work must implement an independently authenticated
+network-acquisition receipt, then separately review and configure an external
+public authority before either path can be enabled.

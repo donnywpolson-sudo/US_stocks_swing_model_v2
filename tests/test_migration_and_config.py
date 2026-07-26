@@ -648,15 +648,16 @@ def test_hash_copy_dry_run_is_concise_unless_detailed_is_requested(
     )[0].sha256
 
 
-def test_hash_copy_cli_exposes_no_shared_secret_authority_inputs() -> None:
+def test_hash_copy_cli_exposes_public_key_but_no_shared_secret_input() -> None:
     options = {
         option
         for action in hash_copy_parser()._actions
         for option in action.option_strings
     }
-    assert not {
+    assert {
         "--authorization",
         "--authority-registry",
         "--authority-key-id",
-        "--verification-key-file",
-    } & options
+        "--public-key-file",
+    } <= options
+    assert "--verification-key-file" not in options

@@ -376,18 +376,12 @@ def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
     with pytest.raises(
         EvaluationAuthorizationError,
-        match="disabled until asymmetric signature verification",
+        match="entry fields differ",
     ):
         load_external_authority(
             registry_path,
             key_id="user-key",
             verification_key=key,
-        )
-    with pytest.raises(EvaluationAuthorizationError, match="registry/key binding"):
-        load_external_authority(
-            registry_path,
-            key_id="user-key",
-            verification_key=b"wrong-key",
         )
 
     synthetic_authority = AuthorizationAuthority.synthetic(

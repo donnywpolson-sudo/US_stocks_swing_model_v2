@@ -155,11 +155,14 @@
   Synthetic copy mechanics additionally require an explicit synthetic-only
   permit and keep every source and output under one caller-declared fixture
   root; that permit is not authority and cannot enter accepted evidence.
-- External authorization is not implemented. The authority registry must
-  remain `NOT_CONFIGURED`; HMAC/shared-secret receipts do not separate signing
-  from verification authority and grant no permission. Do not expose or use
-  external-authority CLI inputs until asymmetric verification and key
-  separation are implemented and independently reviewed.
+- External authorization verification supports only a pinned RSA public JWK
+  using `RSASSA_PKCS1_V1_5_SHA256`. HMAC/shared-secret receipts do not separate
+  signing from verification authority and grant no permission. The repository
+  contains no production signing helper and must never read a production
+  private key. While `config/authorization_authorities.json` remains
+  `NOT_CONFIGURED`, no external authority is active. Activation requires a
+  separately reviewed public-key registry change and an externally signed,
+  exact, current receipt.
 - `build_historical_foundation` is plan-only. Foundation publication mechanics
   require an explicit synthetic-only permit and exact containing fixture root;
   there is no production publication authority.

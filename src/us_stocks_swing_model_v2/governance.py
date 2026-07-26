@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -20,12 +22,79 @@ from .errors import ContractError, EvaluationAuthorizationError
 from .releases import ReleaseManifest, verify_accepted_release
 
 
+SYNTHETIC_SIGNATURE_ALGORITHM = "HMAC_SHA256_SYNTHETIC_ONLY"
+EXTERNAL_SIGNATURE_ALGORITHM = "RSASSA_PKCS1_V1_5_SHA256"
+_LOWER_HEX = re.compile(r"^[0-9a-f]+$")
+_BASE64URL_UINT = re.compile(r"^[A-Za-z0-9_-]+$")
+_SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
+    "3031300d060960864801650304020105000420"
+)
+
+
+def _decode_base64url_uint(value: object, *, label: str) -> int:
+    if not isinstance(value, str) or _BASE64URL_UINT.fullmatch(value) is None:
+        raise EvaluationAuthorizationError(f"{label} is not canonical base64url")
+    try:
+        decoded = base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
+    except (ValueError, TypeError) as exc:
+        raise EvaluationAuthorizationError(f"{label} is not valid base64url") from exc
+    if not decoded or decoded[0] == 0:
+        raise EvaluationAuthorizationError(f"{label} is not a minimal unsigned integer")
+    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != value:
+        raise EvaluationAuthorizationError(f"{label} is not canonical base64url")
+    return int.from_bytes(decoded, "big")
+
+
+def _parse_external_public_jwk(value: bytes) -> tuple[int, int]:
+    try:
+        payload = json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvaluationAuthorizationError("external public key is not valid JSON") from exc
+    if not isinstance(payload, dict) or set(payload) != {"alg", "e", "kty", "n", "use"}:
+        raise EvaluationAuthorizationError("external public key fields differ")
+    if payload["kty"] != "RSA" or payload["alg"] != "RS256" or payload["use"] != "sig":
+        raise EvaluationAuthorizationError("external public key algorithm/use is invalid")
+    modulus = _decode_base64url_uint(payload["n"], label="external public key modulus")
+    exponent = _decode_base64url_uint(payload["e"], label="external public key exponent")
+    if not 2048 <= modulus.bit_length() <= 8192 or modulus % 2 == 0:
+        raise EvaluationAuthorizationError("external RSA modulus is outside policy")
+    if exponent != 65537:
+        raise EvaluationAuthorizationError("external RSA exponent is outside policy")
+    return modulus, exponent
+
+
+def _verify_external_signature(
+    *,
+    public_jwk: bytes,
+    message: bytes,
+    signature_hex: str,
+) -> bool:
+    modulus, exponent = _parse_external_public_jwk(public_jwk)
+    modulus_bytes = (modulus.bit_length() + 7) // 8
+    if (
+        len(signature_hex) != modulus_bytes * 2
+        or _LOWER_HEX.fullmatch(signature_hex) is None
+    ):
+        return False
+    signature = int(signature_hex, 16)
+    if signature >= modulus:
+        return False
+    encoded = pow(signature, exponent, modulus).to_bytes(modulus_bytes, "big")
+    digest_info = _SHA256_DIGEST_INFO_PREFIX + hashlib.sha256(message).digest()
+    padding_length = modulus_bytes - len(digest_info) - 3
+    if padding_length < 8:
+        return False
+    expected = b"\x00\x01" + (b"\xff" * padding_length) + b"\x00" + digest_info
+    return hmac.compare_digest(encoded, expected)
+
+
 @dataclass(frozen=True, init=False)
 class AuthorizationAuthority:
     registry_id: str
     key_id: str
     key_sha256: str
     authorization_class: str
+    signature_algorithm: str
     verification_key: bytes
     synthetic_permit_id: str | None = None
     registry_path: str | None = None
@@ -55,6 +124,7 @@ class AuthorizationAuthority:
             key_id=key_id,
             key_sha256=sha256_bytes(verification_key),
             authorization_class="SYNTHETIC_ONLY_NOT_AUTHORITY",
+            signature_algorithm=SYNTHETIC_SIGNATURE_ALGORITHM,
             verification_key=verification_key,
             synthetic_permit_id=verified.permit_id,
             registry_path=None,
@@ -70,13 +140,36 @@ class AuthorizationAuthority:
         if not self.key_id or not self.verification_key or sha256_bytes(self.verification_key) != self.key_sha256:
             raise EvaluationAuthorizationError("authorization authority registry/key binding is invalid")
         if self.authorization_class == "SYNTHETIC_ONLY_NOT_AUTHORITY":
-            if self.synthetic_permit_id != self.registry_id or self.registry_path is not None:
+            if (
+                self.synthetic_permit_id != self.registry_id
+                or self.registry_path is not None
+                or self.signature_algorithm != SYNTHETIC_SIGNATURE_ALGORITHM
+            ):
                 raise EvaluationAuthorizationError("synthetic authority lacks its mechanics permit")
         elif self.authorization_class == "EXTERNAL_USER_AUTHORITY":
-            raise EvaluationAuthorizationError(
-                "external authorization is disabled until asymmetric signature "
-                "verification is implemented"
-            )
+            if (
+                self.synthetic_permit_id is not None
+                or self.registry_path is None
+                or self.signature_algorithm != EXTERNAL_SIGNATURE_ALGORITHM
+            ):
+                raise EvaluationAuthorizationError("external authority key class/algorithm is invalid")
+            _parse_external_public_jwk(self.verification_key)
+            payload, registry_id = _read_authority_registry(Path(self.registry_path))
+            if registry_id != self.registry_id:
+                raise EvaluationAuthorizationError("external authority registry changed after loading")
+            matches = [
+                row
+                for row in payload["authorities"]
+                if isinstance(row, dict) and row.get("key_id") == self.key_id
+            ]
+            expected = {
+                "key_id": self.key_id,
+                "key_sha256": self.key_sha256,
+                "authorization_class": self.authorization_class,
+                "signature_algorithm": self.signature_algorithm,
+            }
+            if payload["status"] != "ACTIVE" or matches != [expected]:
+                raise EvaluationAuthorizationError("external authority is no longer pinned and active")
         else:
             raise EvaluationAuthorizationError("authorization authority class is invalid")
 
@@ -122,13 +215,19 @@ def load_external_authority(
     if payload["status"] != "ACTIVE" or len(matches) != 1:
         raise EvaluationAuthorizationError("external authority is not pinned and active")
     row = matches[0]
-    if set(row) != {"key_id", "key_sha256", "authorization_class"}:
+    if set(row) != {
+        "key_id",
+        "key_sha256",
+        "authorization_class",
+        "signature_algorithm",
+    }:
         raise EvaluationAuthorizationError("external authority entry fields differ")
     authority = AuthorizationAuthority._construct(
         registry_id=registry_id,
         key_id=key_id,
         key_sha256=str(row["key_sha256"]),
         authorization_class=str(row["authorization_class"]),
+        signature_algorithm=str(row["signature_algorithm"]),
         verification_key=verification_key,
         synthetic_permit_id=None,
         registry_path=str(path),
@@ -248,7 +347,6 @@ class SignedAuthorizationReceipt:
     def validate_content(self) -> None:
         try:
             require_sha256(self.authority_registry_id, "authorization.authority_registry_id")
-            require_sha256(self.signature, "authorization.signature")
             require_sha256(self.receipt_id, "authorization.receipt_id")
         except ContractError as exc:
             raise EvaluationAuthorizationError(str(exc)) from exc
@@ -264,6 +362,19 @@ class SignedAuthorizationReceipt:
             }
         ):
             raise EvaluationAuthorizationError("authorization content is incomplete")
+        if (
+            not isinstance(self.signature, str)
+            or len(self.signature) % 2 != 0
+            or _LOWER_HEX.fullmatch(self.signature) is None
+        ):
+            raise EvaluationAuthorizationError("authorization signature encoding is invalid")
+        if self.authorization_class == "SYNTHETIC_ONLY_NOT_AUTHORITY":
+            try:
+                require_sha256(self.signature, "authorization.signature")
+            except ContractError as exc:
+                raise EvaluationAuthorizationError(str(exc)) from exc
+        elif not 512 <= len(self.signature) <= 2048:
+            raise EvaluationAuthorizationError("external authorization signature size is invalid")
         issued = parse_utc_z(self.issued_at, "authorization.issued_at")
         expires = parse_utc_z(self.expires_at, "authorization.expires_at")
         if issued >= expires:
@@ -325,12 +436,23 @@ class SignedAuthorizationReceipt:
             raise EvaluationAuthorizationError("authorization is not current")
         if dict(self.bindings) != dict(required_bindings):
             raise EvaluationAuthorizationError("authorization bindings differ from governed evidence")
-        expected_signature = hmac.new(
-            authority.verification_key,
-            canonical_json_bytes(self.signing_dict()),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(self.signature, expected_signature):
+        message = canonical_json_bytes(self.signing_dict())
+        if authority.authorization_class == "SYNTHETIC_ONLY_NOT_AUTHORITY":
+            valid_signature = hmac.compare_digest(
+                self.signature,
+                hmac.new(
+                    authority.verification_key,
+                    message,
+                    hashlib.sha256,
+                ).hexdigest(),
+            )
+        else:
+            valid_signature = _verify_external_signature(
+                public_jwk=authority.verification_key,
+                message=message,
+                signature_hex=self.signature,
+            )
+        if not valid_signature:
             raise EvaluationAuthorizationError("authorization signature is invalid")
 
     @classmethod

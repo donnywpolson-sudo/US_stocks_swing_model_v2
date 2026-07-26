@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,8 @@ from us_stocks_swing_model_v2.errors import (
 from us_stocks_swing_model_v2.gates import build_gate_receipt
 from us_stocks_swing_model_v2.governance import (
     AuthorizationAuthority,
+    EXTERNAL_SIGNATURE_ALGORITHM,
+    SignedAuthorizationReceipt,
     load_external_authority,
 )
 from us_stocks_swing_model_v2.providers.snapshots import (
@@ -40,7 +45,62 @@ def _permit(fixture_id: str, scope: str) -> SyntheticOnlyPermit:
     return SyntheticOnlyPermit.create(fixture_id=fixture_id, scope=scope)
 
 
-def test_external_authority_stays_blocked_until_asymmetric_verification(
+_RFC7515_RSA_N = (
+    "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddx"
+    "HmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMs"
+    "D1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSH"
+    "SXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdV"
+    "MTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8"
+    "NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ"
+)
+_RFC7515_RSA_D = (
+    "Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97I"
+    "jlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0"
+    "BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn"
+    "439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYT"
+    "CBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLh"
+    "BOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ"
+)
+_SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
+    "3031300d060960864801650304020105000420"
+)
+
+
+def _base64url_uint(value: str) -> int:
+    return int.from_bytes(
+        base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4))),
+        "big",
+    )
+
+
+def _external_public_jwk() -> bytes:
+    return canonical_json_bytes(
+        {
+            "alg": "RS256",
+            "e": "AQAB",
+            "kty": "RSA",
+            "n": _RFC7515_RSA_N,
+            "use": "sig",
+        }
+    )
+
+
+def _rsa_sign_for_fixture(message: bytes) -> str:
+    modulus = _base64url_uint(_RFC7515_RSA_N)
+    private_exponent = _base64url_uint(_RFC7515_RSA_D)
+    width = (modulus.bit_length() + 7) // 8
+    digest_info = _SHA256_DIGEST_INFO_PREFIX + hashlib.sha256(message).digest()
+    encoded = (
+        b"\x00\x01"
+        + (b"\xff" * (width - len(digest_info) - 3))
+        + b"\x00"
+        + digest_info
+    )
+    signature = pow(int.from_bytes(encoded, "big"), private_exponent, modulus)
+    return signature.to_bytes(width, "big").hex()
+
+
+def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registry(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(TypeError):
@@ -49,10 +109,11 @@ def test_external_authority_stays_blocked_until_asymmetric_verification(
             key_id="forged",
             key_sha256="1" * 64,
             authorization_class="EXTERNAL_USER_AUTHORITY",
+            signature_algorithm=EXTERNAL_SIGNATURE_ALGORITHM,
             verification_key=b"forged",
         )
 
-    key = b"externally-held-verification-key"
+    public_jwk = _external_public_jwk()
     registry_path = tmp_path / "authority_registry.json"
     registry = {
         "schema_version": 1,
@@ -60,20 +121,64 @@ def test_external_authority_stays_blocked_until_asymmetric_verification(
         "status": "ACTIVE",
         "authorities": [{
             "key_id": "external-user",
-            "key_sha256": sha256_bytes(key),
+            "key_sha256": sha256_bytes(public_jwk),
             "authorization_class": "EXTERNAL_USER_AUTHORITY",
+            "signature_algorithm": EXTERNAL_SIGNATURE_ALGORITHM,
         }],
     }
     registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    with pytest.raises(
-        EvaluationAuthorizationError,
-        match="asymmetric signature verification",
-    ):
-        load_external_authority(
-            registry_path,
-            key_id="external-user",
-            verification_key=key,
+    authority = load_external_authority(
+        registry_path,
+        key_id="external-user",
+        verification_key=public_jwk,
+    )
+    signing = {
+        "schema_version": 1,
+        "scope": "AUTHORIZE_FIXTURE",
+        "subject_id": "1" * 64,
+        "bindings": {"evidence": "2" * 64},
+        "issued_at": "2026-07-15T19:00:00Z",
+        "expires_at": "2026-07-15T21:00:00Z",
+        "key_id": authority.key_id,
+        "authority_registry_id": authority.registry_id,
+        "authorization_class": authority.authorization_class,
+    }
+    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
+    unsigned = {**signing, "signature": signature}
+    receipt = SignedAuthorizationReceipt(
+        **signing,
+        signature=signature,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    receipt.validate_at(
+        authority=authority,
+        expected_scope="AUTHORIZE_FIXTURE",
+        expected_subject_id="1" * 64,
+        required_bindings={"evidence": "2" * 64},
+        observed_at=datetime(2026, 7, 15, 20, tzinfo=timezone.utc),
+    )
+    tampered = replace(
+        receipt,
+        signature=receipt.signature[:-1] + (
+            "0" if receipt.signature[-1] != "0" else "1"
+        ),
+    )
+    tampered = replace(
+        tampered,
+        receipt_id=sha256_bytes(canonical_json_bytes(tampered.unsigned_dict())),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="signature is invalid"):
+        tampered.validate_at(
+            authority=authority,
+            expected_scope="AUTHORIZE_FIXTURE",
+            expected_subject_id="1" * 64,
+            required_bindings={"evidence": "2" * 64},
+            observed_at=datetime(2026, 7, 15, 20, tzinfo=timezone.utc),
         )
+    registry["status"] = "REVOKED"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    with pytest.raises(EvaluationAuthorizationError, match="changed after loading"):
+        authority.validate()
 
 
 def test_network_evidence_has_no_public_capability_or_arbitrary_byte_landing() -> None:

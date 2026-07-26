@@ -231,10 +231,13 @@ the full `python -m pytest -q` suite unless the task already authorizes it.
 Provider and copy CLIs are dry-run/plan-only by default. Execution requires
 explicit flags, bounded scope, and the exact required authorization. Foundation
 CLI operation is plan-only; its mutating mechanics are synthetic-fixture-only
-and root-bound. External shared-secret authorization is unavailable. Network
-snapshots remain non-trust-eligible until independently authenticated
-acquisition receipts are implemented. Readiness commands operate only on
-accepted local releases and make no provider or historical-research calls.
+and root-bound. External authorization verification is RSA-public-key-only;
+shared-secret receipts are rejected, and no authority is active while the
+checked registry is `NOT_CONFIGURED`. See
+`docs/EXTERNAL_AUTHORIZATION.md`. Network snapshots remain non-trust-eligible
+until independently authenticated acquisition receipts are implemented.
+Readiness commands operate only on accepted local releases and make no provider
+or historical-research calls.
 
 ## Completion language
 
