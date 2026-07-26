@@ -65,6 +65,11 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--attestation-authority-registry", type=Path)
     value.add_argument("--attestation-key-id")
     value.add_argument("--attestation-public-key-file", type=Path)
+    value.add_argument(
+        "--prior-nasdaq-accepted-record-count",
+        type=int,
+        help="trusted count from the immediately preceding accepted Nasdaq receipt",
+    )
     value.add_argument("--network-authorization", action="append", type=Path, default=[])
     value.add_argument("--network-authority-registry", type=Path)
     value.add_argument("--network-key-id")
@@ -91,7 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[3]
     source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
     acquisition_registry = NetworkAcquisitionRegistry.load(
-        repo_root / "config" / "network_acquisition_registry.json"
+        repo_root / "config" / "network_acquisition_registry.json",
+        allowed_root=repo_root / "config",
     )
     trusted_clock = TrustedClock.production()
     request_plans: dict[str, NetworkRequestPlan] = {}
@@ -276,7 +282,10 @@ def main(argv: list[str] | None = None) -> int:
             raise NetworkGuardError(
                 "attested snapshot is not the exact contracted Nasdaq source"
             )
-        records = parse_nasdaq_traded(snapshot)
+        records = parse_nasdaq_traded(
+            snapshot,
+            prior_accepted_record_count=args.prior_nasdaq_accepted_record_count,
+        )
         file_created_values = {iso_z(record.file_created_at) for record in records}
         if len(file_created_values) != 1:
             raise ValueError(

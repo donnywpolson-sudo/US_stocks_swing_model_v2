@@ -192,7 +192,10 @@ def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    registry = NetworkAcquisitionRegistry.load(registry_path)
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
     plan = NetworkRequestPlan.create(
         registry=registry,
         source="nasdaqtraded",
@@ -307,7 +310,10 @@ def test_network_authorization_rejects_excessive_lifetime(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     plan = NetworkRequestPlan.create(
-        registry=NetworkAcquisitionRegistry.load(registry_path),
+        registry=NetworkAcquisitionRegistry.load(
+            registry_path,
+            allowed_root=tmp_path,
+        ),
         source="fixture",
         initial_url="https://example.com/data",
         timeout_seconds=30,
@@ -431,11 +437,45 @@ def test_network_registry_drift_invalidates_loaded_capability_source(tmp_path: P
         },
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
-    registry = NetworkAcquisitionRegistry.load(path)
+    registry = NetworkAcquisitionRegistry.load(path, allowed_root=tmp_path)
     payload["status"] = "REVOKED"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ContractError, match="changed after loading"):
         registry.validate()
+
+
+def test_network_registry_must_remain_inside_its_approved_root(
+    tmp_path: Path,
+) -> None:
+    approved_root = tmp_path / "approved"
+    approved_root.mkdir()
+    outside_path = tmp_path / "outside-network-registry.json"
+    payload = {
+        "schema_version": 1,
+        "project": "US_stocks_swing_model_v2",
+        "status": "ACTIVE",
+        "allowed_sources": {
+            "fixture": {
+                "origin_path": "https://example.invalid/data",
+                "accepted_http_statuses": [200],
+            }
+        },
+    }
+    outside_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ContractError, match="escapes its approved root"):
+        NetworkAcquisitionRegistry.load(
+            outside_path,
+            allowed_root=approved_root,
+        )
+
+    inside_path = approved_root / "network-registry.json"
+    inside_path.write_text(json.dumps(payload), encoding="utf-8")
+    registry = NetworkAcquisitionRegistry.load(
+        inside_path,
+        allowed_root=approved_root,
+    )
+    registry.validate()
+    assert registry.registry_root == str(approved_root.resolve(strict=True))
 
 
 def test_network_snapshot_requires_independent_attestation_for_trust(
@@ -458,7 +498,10 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
         ),
         encoding="utf-8",
     )
-    registry = NetworkAcquisitionRegistry.load(registry_path)
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
     store = AsReceivedSnapshotStore(
         tmp_path / "snapshots",
         allowed_root=tmp_path,

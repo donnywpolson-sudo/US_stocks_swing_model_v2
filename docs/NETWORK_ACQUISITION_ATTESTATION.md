@@ -113,13 +113,17 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --acquisition-attestation <absolute-signed-receipt> `
   --attestation-authority-registry <absolute-active-registry> `
   --attestation-key-id <key-id> `
-  --attestation-public-key-file <absolute-public-jwk>
+  --attestation-public-key-file <absolute-public-jwk> `
+  --prior-nasdaq-accepted-record-count <trusted-prior-count>
 ```
 
 Verification performs no network call. It reloads the immutable snapshot,
 revalidates the network registry capability, revalidates the active external
 public authority, verifies the detached RSA signature and signing chronology,
-and only then permits the Nasdaq parser to consume the bytes.
+and only then permits the Nasdaq parser to consume the bytes. Production
+parsing always requires the record count from the immediately preceding
+accepted Nasdaq qualification receipt; there is no implicit first-run or
+routine-update bypass.
 
 ## Fail-closed properties
 

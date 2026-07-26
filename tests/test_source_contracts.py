@@ -163,7 +163,8 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
 
     root = Path(__file__).resolve().parents[1]
     registry_contract = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json"
+        root / "config" / "network_acquisition_registry.json",
+        allowed_root=root / "config",
     )
     request_plan = NetworkRequestPlan.create(
         registry=registry_contract,
@@ -264,10 +265,16 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
         "load_external_authority",
         lambda *args, **kwargs: object(),
     )
+    observed: dict[str, object] = {}
+
+    def parse_with_continuity(snapshot, **kwargs):
+        observed.update(kwargs)
+        return (Record(),)
+
     monkeypatch.setattr(
         qualification_cli,
         "parse_nasdaq_traded",
-        lambda snapshot: (Record(),),
+        parse_with_continuity,
     )
     assert qualification_main([
         "--verify-nasdaq-snapshot",
@@ -280,11 +287,14 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
         "external-user",
         "--attestation-public-key-file",
         str(public_key),
+        "--prior-nasdaq-accepted-record-count",
+        "13050",
     ]) == 0
     output = capsys.readouterr().out
     assert '"mode": "verify_attested_nasdaq_snapshot"' in output
     assert '"trust_eligible": true' in output
     assert '"record_count": 1' in output
+    assert observed == {"prior_accepted_record_count": 13050}
 
 
 def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
@@ -448,7 +458,8 @@ def test_nasdaq_identity_is_conservative_and_unknown_abstains(tmp_path) -> None:
     with pytest.raises(ContractError, match="network as-received"):
         parse_nasdaq_traded(snapshot)
     network_registry = NetworkAcquisitionRegistry.load(
-        Path(__file__).parents[1] / "config" / "network_acquisition_registry.json"
+        Path(__file__).parents[1] / "config" / "network_acquisition_registry.json",
+        allowed_root=Path(__file__).parents[1] / "config",
     )
     network_snapshot = AsReceivedSnapshotStore(
         tmp_path / "network-snapshots",
@@ -523,3 +534,16 @@ def test_nasdaq_current_short_trailer_is_strictly_supported(tmp_path) -> None:
     )
     records = parse_nasdaq_traded(snapshot, policy=_nasdaq_policy())
     assert len(records) == 1 and records[0].symbol == "ABC"
+
+
+def test_production_nasdaq_parse_requires_continuity_evidence() -> None:
+    snapshot = SimpleNamespace(
+        source="nasdaqtraded",
+        url=NASDAQ_TRADED_URL,
+        http_status=200,
+        raw_sha256="1" * 64,
+        headers={"content-type": "text/plain"},
+        trust_eligible=True,
+    )
+    with pytest.raises(ContractError, match="trusted prior accepted record count"):
+        parse_nasdaq_traded(snapshot)

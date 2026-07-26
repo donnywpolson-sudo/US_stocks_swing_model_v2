@@ -13,7 +13,7 @@ def test_preserved_nasdaq_receipt_is_non_active_and_invalidated_by_hardening() -
     )
     receipt_id = payload.pop("receipt_id")
     assert sha256_bytes(canonical_json_bytes(payload)) == receipt_id
-    assert payload["parser_code_sha256"] == sha256_file(
+    assert payload["parser_code_sha256"] != sha256_file(
         root / "src" / "us_stocks_swing_model_v2" / "providers" / "nasdaq.py"
     )
     assert payload["snapshot_store_code_sha256"] != sha256_file(
