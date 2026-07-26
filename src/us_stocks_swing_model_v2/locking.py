@@ -11,6 +11,66 @@ from .common import canonical_json_bytes, reject_link, require_contained_path
 from .errors import ContractError, LockHeldError
 
 
+def _open_exclusive_lock(path: Path) -> int:
+    if os.name != "nt":
+        return os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    handle = create_file(
+        str(path),
+        0x80000000 | 0x40000000 | 0x00010000,  # READ | WRITE | DELETE
+        0x00000001 | 0x00000002 | 0x00000004,  # shared read/write/delete
+        None,
+        1,  # CREATE_NEW
+        0x00000080,  # FILE_ATTRIBUTE_NORMAL
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        error = ctypes.get_last_error()
+        if error in {80, 183}:  # ERROR_FILE_EXISTS / ERROR_ALREADY_EXISTS
+            raise FileExistsError(error, "lock already exists", str(path))
+        raise ctypes.WinError(error)
+    return msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+
+
+def _mark_open_file_for_deletion(descriptor: int) -> None:
+    """Ask Windows to delete the exact open file object when its handle closes."""
+
+    if os.name != "nt":
+        raise OSError("open-handle deletion is Windows-only")
+    import ctypes
+    import msvcrt
+
+    class _FileDispositionInfo(ctypes.Structure):
+        _fields_ = [("DeleteFile", ctypes.c_int)]
+
+    disposition = _FileDispositionInfo(1)
+    handle = msvcrt.get_osfhandle(descriptor)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    success = kernel32.SetFileInformationByHandle(
+        ctypes.c_void_p(handle),
+        ctypes.c_int(4),  # FileDispositionInfo
+        ctypes.byref(disposition),
+        ctypes.sizeof(disposition),
+    )
+    if not success:
+        raise ctypes.WinError()
+
+
 class ExclusiveFileLock:
     """A fail-closed, non-stealing one-writer lock.
 
@@ -64,11 +124,7 @@ class ExclusiveFileLock:
             }
         )
         try:
-            descriptor = os.open(
-                self.path,
-                os.O_RDWR | os.O_CREAT | os.O_EXCL,
-                0o600,
-            )
+            descriptor = _open_exclusive_lock(self.path)
         except FileExistsError as exc:
             raise LockHeldError(f"lock already held: {self.path}") from exc
         try:
@@ -131,19 +187,46 @@ class ExclusiveFileLock:
         if content.get("token") != self.token:
             self._close_without_unlink()
             raise LockHeldError(f"lock ownership changed: {self.path}")
+        if os.name == "nt":
+            try:
+                _mark_open_file_for_deletion(self._descriptor)
+            except OSError as exc:
+                self._close_without_unlink()
+                raise LockHeldError(
+                    f"cannot retire authenticated lock handle: {self.path}"
+                ) from exc
+            os.close(self._descriptor)
+            self._descriptor = None
+            self._held = False
+            self._identity = None
+            return
+
+        # POSIX has no portable unlink-by-handle operation. Atomically move the
+        # authenticated pathname to an unpredictable retired name while the
+        # descriptor remains open, authenticate the moved identity, and retain
+        # it. Never unlink a shared pathname after closing the descriptor.
+        retired = self.path.with_name(
+            f".released-{self.path.name}-{self.token}-{uuid.uuid4().hex}"
+        )
+        try:
+            require_contained_path(retired, self.allowed_root, must_exist=False)
+            os.replace(self.path, retired)
+            retired_metadata = os.stat(retired, follow_symlinks=False)
+            if (
+                self._file_identity(retired_metadata) != self._identity
+                or retired_metadata.st_nlink != 1
+            ):
+                raise LockHeldError(f"lock pathname identity changed: {self.path}")
+        except LockHeldError:
+            self._close_without_unlink()
+            raise
+        except (OSError, ContractError) as exc:
+            self._close_without_unlink()
+            raise LockHeldError(
+                f"cannot retire authenticated lock pathname: {self.path}"
+            ) from exc
         os.close(self._descriptor)
         self._descriptor = None
-        try:
-            path_metadata = os.stat(self.path, follow_symlinks=False)
-        except OSError as exc:
-            self._held = False
-            self._identity = None
-            raise LockHeldError(f"cannot prove lock ownership: {self.path}") from exc
-        if self._file_identity(path_metadata) != self._identity or path_metadata.st_nlink != 1:
-            self._held = False
-            self._identity = None
-            raise LockHeldError(f"lock pathname identity changed: {self.path}")
-        self.path.unlink()
         self._held = False
         self._identity = None
 

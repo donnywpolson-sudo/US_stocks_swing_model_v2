@@ -112,6 +112,7 @@ def _sleeve_metric(
     sessions: int = 30,
     effect: float = 0.002,
     confidence_lower: float = 0.0011,
+    confidence_upper: float = 0.003,
     hurdle: float = 0.001,
 ) -> SleeveMetric:
     return SleeveMetric(
@@ -119,6 +120,7 @@ def _sleeve_metric(
         after_cost_effect=effect,
         preregistered_economic_hurdle=hurdle,
         multiplicity_adjusted_confidence_lower=confidence_lower,
+        multiplicity_adjusted_confidence_upper=confidence_upper,
         rw_adjusted_p=0.01,
         rw_alpha=0.05,
         dsr_probability=0.99,
@@ -130,6 +132,7 @@ def _sleeve_metric(
         planned_power_pass=True,
         numerical_valid=True,
         lineage_valid=True,
+        pit_identity_state="PASS",
         negative_control_state="PASS",
         robustness_state="PASS",
         robustness_evidence_hash="a" * 64,
@@ -997,18 +1000,17 @@ def _gate_for_state(
         name: _sleeve_metric()
         for name in ("stock_long", "stock_short", "etf_long", "etf_short")
     }
-    if state is GateState.INCONCLUSIVE:
+    if state is GateState.INCONCLUSIVE_DATA_OR_POWER:
         del metrics["etf_short"]
     elif state is GateState.INCONCLUSIVE_ROBUSTNESS:
         metrics["stock_long"] = replace(
             metrics["stock_long"],
             robustness_state="INCONCLUSIVE_ROBUSTNESS",
         )
-    elif state is GateState.FAIL:
+    elif state is GateState.FAIL_MULTIPLICITY_OR_CONTROL:
         metrics["stock_short"] = replace(
             metrics["stock_short"],
-            after_cost_effect=-0.001,
-            multiplicity_adjusted_confidence_lower=-0.002,
+            rw_adjusted_p=0.06,
         )
     gate = registry.with_clock(_clock(evaluated_at)).build_gate_receipt(
         permit,
@@ -1073,7 +1075,7 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
     inconclusive_gate = _gate_for_state(
         registry,
         permit,
-        state=GateState.INCONCLUSIVE,
+        state=GateState.INCONCLUSIVE_DATA_OR_POWER,
     )
     forged_unsigned = {**permit.unsigned_dict(), "evaluator_code_hash": "0" * 64}
     forged_permit = type(permit)(
@@ -1134,7 +1136,7 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
     pass_gate = _gate_for_state(
         registry,
         permit,
-        state=GateState.PASS,
+        state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
         evaluated_at=datetime(2026, 7, 15, 2, 30, tzinfo=timezone.utc),
     )
     with pytest.raises(IntegrityError, match="duplicate"):
@@ -1176,7 +1178,11 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
             permit_issued_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
         )
     permit, holdout = _outer_permit(registry, spec, trial_id)
-    gate = _gate_for_state(registry, permit, state=GateState.PASS)
+    gate = _gate_for_state(
+        registry,
+        permit,
+        state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
+    )
     with pytest.raises(EvaluationAuthorizationError, match="fields"):
         registry.with_clock(_clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))).record_evaluation(
             permit,
@@ -1213,14 +1219,18 @@ def test_all_four_sleeves_are_binding_and_underpowered_is_inconclusive() -> None
     policy = _gate_policy()
     passing = _sleeve_metric()
     metrics = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
-    assert policy.aggregate(metrics) is GateState.PASS
-    metrics["stock_short"] = _sleeve_metric(effect=-0.001, confidence_lower=-0.002)
-    assert policy.aggregate(metrics) is GateState.FAIL
+    assert policy.aggregate(metrics) is GateState.PASS_HISTORICAL_DISCOVERY_SCREEN
+    metrics["stock_short"] = _sleeve_metric(
+        effect=-0.001,
+        confidence_lower=-0.002,
+        confidence_upper=-0.0001,
+    )
+    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
     del metrics["etf_short"]
-    assert policy.evaluate(metrics)["etf_short"] is GateState.INCONCLUSIVE
-    assert policy.aggregate(metrics) is GateState.FAIL
+    assert policy.evaluate(metrics)["etf_short"] is GateState.INCONCLUSIVE_DATA_OR_POWER
+    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
     metrics["etf_short"] = _sleeve_metric(sessions=29)
-    assert policy.aggregate(metrics) is GateState.FAIL
+    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
     robustness = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
     robustness["stock_long"] = replace(
         passing,
@@ -1230,8 +1240,9 @@ def test_all_four_sleeves_are_binding_and_underpowered_is_inconclusive() -> None
     robustness["stock_short"] = _sleeve_metric(
         effect=-0.001,
         confidence_lower=-0.002,
+        confidence_upper=-0.0001,
     )
-    assert policy.aggregate(robustness) is GateState.FAIL
+    assert policy.aggregate(robustness) is GateState.FAIL_NO_EDGE
 
 
 def test_gate_distinguishes_invalid_power_pbo_and_strict_economic_confidence() -> None:
@@ -1241,7 +1252,7 @@ def test_gate_distinguishes_invalid_power_pbo_and_strict_economic_confidence() -
 
     equality = dict(base)
     equality["stock_long"] = _sleeve_metric(confidence_lower=0.001)
-    assert policy.aggregate(equality) is GateState.FAIL
+    assert policy.aggregate(equality) is GateState.INCONCLUSIVE_EFFECT
 
     invalid = dict(base)
     invalid["stock_long"] = replace(_sleeve_metric(), numerical_valid=False)
@@ -1251,10 +1262,10 @@ def test_gate_distinguishes_invalid_power_pbo_and_strict_economic_confidence() -
 
     pbo_mid = dict(base)
     pbo_mid["stock_long"] = replace(_sleeve_metric(), conservative_pbo=0.35)
-    assert policy.aggregate(pbo_mid) is GateState.INCONCLUSIVE
+    assert policy.aggregate(pbo_mid) is GateState.INCONCLUSIVE_DATA_OR_POWER
     pbo_high = dict(base)
     pbo_high["stock_long"] = replace(_sleeve_metric(), conservative_pbo=0.51)
-    assert policy.aggregate(pbo_high) is GateState.FAIL
+    assert policy.aggregate(pbo_high) is GateState.FAIL_MULTIPLICITY_OR_CONTROL
 
     single = dict(base)
     single["stock_long"] = replace(
@@ -1262,7 +1273,68 @@ def test_gate_distinguishes_invalid_power_pbo_and_strict_economic_confidence() -
         pbo_applicability="NOT_APPLICABLE_SINGLE_PREDECLARED_CONFIGURATION",
         conservative_pbo=None,
     )
-    assert policy.aggregate(single) is GateState.PASS
+    assert policy.aggregate(single) is GateState.PASS_HISTORICAL_DISCOVERY_SCREEN
 
     with pytest.raises(ContractError, match="Romano-Wolf alpha"):
         replace(policy, rw_alpha=0.0).validate()
+
+
+def test_gate_exposes_every_documented_terminal_state_in_binding_order() -> None:
+    policy = _gate_policy()
+    sleeves = ("stock_long", "stock_short", "etf_long", "etf_short")
+    passing = _sleeve_metric()
+
+    cases = (
+        (
+            GateState.INVALID,
+            replace(passing, numerical_valid=False),
+        ),
+        (
+            GateState.INCONCLUSIVE_PIT_IDENTITY,
+            replace(passing, pit_identity_state="INCONCLUSIVE_PIT_IDENTITY"),
+        ),
+        (
+            GateState.FAIL_NO_EDGE,
+            replace(
+                passing,
+                after_cost_effect=-0.0005,
+                multiplicity_adjusted_confidence_lower=-0.001,
+                multiplicity_adjusted_confidence_upper=0.0,
+            ),
+        ),
+        (
+            GateState.FAIL_NOT_ECONOMIC,
+            replace(
+                passing,
+                after_cost_effect=0.0008,
+                multiplicity_adjusted_confidence_lower=0.0005,
+                multiplicity_adjusted_confidence_upper=0.001,
+            ),
+        ),
+        (
+            GateState.FAIL_MULTIPLICITY_OR_CONTROL,
+            replace(passing, rw_adjusted_p=0.06),
+        ),
+        (
+            GateState.INCONCLUSIVE_DATA_OR_POWER,
+            replace(passing, planned_power_pass=False),
+        ),
+        (
+            GateState.INCONCLUSIVE_EFFECT,
+            replace(passing, multiplicity_adjusted_confidence_lower=0.001),
+        ),
+        (
+            GateState.INCONCLUSIVE_ROBUSTNESS,
+            replace(passing, robustness_state="INCONCLUSIVE_ROBUSTNESS"),
+        ),
+        (
+            GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
+            passing,
+        ),
+    )
+    assert tuple(state for state, _ in cases) == tuple(GateState)
+    for expected, metric in cases:
+        metrics = {sleeve: passing for sleeve in sleeves}
+        metrics["stock_long"] = metric
+        assert policy.evaluate(metrics)["stock_long"] is expected
+        assert policy.aggregate(metrics) is expected

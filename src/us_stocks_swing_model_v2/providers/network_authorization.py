@@ -182,6 +182,13 @@ def assert_authorized_network_request(
     expected_page_token: str | None,
     clock: TrustedClock,
 ) -> None:
+    """Consume one authorized request attempt before any transport I/O.
+
+    Consumption is deliberately irreversible: a timeout, interruption, or
+    malformed response spends this page index. Retrying requires a fresh
+    externally signed authorization receipt and store-issued session.
+    """
+
     if type(session) is not NetworkAuthorizationSession:
         raise EvaluationAuthorizationError(
             "network request lacks a store-issued authorization session"

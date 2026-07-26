@@ -266,6 +266,8 @@ class HashChainLedger:
                 or not envelopes
             ):
                 raise IntegrityError("ledger batch recovery journal is invalid")
+            if not isinstance(envelopes[0], dict):
+                raise IntegrityError("ledger batch envelope is invalid")
             start = envelopes[0].get("sequence")
             if isinstance(start, bool) or not isinstance(start, int):
                 raise IntegrityError("ledger batch recovery sequence is invalid")
@@ -276,28 +278,18 @@ class HashChainLedger:
                 raise IntegrityError("ledger batch recovery conflicts with committed history")
             previous = history[-1]["record_hash"] if history else "0" * 64
             for offset, envelope in enumerate(envelopes):
-                if not isinstance(envelope, dict):
-                    raise IntegrityError("ledger batch envelope is invalid")
-                unsigned = {
-                    key: envelope.get(key)
-                    for key in (
-                        "sequence",
-                        "previous_hash",
-                        "record_type",
-                        "recorded_at",
-                        "time_authority",
-                        "synthetic_clock_permit_id",
-                        "payload",
-                    )
-                }
-                if (
-                    envelope.get("sequence") != start + offset
-                    or envelope.get("previous_hash") != previous
-                    or envelope.get("record_type") != self.record_type
-                    or envelope.get("record_hash")
-                    != sha256_bytes(canonical_json_bytes(unsigned))
-                ):
-                    raise IntegrityError("ledger batch recovery chain is invalid")
+                self._validate_recovery_envelope(
+                    envelope,
+                    expected_sequence=start + offset,
+                    expected_previous=previous,
+                    previous_recorded_at=(
+                        history[-1]["recorded_at"]
+                        if offset == 0 and history
+                        else envelopes[offset - 1]["recorded_at"]
+                        if offset
+                        else None
+                    ),
+                )
                 previous = envelope["record_hash"]
             existing = self.path.read_bytes() if self.path.exists() else b""
             atomic_write(
@@ -314,26 +306,72 @@ class HashChainLedger:
         if sequence != len(history):
             raise IntegrityError("ledger recovery journal conflicts with committed history")
         previous = history[-1]["record_hash"] if history else "0" * 64
-        if pending.get("previous_hash") != previous or pending.get("record_type") != self.record_type:
-            raise IntegrityError("ledger recovery journal chain is invalid")
-        unsigned = {
-            key: pending.get(key)
-            for key in (
-                "sequence",
-                "previous_hash",
-                "record_type",
-                "recorded_at",
-                "time_authority",
-                "synthetic_clock_permit_id",
-                "payload",
-            )
-        }
-        if pending.get("record_hash") != sha256_bytes(canonical_json_bytes(unsigned)):
-            raise IntegrityError("ledger recovery journal hash is invalid")
+        self._validate_recovery_envelope(
+            pending,
+            expected_sequence=len(history),
+            expected_previous=previous,
+            previous_recorded_at=history[-1]["recorded_at"] if history else None,
+        )
         existing = self.path.read_bytes() if self.path.exists() else b""
         atomic_write(self.path, existing + canonical_json_bytes(pending))
         self._read_verified_raw()
         self._journal_path.unlink()
+
+    def _validate_recovery_envelope(
+        self,
+        envelope: object,
+        *,
+        expected_sequence: int,
+        expected_previous: str,
+        previous_recorded_at: str | None,
+    ) -> None:
+        fields = {
+            "sequence",
+            "previous_hash",
+            "record_type",
+            "recorded_at",
+            "time_authority",
+            "synthetic_clock_permit_id",
+            "payload",
+            "record_hash",
+        }
+        if not isinstance(envelope, dict) or set(envelope) != fields:
+            raise IntegrityError("ledger recovery envelope fields differ")
+        if not isinstance(envelope["payload"], dict):
+            raise IntegrityError("ledger recovery payload must be a JSON object")
+        if (
+            envelope["sequence"] != expected_sequence
+            or isinstance(envelope["sequence"], bool)
+            or envelope["previous_hash"] != expected_previous
+            or envelope["record_type"] != self.record_type
+        ):
+            raise IntegrityError("ledger recovery journal chain is invalid")
+        try:
+            recorded = parse_utc_z(envelope["recorded_at"], "ledger.recorded_at")
+        except (ContractError, TypeError) as exc:
+            raise IntegrityError("ledger recovery timestamp is invalid") from exc
+        if previous_recorded_at is not None and recorded < parse_utc_z(
+            previous_recorded_at, "previous.recorded_at"
+        ):
+            raise IntegrityError("ledger recovery timestamp is nonmonotone")
+        if envelope["time_authority"] != self._clock.mode:
+            raise IntegrityError("ledger recovery time authority differs")
+        if self._clock.mode == "PRODUCTION_SYSTEM_UTC":
+            if envelope["synthetic_clock_permit_id"] is not None:
+                raise IntegrityError("production recovery carries synthetic time")
+        elif not isinstance(envelope["synthetic_clock_permit_id"], str):
+            raise IntegrityError("synthetic recovery lacks its fixed-time permit")
+        else:
+            try:
+                require_sha256(
+                    envelope["synthetic_clock_permit_id"],
+                    "ledger.synthetic_clock_permit_id",
+                )
+            except ContractError as exc:
+                raise IntegrityError(str(exc)) from exc
+        unsigned = {key: envelope[key] for key in fields if key != "record_hash"}
+        if envelope["record_hash"] != sha256_bytes(canonical_json_bytes(unsigned)):
+            raise IntegrityError("ledger recovery journal hash is invalid")
 
     def _verify_plain_paths(self) -> None:
         for candidate in (self.path, self._journal_path):

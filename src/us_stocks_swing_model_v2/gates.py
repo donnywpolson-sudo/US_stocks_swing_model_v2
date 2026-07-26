@@ -14,11 +14,18 @@ REQUIRED_SLEEVES = ("stock_long", "stock_short", "etf_long", "etf_short")
 
 
 class GateState(str, Enum):
-    PASS = "PASS"
-    FAIL = "FAIL"
-    INCONCLUSIVE = "INCONCLUSIVE"
-    INCONCLUSIVE_ROBUSTNESS = "INCONCLUSIVE_ROBUSTNESS"
     INVALID = "INVALID"
+    INCONCLUSIVE_PIT_IDENTITY = "INCONCLUSIVE_PIT_IDENTITY"
+    FAIL_NO_EDGE = "FAIL_NO_EDGE"
+    FAIL_NOT_ECONOMIC = "FAIL_NOT_ECONOMIC"
+    FAIL_MULTIPLICITY_OR_CONTROL = "FAIL_MULTIPLICITY_OR_CONTROL"
+    INCONCLUSIVE_DATA_OR_POWER = "INCONCLUSIVE_DATA_OR_POWER"
+    INCONCLUSIVE_EFFECT = "INCONCLUSIVE_EFFECT"
+    INCONCLUSIVE_ROBUSTNESS = "INCONCLUSIVE_ROBUSTNESS"
+    PASS_HISTORICAL_DISCOVERY_SCREEN = "PASS_HISTORICAL_DISCOVERY_SCREEN"
+
+
+GATE_DECISION_ORDER = tuple(GateState)
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,7 @@ class SleeveMetric:
     after_cost_effect: float
     preregistered_economic_hurdle: float
     multiplicity_adjusted_confidence_lower: float
+    multiplicity_adjusted_confidence_upper: float
     rw_adjusted_p: float
     rw_alpha: float
     dsr_probability: float
@@ -38,6 +46,7 @@ class SleeveMetric:
     planned_power_pass: bool
     numerical_valid: bool
     lineage_valid: bool
+    pit_identity_state: str
     negative_control_state: str
     robustness_state: str
     robustness_evidence_hash: str
@@ -56,11 +65,25 @@ class SleeveMetric:
             or not isinstance(self.preregistered_economic_hurdle, (int, float))
             or isinstance(self.multiplicity_adjusted_confidence_lower, bool)
             or not isinstance(self.multiplicity_adjusted_confidence_lower, (int, float))
+            or isinstance(self.multiplicity_adjusted_confidence_upper, bool)
+            or not isinstance(self.multiplicity_adjusted_confidence_upper, (int, float))
             or not math.isfinite(self.after_cost_effect)
             or not math.isfinite(self.preregistered_economic_hurdle)
             or not math.isfinite(self.multiplicity_adjusted_confidence_lower)
+            or not math.isfinite(self.multiplicity_adjusted_confidence_upper)
         ):
             raise ContractError("gate metrics must be finite")
+        if (
+            self.multiplicity_adjusted_confidence_lower
+            > self.multiplicity_adjusted_confidence_upper
+        ):
+            raise ContractError("gate confidence interval is inverted")
+        if not (
+            self.multiplicity_adjusted_confidence_lower
+            <= self.after_cost_effect
+            <= self.multiplicity_adjusted_confidence_upper
+        ):
+            raise ContractError("gate confidence interval excludes its point effect")
         probabilities = (
             self.rw_adjusted_p,
             self.rw_alpha,
@@ -100,6 +123,12 @@ class SleeveMetric:
             raise ContractError("gate power/numerical/lineage states must be explicit booleans")
         if self.negative_control_state not in {"PASS", "FAIL", "INCONCLUSIVE"}:
             raise ContractError("gate negative-control state is invalid")
+        if self.pit_identity_state not in {
+            "PASS",
+            "INCONCLUSIVE_PIT_IDENTITY",
+            "INVALID",
+        }:
+            raise ContractError("gate PIT identity state is invalid")
         if self.robustness_state not in {
             "PASS",
             "FAIL",
@@ -115,6 +144,7 @@ class SleeveMetric:
             "after_cost_effect": self.after_cost_effect,
             "preregistered_economic_hurdle": self.preregistered_economic_hurdle,
             "multiplicity_adjusted_confidence_lower": self.multiplicity_adjusted_confidence_lower,
+            "multiplicity_adjusted_confidence_upper": self.multiplicity_adjusted_confidence_upper,
             "rw_adjusted_p": self.rw_adjusted_p,
             "rw_alpha": self.rw_alpha,
             "dsr_probability": self.dsr_probability,
@@ -126,6 +156,7 @@ class SleeveMetric:
             "planned_power_pass": self.planned_power_pass,
             "numerical_valid": self.numerical_valid,
             "lineage_valid": self.lineage_valid,
+            "pit_identity_state": self.pit_identity_state,
             "negative_control_state": self.negative_control_state,
             "robustness_state": self.robustness_state,
             "robustness_evidence_hash": self.robustness_evidence_hash,
@@ -202,7 +233,7 @@ class IndependentGatePolicy:
         for sleeve in REQUIRED_SLEEVES:
             metric = metrics.get(sleeve)
             if metric is None:
-                results[sleeve] = GateState.INCONCLUSIVE
+                results[sleeve] = GateState.INCONCLUSIVE_DATA_OR_POWER
                 continue
             metric.validate()
             expected_hurdle = self.sleeve_economic_hurdles[sleeve]
@@ -217,26 +248,34 @@ class IndependentGatePolicy:
             if (
                 not metric.numerical_valid
                 or not metric.lineage_valid
+                or metric.pit_identity_state == "INVALID"
                 or metric.robustness_state == "INVALID"
             ):
                 results[sleeve] = GateState.INVALID
+            elif metric.pit_identity_state == "INCONCLUSIVE_PIT_IDENTITY":
+                results[sleeve] = GateState.INCONCLUSIVE_PIT_IDENTITY
+            elif metric.multiplicity_adjusted_confidence_upper <= 0.0:
+                results[sleeve] = GateState.FAIL_NO_EDGE
+            elif metric.multiplicity_adjusted_confidence_upper <= expected_hurdle:
+                results[sleeve] = GateState.FAIL_NOT_ECONOMIC
             elif (
-                metric.after_cost_effect < expected_hurdle
-                or metric.multiplicity_adjusted_confidence_lower <= expected_hurdle
-                or metric.multiplicity_adjusted_confidence_lower < self.minimum_confidence_lower
-                or metric.rw_adjusted_p > self.rw_alpha
-                or metric.dsr_probability < self.minimum_dsr_probability
-                or (
-                    metric.pbo_applicability == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
-                    and metric.conservative_pbo is not None
-                    and metric.conservative_pbo > self.pbo_failure_threshold
+                metric.multiplicity_adjusted_confidence_lower > expected_hurdle
+                and metric.multiplicity_adjusted_confidence_lower
+                >= self.minimum_confidence_lower
+                and (
+                    metric.rw_adjusted_p > self.rw_alpha
+                    or metric.dsr_probability < self.minimum_dsr_probability
+                    or (
+                        metric.pbo_applicability
+                        == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
+                        and metric.conservative_pbo is not None
+                        and metric.conservative_pbo > self.pbo_failure_threshold
+                    )
+                    or metric.negative_control_state == "FAIL"
+                    or metric.robustness_state == "FAIL"
                 )
-                or metric.negative_control_state == "FAIL"
-                or metric.robustness_state == "FAIL"
             ):
-                results[sleeve] = GateState.FAIL
-            elif metric.robustness_state == "INCONCLUSIVE_ROBUSTNESS":
-                results[sleeve] = GateState.INCONCLUSIVE_ROBUSTNESS
+                results[sleeve] = GateState.FAIL_MULTIPLICITY_OR_CONTROL
             elif (
                 metric.effective_sessions < self.minimum_effective_sessions
                 or not metric.planned_power_pass
@@ -248,22 +287,22 @@ class IndependentGatePolicy:
                     and metric.conservative_pbo <= self.pbo_failure_threshold
                 )
             ):
-                results[sleeve] = GateState.INCONCLUSIVE
+                results[sleeve] = GateState.INCONCLUSIVE_DATA_OR_POWER
+            elif (
+                metric.multiplicity_adjusted_confidence_lower <= expected_hurdle
+                or metric.multiplicity_adjusted_confidence_lower
+                < self.minimum_confidence_lower
+            ):
+                results[sleeve] = GateState.INCONCLUSIVE_EFFECT
+            elif metric.robustness_state == "INCONCLUSIVE_ROBUSTNESS":
+                results[sleeve] = GateState.INCONCLUSIVE_ROBUSTNESS
             else:
-                results[sleeve] = GateState.PASS
+                results[sleeve] = GateState.PASS_HISTORICAL_DISCOVERY_SCREEN
         return results
 
     def aggregate(self, metrics: Mapping[str, SleeveMetric]) -> GateState:
         results = self.evaluate(metrics)
-        if any(value is GateState.INVALID for value in results.values()):
-            return GateState.INVALID
-        if any(value is GateState.FAIL for value in results.values()):
-            return GateState.FAIL
-        if any(value is GateState.INCONCLUSIVE_ROBUSTNESS for value in results.values()):
-            return GateState.INCONCLUSIVE_ROBUSTNESS
-        if any(value is GateState.INCONCLUSIVE for value in results.values()):
-            return GateState.INCONCLUSIVE
-        return GateState.PASS
+        return min(results.values(), key=GATE_DECISION_ORDER.index)
 
 
 @dataclass(frozen=True)
@@ -332,7 +371,7 @@ class GateReceipt:
     def validate(self) -> None:
         if (
             type(self.schema_version) is not int
-            or self.schema_version != 2
+            or self.schema_version != 3
             or self.state not in {item.value for item in GateState}
         ):
             raise ContractError("gate receipt schema/state is invalid")
@@ -400,7 +439,7 @@ def _build_gate_receipt_from_issued_permit(
     trusted_clock = require_trusted_clock(clock)
     state = policy.aggregate(metrics)
     unsigned = {
-        "schema_version": 2,
+        "schema_version": 3,
         "trial_registry_binding_id": permit.trial_registry_binding_id,
         "trial_id": permit.trial_id,
         "evaluation_permit_id": permit.permit_id,

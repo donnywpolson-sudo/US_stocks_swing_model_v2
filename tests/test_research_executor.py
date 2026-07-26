@@ -25,6 +25,7 @@ from us_stocks_swing_model_v2.research import (
     synthetic_fixture_vector,
 )
 from us_stocks_swing_model_v2.research import evaluator as evaluator_module
+from us_stocks_swing_model_v2.research import builder as builder_module
 from us_stocks_swing_model_v2.research.builder import build_frozen_outer_predictions
 
 
@@ -200,6 +201,14 @@ def test_role_isolation_overlap_artifact_tamper_and_fit_free_modules_fail_closed
     import us_stocks_swing_model_v2.research.executor as executor_module
 
     original_builder = executor_module.build_frozen_outer_predictions
+    original_phase_one = executor_module._build_phase_one_artifacts
+    phase_plans = []
+
+    def inspect_phase_one(plan):
+        assert set(plan.__dataclass_fields__) == {"requests"}
+        assert all(not hasattr(request, "audit_targets") for request in plan.requests)
+        phase_plans.append(plan)
+        return original_phase_one(plan)
 
     def inspect_request(request):
         assert not hasattr(request, "audit_targets")
@@ -207,7 +216,9 @@ def test_role_isolation_overlap_artifact_tamper_and_fit_free_modules_fail_closed
         return original_builder(request)
 
     monkeypatch.setattr(executor_module, "build_frozen_outer_predictions", inspect_request)
+    monkeypatch.setattr(executor_module, "_build_phase_one_artifacts", inspect_phase_one)
     result = _execute(dataset, one_fold=True)
+    assert len(phase_plans) == 1
     request = captured[0]
     overlapping = replace(
         request,
@@ -243,6 +254,38 @@ def test_role_isolation_overlap_artifact_tamper_and_fit_free_modules_fail_closed
         assert not fit_calls
         if module is evaluator_module:
             assert not any("builder" in name or "sklearn" in name for name in imports)
+
+
+def test_ridge_solver_failure_is_a_controlled_research_contract_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_solve(*args: object, **kwargs: object) -> np.ndarray:
+        raise np.linalg.LinAlgError("synthetic singular system")
+
+    monkeypatch.setattr(builder_module.np.linalg, "solve", fail_solve)
+    with pytest.raises(ResearchContractError, match="system is not solvable"):
+        _execute(_dataset(), one_fold=True)
+
+
+def test_extreme_finite_research_inputs_fail_as_controlled_contract_errors() -> None:
+    dataset = _dataset()
+    extreme_features = dataset.features.copy()
+    extreme_features[:70] = np.finfo(np.float64).max
+    with pytest.raises(ResearchContractError, match="finite float64 bounds"):
+        _execute(replace(dataset, features=extreme_features), one_fold=True)
+
+    result = _execute(dataset, one_fold=True)
+    artifact = result.prediction_artifacts[0]
+    with pytest.raises(ResearchContractError, match="MSE exceeded finite float64 bounds"):
+        evaluator_module.evaluate_frozen_predictions(
+            artifact,
+            audit_sample_ids=artifact.fit_audit.outer_audit_sample_ids,
+            audit_targets=np.full(
+                len(artifact.fit_audit.outer_audit_sample_ids),
+                np.finfo(np.float64).max,
+                dtype=np.float64,
+            ),
+        )
 
 
 def test_registered_executor_status_is_mechanical_only_and_preserves_all_blockers() -> None:

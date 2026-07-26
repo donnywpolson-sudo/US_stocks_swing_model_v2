@@ -185,6 +185,33 @@ def _slice_ids(sample_ids: tuple[str, ...], indices: np.ndarray) -> tuple[str, .
     return tuple(sample_ids[int(index)] for index in indices)
 
 
+@dataclass(frozen=True)
+class _PhaseOneArtifactPlan:
+    """Capability-restricted build inputs: outer audit labels cannot be represented."""
+
+    requests: tuple[OuterBuilderRequest, ...]
+
+    def validate(self) -> None:
+        if not self.requests or any(
+            type(request) is not OuterBuilderRequest for request in self.requests
+        ):
+            raise ResearchContractError("phase-one artifact plan is invalid")
+
+
+def _build_phase_one_artifacts(
+    plan: _PhaseOneArtifactPlan,
+) -> tuple[FrozenPredictionArtifact, ...]:
+    """Build/freeze without any capability to access the full labeled dataset."""
+
+    if type(plan) is not _PhaseOneArtifactPlan:
+        raise ResearchContractError("phase one requires its restricted artifact plan")
+    plan.validate()
+    frozen = tuple(build_frozen_outer_predictions(request) for request in plan.requests)
+    for artifact in frozen:
+        artifact.validate()
+    return frozen
+
+
 def execute_synthetic_nested_wfa(
     dataset: SyntheticResearchDataset,
     *,
@@ -211,7 +238,7 @@ def execute_synthetic_nested_wfa(
 
     # Phase one has no outer-audit target in its request contract. Complete and
     # content-address every prediction artifact before phase two sees labels.
-    prediction_artifacts: list[FrozenPredictionArtifact] = []
+    build_inputs: list[OuterBuilderRequest] = []
     for fold_number, fold in enumerate(folds):
         inner_requests = tuple(
             InnerBuilderFold(
@@ -234,10 +261,10 @@ def execute_synthetic_nested_wfa(
             audit_features=dataset.features[fold.audit_indices].copy(),
             inner_folds=inner_requests,
         )
-        prediction_artifacts.append(build_frozen_outer_predictions(request))
-    frozen = tuple(prediction_artifacts)
-    for artifact in frozen:
-        artifact.validate()
+        build_inputs.append(request)
+    frozen = _build_phase_one_artifacts(
+        _PhaseOneArtifactPlan(requests=tuple(build_inputs))
+    )
 
     # Phase two is implemented in a separate fit-free module and receives only
     # frozen predictions plus the exact corresponding outer target slice.
@@ -267,4 +294,3 @@ def execute_synthetic_nested_wfa(
     )
     execution.validate()
     return execution
-

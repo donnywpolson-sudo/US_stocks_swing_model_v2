@@ -4,6 +4,11 @@ Each release-blocking finding must terminate in code, a synthetic test, and a
 gate. `Milestone 1` means the core contract exists; later data/research tests
 remain fail-closed until their milestone is authorized.
 
+Current-state entries below are reconciled as of 2026-07-26. “Mechanics
+implemented” means synthetic, non-authorizing enforcement exists; it does not
+claim real-history evidence, PIT completeness, candidate eligibility,
+prospective confirmation, or production readiness.
+
 | Finding | Required correction | Enforcement | Acceptance evidence | State |
 |---|---|---|---|---|
 | A new repo does not restore a pristine holdout | All existing history remains discovery; prospective confirmation begins only after sealing | Constitution; registered trial ledger | Registry rejects unregistered or mutated trials | Milestone 1 |
@@ -33,10 +38,10 @@ remain fail-closed until their milestone is authorized.
 | Identity files are parsed before evidence is preserved | Atomically land bytes, headers and receipt before strict comprehensive-file parse | `providers/snapshots.py`; `providers/nasdaq.py` | tamper/header/trailer/identity tests | Milestone 2A |
 | Missing/reused symbols remain eligible by carry-forward | Complete bitemporal membership snapshots, file-time causality, explicit absence tombstones and no reuse inheritance | `identity.py`; `providers/nasdaq.py` | disappearance/reuse/change/late-revision/future-file-time tests | Milestone 2A |
 | Alternate-root or pending release silently wins | Select exactly one accepted manifest path with dataset/epoch/role allowlists | `source_selection.py` | pending/wrong-role tests | Milestone 2A |
-| Large correlated row count overstates evidence | Date/session effective sample and block/HAC methods | future research harness | Synthetic dependence test | Pending milestone 3 |
-| Tuning leaks across WFA folds | Nested chronological folds, interval purge, fold-local transforms | future research harness | Synthetic leakage/poison tests | Pending milestone 3 |
-| Prospective evidence is inspected or rewritten early | Two truth ledgers, fixed end rule and blinding | future prospective operator | clock/revision/blinding tests | Pending milestone 5 |
-| Monitoring silently changes the model | Monitoring may only alert, pause, or abstain | future operator | mutation-attempt tests | Pending milestone 6 |
+| Large correlated row count overstates evidence | Date/session effective sample and block/HAC methods | `research/hac.py`; `research/bootstrap.py`; registered synthetic executor | Synthetic dependence and effective-sample tests | Milestone 3 mechanics implemented; real-history execution blocked |
+| Tuning leaks across WFA folds | Nested chronological folds, interval purge, fold-local transforms, and capability-restricted outer-label access | `research/splits.py`; `research/builder.py`; `research/executor.py` | Synthetic leakage, poison, and structural isolation tests | Milestone 3 mechanics implemented; real-history execution blocked |
+| Prospective evidence is inspected or rewritten early | Separate append-only prediction/outcome truth ledgers, fixed end rule, fit-free evaluation, and local head anchors | `ledger.py`; `outcomes.py`; `research/evaluator.py` | clock, recovery, revision, census, and fit-free tests | Milestone 5 mechanics implemented; prospective execution blocked |
+| Monitoring silently changes the model | Monitoring may only alert, pause, or abstain and remains bundle/policy/reference bound | `monitoring.py`; `config/prospective_monitoring_policy.json` | mutation-attempt, bounds, recovery, and bundle-binding tests | Milestone 6 mechanics implemented; production monitoring blocked |
 | Manual options selection contaminates scoring | Score every eligible underlying prediction; keep discretionary journal external | Constitution/output schema | coverage reconciliation | Pending milestone 5 |
 
 ## Milestone-1 exit rule

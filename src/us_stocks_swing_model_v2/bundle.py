@@ -332,7 +332,8 @@ class SealedBundleMetadata:
             )
         self.gate_receipt.validate()
         if (
-            self.gate_receipt.state != GateState.PASS.value
+            self.gate_receipt.state
+            != GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value
             or self.gate_receipt.trial_id != self.trial_id
             or self.gate_receipt.trial_registry_binding_id != self.trial_registry_binding_id
             or self.gate_receipt.evaluation_permit_id != self.evaluation_permit_id

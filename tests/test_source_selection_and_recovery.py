@@ -127,6 +127,125 @@ def test_hash_ledger_recovers_precommit_journal_atomically(tmp_path: Path) -> No
     assert not path.with_suffix(".jsonl.pending.json").exists()
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "extra_field",
+        "sequence",
+        "predecessor",
+        "record_type",
+        "timestamp",
+        "time_authority",
+        "permit_binding",
+        "payload_type",
+        "record_hash",
+        "nonmonotone",
+        "altered_replay",
+    ],
+)
+def test_hash_ledger_recovery_rejects_adversarial_envelope_mutations(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = HashChainLedger(
+        path,
+        "fixture_v1",
+        clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
+    )
+    first = ledger.append({"id": 1})
+    unsigned: dict[str, object] = {
+        "sequence": 1,
+        "previous_hash": first["record_hash"],
+        "record_type": "fixture_v1",
+        "recorded_at": "2026-07-15T00:01:00Z",
+        "time_authority": "SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE",
+        "synthetic_clock_permit_id": first["synthetic_clock_permit_id"],
+        "payload": {"id": 2},
+    }
+    if mutation == "extra_field":
+        unsigned["unexpected"] = True
+    elif mutation == "sequence":
+        unsigned["sequence"] = 2
+    elif mutation == "predecessor":
+        unsigned["previous_hash"] = "0" * 64
+    elif mutation == "record_type":
+        unsigned["record_type"] = "other_v1"
+    elif mutation == "timestamp":
+        unsigned["recorded_at"] = "not-a-time"
+    elif mutation == "time_authority":
+        unsigned["time_authority"] = "PRODUCTION_SYSTEM_UTC"
+    elif mutation == "permit_binding":
+        unsigned["synthetic_clock_permit_id"] = None
+    elif mutation == "payload_type":
+        unsigned["payload"] = ["not", "an", "object"]
+    elif mutation == "nonmonotone":
+        unsigned["recorded_at"] = "2026-07-14T23:59:59Z"
+    elif mutation == "altered_replay":
+        unsigned = {
+            key: first[key]
+            for key in (
+                "sequence",
+                "previous_hash",
+                "record_type",
+                "recorded_at",
+                "time_authority",
+                "synthetic_clock_permit_id",
+                "payload",
+            )
+        }
+        unsigned["payload"] = {"id": 999}
+    pending = {
+        **unsigned,
+        "record_hash": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+    if mutation == "record_hash":
+        pending["record_hash"] = "0" * 64
+    path.with_suffix(".jsonl.pending.json").write_bytes(
+        canonical_json_bytes(pending)
+    )
+
+    with pytest.raises(IntegrityError):
+        ledger.read_verified()
+    assert [row["payload"]["id"] for row in ledger._read_verified_raw()] == [1]
+
+
+def test_hash_ledger_recovery_rejects_truncated_journal(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = HashChainLedger(
+        path,
+        "fixture_v1",
+        clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
+    )
+    path.with_suffix(".jsonl.pending.json").write_bytes(b'{"sequence":')
+    with pytest.raises(IntegrityError, match="journal is invalid"):
+        ledger.read_verified()
+
+
+@pytest.mark.parametrize("envelopes", [[None], [{"sequence": 0}]])
+def test_hash_ledger_recovery_rejects_malformed_batch_envelopes(
+    tmp_path: Path,
+    envelopes: list[object],
+) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = HashChainLedger(
+        path,
+        "fixture_v1",
+        clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
+    )
+    journal = {
+        "batch_schema_version": 1,
+        "record_type": "fixture_v1",
+        "envelopes": envelopes,
+    }
+    path.with_suffix(".jsonl.pending.json").write_bytes(
+        canonical_json_bytes(journal)
+    )
+    with pytest.raises(IntegrityError):
+        ledger.read_verified()
+    assert not path.exists()
+
+
 @pytest.mark.parametrize("pending", [[], "text", 7, True, None])
 def test_hash_ledger_rejects_non_object_recovery_journal(
     tmp_path: Path, pending: object

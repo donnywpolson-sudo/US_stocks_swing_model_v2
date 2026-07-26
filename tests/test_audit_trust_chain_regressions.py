@@ -246,6 +246,21 @@ def test_network_authorization_is_exact_and_single_use(
         expected_page_token=None,
         clock=clock,
     )
+    # Authorization is for one attempt, not one successful response. A
+    # transport failure after this pre-request check must burn the page index.
+    with pytest.raises(TimeoutError):
+        raise TimeoutError("simulated transport interruption")
+    with pytest.raises(EvaluationAuthorizationError, match="reused or is out of sequence"):
+        assert_authorized_network_request(
+            session,
+            source="nasdaqtraded",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
     expired_clock = TrustedClock.synthetic_fixed(
         at + timedelta(minutes=10),
         permit=_permit(

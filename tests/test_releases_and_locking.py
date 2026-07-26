@@ -9,6 +9,7 @@ import pytest
 
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError, LockHeldError
 from us_stocks_swing_model_v2.locking import ExclusiveFileLock
+from us_stocks_swing_model_v2 import locking as locking_module
 from us_stocks_swing_model_v2 import releases as releases_module
 from us_stocks_swing_model_v2.releases import (
     AtomicReleasePublisher,
@@ -154,7 +155,9 @@ def test_lock_is_non_stealing_and_owned(tmp_path: Path) -> None:
     try:
         with pytest.raises(LockHeldError):
             ExclusiveFileLock(path, allowed_root=tmp_path).acquire()
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert first._descriptor is not None
+        os.lseek(first._descriptor, 0, os.SEEK_SET)
+        payload = json.loads(os.read(first._descriptor, 65536).decode("utf-8"))
         assert payload["token"] == first.token
     finally:
         first.release()
@@ -212,6 +215,36 @@ def test_lock_release_refuses_changed_pathname_identity(tmp_path: Path) -> None:
         lock.release()
     assert path.exists()
     assert displaced.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows exact-handle deletion contract")
+def test_lock_release_deletes_exact_open_handle_without_path_unlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "writer.lock"
+    lock = ExclusiveFileLock(path, allowed_root=tmp_path).acquire()
+    original = locking_module._mark_open_file_for_deletion
+    observed: list[tuple[int, int]] = []
+
+    def mark_exact_handle(descriptor: int) -> None:
+        observed.append(
+            (
+                os.fstat(descriptor).st_ino,
+                os.stat(path, follow_symlinks=False).st_ino,
+            )
+        )
+        original(descriptor)
+
+    def prohibit_path_unlink(self: Path, *args: object, **kwargs: object) -> None:
+        raise AssertionError("release must not unlink a pathname after closing its handle")
+
+    monkeypatch.setattr(locking_module, "_mark_open_file_for_deletion", mark_exact_handle)
+    monkeypatch.setattr(Path, "unlink", prohibit_path_unlink)
+    lock.release()
+
+    assert observed and observed[0][0] == observed[0][1]
+    assert not path.exists()
 
 
 def test_orphan_recovery_quarantines_without_deleting(tmp_path: Path) -> None:
