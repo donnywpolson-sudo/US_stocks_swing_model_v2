@@ -191,6 +191,20 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         )
         == PortfolioState.MECHANICS_READY
     )
+    with np.testing.assert_raises_regex(ValueError, "non-empty"):
+        PortfolioCharter.create(
+            registered_sleeves=("stock-long", "etf-short"),
+            included_sleeves=(),
+        )
+    with np.testing.assert_raises_regex(ValueError, "non-empty"):
+        evaluate_portfolio_mechanics(
+            PortfolioCharter(
+                registered_sleeves=("stock-long", "etf-short"),
+                included_sleeves=(),
+                charter_hash="0" * 64,
+            ),
+            (stock_long, etf_short),
+        )
     robustness_charter = PortfolioCharter.create(
         registered_sleeves=("stock-long", "etf-short"),
         included_sleeves=("stock-long",),

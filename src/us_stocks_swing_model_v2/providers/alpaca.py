@@ -8,13 +8,14 @@ import math
 from typing import Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 from zoneinfo import ZoneInfo
 
 from ..common import require_aware_utc, sha256_bytes
 from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
+from .http import open_without_redirects
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -170,7 +171,9 @@ def guarded_fetch_json(
         method="GET",
     )
     try:
-        with urlopen(http_request, timeout=timeout_seconds) as response:  # noqa: S310 - host is policy pinned
+        with open_without_redirects(
+            http_request, timeout_seconds=timeout_seconds
+        ) as response:
             payload_bytes = response.read(MAX_ALPACA_RESPONSE_BYTES + 1)
             headers = normalize_response_headers(
                 {

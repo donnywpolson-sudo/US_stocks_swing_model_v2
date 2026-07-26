@@ -252,6 +252,8 @@ class HashChainLedger:
             pending = json.loads(self._journal_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise IntegrityError("ledger recovery journal is invalid") from exc
+        if not isinstance(pending, dict):
+            raise IntegrityError("ledger recovery journal must be a JSON object")
         history = self._read_verified_raw()
         if isinstance(pending, dict) and "batch_schema_version" in pending:
             if set(pending) != {"batch_schema_version", "record_type", "envelopes"}:

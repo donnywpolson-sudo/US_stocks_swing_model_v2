@@ -8,7 +8,13 @@ from urllib.parse import urlencode
 import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
-from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
+from us_stocks_swing_model_v2.clock import TrustedClock
+from us_stocks_swing_model_v2.errors import (
+    ContractError,
+    IntegrityError,
+    NetworkGuardError,
+)
+import us_stocks_swing_model_v2.providers.corporate_actions as corporate_actions_module
 from us_stocks_swing_model_v2.providers.corporate_actions import (
     CORPORATE_ACTIONS_ENDPOINT,
     CorporateActionEvidence,
@@ -30,6 +36,32 @@ def _url(request: CorporateActionsRequest, token: str | None = None) -> str:
     if token:
         params["page_token"] = token
     return f"{CORPORATE_ACTIONS_ENDPOINT}?{urlencode(params)}"
+
+
+def test_corporate_action_transport_rejects_redirect_before_followup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = CorporateActionsRequest(
+        date(2026, 7, 1),
+        date(2026, 7, 31),
+        datetime(2026, 7, 31, 12, tzinfo=timezone.utc),
+        ("ABC",),
+    )
+
+    def reject(*args, **kwargs):
+        raise NetworkGuardError("credentialed provider redirect rejected before retransmission")
+
+    monkeypatch.setattr(
+        corporate_actions_module, "open_without_redirects", reject
+    )
+    with pytest.raises(NetworkGuardError, match="before retransmission"):
+        corporate_actions_module._fetch_page(
+            request,
+            api_key_id="id",
+            api_secret_key="secret",
+            timeout_seconds=30,
+            clock=TrustedClock.production(),
+        )
 
 
 def test_corporate_action_pages_are_parsed_only_from_landed_receipt_time(tmp_path) -> None:

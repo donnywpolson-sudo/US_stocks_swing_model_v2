@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.request import Request
 
 import pytest
 
@@ -18,6 +19,7 @@ from us_stocks_swing_model_v2.providers.alpaca import (
     guarded_fetch_json,
 )
 import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
+from us_stocks_swing_model_v2.providers.http import _RejectRedirects
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
     NasdaqCompletenessPolicy,
@@ -251,7 +253,7 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
         observed["request_url"] = http_request.full_url
         return Response()
 
-    monkeypatch.setattr(alpaca_module, "urlopen", open_response)
+    monkeypatch.setattr(alpaca_module, "open_without_redirects", open_response)
     request = AlpacaBarsRequest(
         ("SPY",),
         datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -273,7 +275,9 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
         def geturl(self) -> str:
             return "https://example.invalid/redirected"
 
-    monkeypatch.setattr(alpaca_module, "urlopen", lambda *args, **kwargs: Redirected())
+    monkeypatch.setattr(
+        alpaca_module, "open_without_redirects", lambda *args, **kwargs: Redirected()
+    )
     with pytest.raises(ContractError, match="redirected"):
         guarded_fetch_json(
             request,
@@ -293,7 +297,7 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
         observed["request_url"] = http_request.full_url
         return Oversized()
 
-    monkeypatch.setattr(alpaca_module, "urlopen", open_oversized)
+    monkeypatch.setattr(alpaca_module, "open_without_redirects", open_oversized)
     with pytest.raises(ContractError, match="bounded byte"):
         guarded_fetch_json(
             request,
@@ -301,6 +305,26 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
             api_secret_key="secret",
             policy=AlpacaBarsPolicy(feed="sip"),
             network_enabled=True,
+        )
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_credentialed_redirect_is_rejected_before_followup_request(status: int) -> None:
+    request = Request(
+        "https://data.alpaca.markets/v2/stocks/bars",
+        headers={
+            "APCA-API-KEY-ID": "id",
+            "APCA-API-SECRET-KEY": "secret",
+        },
+    )
+    with pytest.raises(NetworkGuardError, match="before retransmission"):
+        _RejectRedirects().redirect_request(
+            request,
+            object(),
+            status,
+            "redirect",
+            {},
+            "https://example.invalid/credential-target",
         )
 
 
