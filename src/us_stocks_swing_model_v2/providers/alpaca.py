@@ -16,6 +16,7 @@ from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
 from .http import open_without_redirects
+from .network_authorization import NetworkAuthorizationSession
 from .snapshots import (
     AsReceivedSnapshotStore,
     ALLOWED_RESPONSE_HEADERS,
@@ -157,6 +158,9 @@ def guarded_fetch_json(
     network_enabled: bool = False,
     timeout_seconds: int = 30,
     clock: TrustedClock | None = None,
+    authorization_session: NetworkAuthorizationSession | None = None,
+    page_index: int = 0,
+    expected_page_token: str | None = None,
 ) -> HttpResponseEvidence:
     if not network_enabled or os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(
@@ -165,6 +169,16 @@ def guarded_fetch_json(
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
     url = request.url(policy)
+    if authorization_session is None:
+        raise NetworkGuardError("Alpaca request requires external network authorization")
+    authorization_session.assert_request(
+        source=f"alpaca_{policy.feed}_qualification",
+        url=url,
+        timeout_seconds=timeout_seconds,
+        max_response_bytes=MAX_ALPACA_RESPONSE_BYTES,
+        page_index=page_index,
+        expected_page_token=expected_page_token,
+    )
     http_request = Request(
         url,
         headers={"APCA-API-KEY-ID": api_key_id, "APCA-API-SECRET-KEY": api_secret_key},
@@ -220,6 +234,7 @@ def guarded_fetch_landed_pages(
     network_enabled: bool = False,
     max_pages: int = 10,
     clock: TrustedClock | None = None,
+    authorization_session: NetworkAuthorizationSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not 1 <= max_pages <= MAX_QUALIFICATION_PAGES:
         raise ContractError(f"max_pages must be in [1,{MAX_QUALIFICATION_PAGES}]")
@@ -227,7 +242,7 @@ def guarded_fetch_landed_pages(
     trusted_clock = require_trusted_clock(clock)
     request = initial
     seen_tokens: set[str] = set()
-    for _ in range(max_pages):
+    for page_index in range(max_pages):
         evidence = guarded_fetch_json(
             request,
             api_key_id=api_key_id,
@@ -235,6 +250,9 @@ def guarded_fetch_landed_pages(
             policy=policy,
             network_enabled=network_enabled,
             clock=trusted_clock,
+            authorization_session=authorization_session,
+            page_index=page_index,
+            expected_page_token=request.page_token,
         )
         source = f"alpaca_{policy.feed}_qualification"
         snapshot = snapshot_store._land_network_response(

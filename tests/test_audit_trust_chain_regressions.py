@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -34,6 +34,13 @@ from us_stocks_swing_model_v2.providers.snapshots import (
     SignedNetworkAcquisitionReceipt,
     network_acquisition_attestation_bindings,
     normalize_response_headers,
+)
+from us_stocks_swing_model_v2.providers.network_authorization import (
+    NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
+    NetworkAuthorizationUseStore,
+    NetworkRequestPlan,
+    assemble_network_authorization_receipt,
+    network_authorization_request,
 )
 from us_stocks_swing_model_v2.releases import (
     MANIFEST_NAME,
@@ -127,6 +134,159 @@ def _external_authority(
         verification_key=public_jwk,
     )
     return authority, registry_path, registry
+
+
+def _network_authorization_receipt(
+    plan: NetworkRequestPlan,
+    *,
+    authority: AuthorizationAuthority,
+    clock: TrustedClock,
+    lifetime: timedelta = timedelta(minutes=10),
+) -> SignedAuthorizationReceipt:
+    issued = clock.now()
+    request = dict(
+        network_authorization_request(
+            plan,
+            clock=clock,
+            nonce="A" * 43,
+        )
+    )
+    request["expires_at"] = (
+        issued + lifetime
+    ).isoformat().replace("+00:00", "Z")
+    signing = {
+        **request,
+        "key_id": authority.key_id,
+        "authority_registry_id": authority.registry_id,
+        "authorization_class": authority.authorization_class,
+    }
+    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
+    return assemble_network_authorization_receipt(
+        request,
+        signature_hex=signature,
+        authority=authority,
+        clock=clock,
+    )
+
+
+def test_network_authorization_is_exact_and_single_use(tmp_path: Path) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "nasdaqtraded": {
+                        "origin_path": (
+                            "https://www.nasdaqtrader.com/dynamic/SymDir/"
+                            "nasdaqtraded.txt"
+                        ),
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(registry_path)
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="nasdaqtraded",
+        initial_url=(
+            "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
+        ),
+        timeout_seconds=30,
+        max_response_bytes=32 * 1024 * 1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path)
+    at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
+    clock = TrustedClock.synthetic_fixed(
+        at,
+        permit=_permit("network-authorization-clock", "TRUSTED_CLOCK_FIXED_TIME"),
+    )
+    receipt = _network_authorization_receipt(
+        plan, authority=authority, clock=clock
+    )
+    store = NetworkAuthorizationUseStore(
+        tmp_path / "authorization-uses",
+        allowed_root=tmp_path,
+    )
+    session = store.authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+    session.assert_request(
+        source="nasdaqtraded",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=32 * 1024 * 1024,
+        page_index=0,
+        expected_page_token=None,
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="already been consumed"):
+        store.authorize(
+            plan=plan,
+            receipt=receipt,
+            authority=authority,
+            clock=clock,
+        )
+    with pytest.raises(EvaluationAuthorizationError, match="initial network request"):
+        session.assert_request(
+            source="nasdaqtraded",
+            url=plan.initial_url + "?changed=true",
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+        )
+
+
+def test_network_authorization_rejects_excessive_lifetime(tmp_path: Path) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.com/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = NetworkRequestPlan.create(
+        registry=NetworkAcquisitionRegistry.load(registry_path),
+        source="fixture",
+        initial_url="https://example.com/data",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path)
+    at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
+    clock = TrustedClock.synthetic_fixed(
+        at,
+        permit=_permit("network-lifetime-clock", "TRUSTED_CLOCK_FIXED_TIME"),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="ten minutes"):
+        _network_authorization_receipt(
+            plan=plan,
+            authority=authority,
+            clock=clock,
+            lifetime=timedelta(minutes=11),
+        )
 
 
 def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registry(

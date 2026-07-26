@@ -57,3 +57,16 @@ exclusive.
 
 Public-key configuration, external signing, and execution each require their
 own explicit review and authorization.
+
+## Provider network authorization
+
+Every provider request additionally requires an externally signed
+`AUTHORIZE_NETWORK_ACQUISITION` receipt. The receipt identifies one exact
+bounded acquisition plan and is durably consumed before transmission. The
+environment token and execution flag remain separate gates. Missing, expired,
+replayed, over-broad, wrong-source, wrong-URL, or wrong-registry receipts fail
+before a provider connection is opened.
+
+Nasdaq authorizes one exact GET. Alpaca bar and corporate-action receipts
+authorize a bounded pagination family: the signed initial URL is exact and
+only a verified preceding response may supply the next `page_token`.

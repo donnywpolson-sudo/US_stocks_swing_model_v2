@@ -20,6 +20,10 @@ from us_stocks_swing_model_v2.providers.alpaca import (
 )
 import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
 from us_stocks_swing_model_v2.providers.http import _RejectRedirects
+from us_stocks_swing_model_v2.providers.network_authorization import (
+    NetworkAuthorizationSession,
+    NetworkRequestPlan,
+)
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
     NasdaqCompletenessPolicy,
@@ -95,7 +99,31 @@ def test_network_fetch_is_disabled_without_dual_authorization(monkeypatch: pytes
             api_secret_key="y",
             policy=AlpacaBarsPolicy(feed="iex"),
             network_enabled=False,
-        )
+    )
+
+
+def _alpaca_authorization_session(
+    request: AlpacaBarsRequest, policy: AlpacaBarsPolicy
+) -> NetworkAuthorizationSession:
+    root = Path(__file__).resolve().parents[1]
+    registry = NetworkAcquisitionRegistry.load(
+        root / "config" / "network_acquisition_registry.json"
+    )
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source=f"alpaca_{policy.feed}_qualification",
+        initial_url=request.url(policy),
+        timeout_seconds=30,
+        max_response_bytes=alpaca_module.MAX_ALPACA_RESPONSE_BYTES,
+        max_pages=10,
+        pagination_parameter="page_token",
+    )
+    return NetworkAuthorizationSession._construct(
+        plan=plan,
+        receipt_id="a" * 64,
+        nonce="A" * 43,
+        consumed_at="2026-07-15T00:00:00Z",
+    )
 
 
 def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorization(
@@ -107,7 +135,9 @@ def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorizat
     def unexpected_network(*args, **kwargs):
         raise AssertionError("plan-only qualification attempted network access")
 
-    monkeypatch.setattr(qualification_cli, "urlopen", unexpected_network)
+    monkeypatch.setattr(
+        qualification_cli, "open_without_redirects", unexpected_network
+    )
     assert qualification_main([]) == 0
     assert '"mode": "plan_only"' in capsys.readouterr().out
     with pytest.raises(NetworkGuardError, match="FREE_SOURCE_QUALIFICATION_APPROVED"):
@@ -115,6 +145,7 @@ def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorizat
 
 
 def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -148,15 +179,67 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         def _land_network_response(self, **kwargs):
             return Snapshot()
 
+    class Session:
+        def assert_request(self, **kwargs):
+            return None
+
+    class UseStore:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def authorize(self, **kwargs):
+            return Session()
+
+    root = Path(__file__).resolve().parents[1]
+    registry_contract = NetworkAcquisitionRegistry.load(
+        root / "config" / "network_acquisition_registry.json"
+    )
+    request_plan = NetworkRequestPlan.create(
+        registry=registry_contract,
+        source="nasdaqtraded",
+        initial_url=NASDAQ_TRADED_URL,
+        timeout_seconds=30,
+        max_response_bytes=qualification_cli.MAX_NASDAQ_RESPONSE_BYTES,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    registry = tmp_path / "authority.json"
+    public_key = tmp_path / "public.jwk"
+    authorization = tmp_path / "authorization.json"
+    public_key.write_bytes(b"public")
     monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
-    monkeypatch.setattr(qualification_cli, "urlopen", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(
+        qualification_cli,
+        "open_without_redirects",
+        lambda *args, **kwargs: Response(),
+    )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
+    monkeypatch.setattr(qualification_cli, "NetworkAuthorizationUseStore", UseStore)
+    monkeypatch.setattr(
+        qualification_cli, "load_external_authority", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(
+        qualification_cli,
+        "load_signed_authorization_receipt",
+        lambda path: SimpleNamespace(subject_id=request_plan.plan_id),
+    )
     monkeypatch.setattr(
         qualification_cli,
         "network_acquisition_attestation_bindings",
         lambda snapshot: {"raw_sha256": snapshot.raw_sha256},
     )
-    assert qualification_main(["--execute-network", "--nasdaq-only"]) == 0
+    assert qualification_main([
+        "--execute-network",
+        "--nasdaq-only",
+        "--network-authorization",
+        str(authorization),
+        "--network-authority-registry",
+        str(registry),
+        "--network-key-id",
+        "external-user",
+        "--network-public-key-file",
+        str(public_key),
+    ]) == 0
     output = capsys.readouterr().out
     assert '"mode": "network_capture"' in output
     assert '"trust_eligible": false' in output
@@ -196,7 +279,9 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
     public_key = tmp_path / "public.jwk"
     for path in (attestation, registry, public_key):
         path.write_text("fixture", encoding="utf-8")
-    monkeypatch.setattr(qualification_cli, "urlopen", unexpected_network)
+    monkeypatch.setattr(
+        qualification_cli, "open_without_redirects", unexpected_network
+    )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
     monkeypatch.setattr(
         qualification_cli,
@@ -266,6 +351,9 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
         api_secret_key="secret",
         policy=AlpacaBarsPolicy(feed="iex", asof=None),
         network_enabled=True,
+        authorization_session=_alpaca_authorization_session(
+            request, AlpacaBarsPolicy(feed="iex", asof=None)
+        ),
     )
     assert evidence.retrieved_at >= observed["read_finished"]
     assert "feed=iex" in evidence.url
@@ -285,6 +373,9 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
             api_secret_key="secret",
             policy=AlpacaBarsPolicy(feed="iex"),
             network_enabled=True,
+            authorization_session=_alpaca_authorization_session(
+                request, AlpacaBarsPolicy(feed="iex")
+            ),
         )
 
     monkeypatch.setattr(alpaca_module, "MAX_ALPACA_RESPONSE_BYTES", 4)
@@ -305,6 +396,9 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
             api_secret_key="secret",
             policy=AlpacaBarsPolicy(feed="sip"),
             network_enabled=True,
+            authorization_session=_alpaca_authorization_session(
+                request, AlpacaBarsPolicy(feed="sip")
+            ),
         )
 
 
