@@ -44,6 +44,7 @@ bytes:
 python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
   --request C:\absolute\request\nasdaqtraded.json `
   --signing-payload-output C:\absolute\new-signing-payload.bin `
+  --allowed-output-root C:\absolute\approved-artifact-root `
   --authority-registry C:\absolute\project\config\authorization_authorities.json `
   --authority-key-id <key-id> `
   --public-key-file C:\absolute\public.jwk
@@ -62,6 +63,7 @@ python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
   --authority-registry C:\absolute\project\config\authorization_authorities.json `
   --authority-key-id <key-id> `
   --public-key-file C:\absolute\public.jwk `
+  --allowed-output-root C:\absolute\approved-artifact-root `
   --output C:\absolute\new-network-authorization.json
 ```
 

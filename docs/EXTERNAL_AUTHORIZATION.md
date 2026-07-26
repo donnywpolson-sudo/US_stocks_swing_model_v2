@@ -26,6 +26,11 @@ caller-created registry is rejected even when it is schema-valid, marked
 `ACTIVE`, and matches the caller's public key. Activation therefore requires a
 separately reviewed change to the checked-in trust anchor.
 
+Authorization assembly also requires an existing absolute
+`--allowed-output-root`. Signing payloads and assembled receipts must be new
+paths contained under that root; outside-root and link-mediated destinations
+are rejected before parent directories are created.
+
 ## Separation of authority
 
 The repository:

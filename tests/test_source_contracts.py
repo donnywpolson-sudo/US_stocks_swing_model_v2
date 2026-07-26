@@ -10,8 +10,15 @@ import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.errors import ContractError, NetworkGuardError
+from us_stocks_swing_model_v2.errors import (
+    ContractError,
+    EvaluationAuthorizationError,
+    NetworkGuardError,
+)
 from us_stocks_swing_model_v2.cli.qualify_free_sources import main as qualification_main
+from us_stocks_swing_model_v2.cli.assemble_network_authorization import (
+    _bounded_new_output,
+)
 import us_stocks_swing_model_v2.cli.qualify_free_sources as qualification_cli
 from us_stocks_swing_model_v2.providers.alpaca import (
     AlpacaBarsPolicy,
@@ -42,6 +49,24 @@ def _nasdaq_policy() -> NasdaqCompletenessPolicy:
             scope="NASDAQ_COMPLETENESS_FIXTURE",
         )
     )
+
+
+def test_network_authorization_outputs_require_an_explicit_approved_root(
+    tmp_path: Path,
+) -> None:
+    allowed_root = tmp_path / "authorization-artifacts"
+    allowed_root.mkdir()
+    inside = allowed_root / "nested" / "receipt.json"
+    assert _bounded_new_output(inside, allowed_root=allowed_root) == inside
+    with pytest.raises(ContractError, match="escapes its approved root"):
+        _bounded_new_output(
+            tmp_path / "outside.json",
+            allowed_root=allowed_root,
+        )
+    existing = allowed_root / "existing.json"
+    existing.write_text("preserve", encoding="utf-8")
+    with pytest.raises(EvaluationAuthorizationError, match="already exists"):
+        _bounded_new_output(existing, allowed_root=allowed_root)
 
 
 def _snapshot_permit() -> SyntheticOnlyPermit:
