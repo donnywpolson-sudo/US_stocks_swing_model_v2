@@ -42,7 +42,7 @@ CREATED_AT = "2026-07-15T12:30:00Z"
 
 @pytest.fixture
 def readiness_tmp() -> Iterator[Path]:
-    root = Path(tempfile.mkdtemp(prefix="smr-")).resolve(strict=True)
+    root = Path(tempfile.mkdtemp(prefix="smr-"))
     try:
         yield root
     finally:
@@ -168,7 +168,7 @@ def test_production_publication_requires_exact_authorization_before_mutation(
     )
     data_root = readiness_tmp / "data"
     data_root.mkdir(exist_ok=True)
-    work_root = data_root / "readiness" / "authorized-output"
+    work_root = (data_root / "readiness" / "authorized-output").resolve(strict=False)
     monkeypatch.setattr(readiness_module, "_repo_root", lambda: readiness_tmp)
     monkeypatch.setattr(
         readiness_module,
