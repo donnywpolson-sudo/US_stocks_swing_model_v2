@@ -180,6 +180,8 @@ class ControlledRebuildAuthorization:
             payload = json.loads(expected_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise PermissionError("controlled rebuild authority changed after loading") from exc
+        if not isinstance(payload, dict):
+            raise PermissionError("controlled rebuild authority changed after loading")
         core = {key: value for key, value in payload.items() if key != "authorization_id"}
         if (
             payload.get("authorization_id") != self.authorization_id

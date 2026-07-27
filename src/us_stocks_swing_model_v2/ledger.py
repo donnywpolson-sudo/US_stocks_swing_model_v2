@@ -1023,6 +1023,13 @@ class PredictionLedger:
         previous_anchor: Path | None = None,
     ) -> Mapping[str, object]:
         census.validate()
+        if (
+            census.evidence_state == "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+            or census.synthetic_permit_id
+        ):
+            raise ContractError(
+                "production prediction commit rejects synthetic-only eligibility census"
+            )
         require_sha256(bundle_id, "prediction_commit.bundle_id")
         require_sha256(feature_release_id, "prediction_commit.feature_release_id")
         rows = tuple(predictions)

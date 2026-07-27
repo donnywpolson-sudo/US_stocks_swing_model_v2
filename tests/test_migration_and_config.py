@@ -222,6 +222,25 @@ def test_explicit_user_task_authority_binds_completed_non_alpha_copy(
     assert "real_history" not in CONTROLLED_REBUILD_AUTHORIZATION_CLASS.lower()
 
 
+@pytest.mark.parametrize("replacement_json", ["[]", '"text"', "null", "1"])
+def test_controlled_rebuild_authorization_revalidation_normalizes_non_object_json(
+    monkeypatch: pytest.MonkeyPatch,
+    replacement_json: str,
+) -> None:
+    authority_path = REPO / "config" / "controlled_rebuild_authorization.json"
+    authority = ControlledRebuildAuthorization.load(authority_path)
+    original_read_text = Path.read_text
+
+    def replaced_read_text(path: Path, *args, **kwargs) -> str:
+        if path.resolve() == authority_path.resolve():
+            return replacement_json
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", replaced_read_text)
+    with pytest.raises(PermissionError, match="changed after loading"):
+        authority.validate_file()
+
+
 def test_checked_in_migration_approval_binds_completed_reviewed_capsule(
     completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
 ) -> None:

@@ -935,7 +935,9 @@ def test_feature_release_rejects_additional_manifest_payloads(
         )
 
 
-def test_accepted_feature_release_is_published_as_one_atomic_census(tmp_path: Path) -> None:
+def test_production_prediction_commit_rejects_synthetic_census_before_mutation(
+    tmp_path: Path,
+) -> None:
     bundle_path = _bundle(tmp_path)
     engine = _engine(bundle_path, clock=_clock(NOW + timedelta(minutes=1)))
     metadata = engine.metadata
@@ -968,25 +970,31 @@ def test_accepted_feature_release_is_published_as_one_atomic_census(tmp_path: Pa
         ledger.append(None)  # type: ignore[arg-type]
     assert not ledger_path.exists()
 
-    commit = engine.predict_and_commit(
-        feature_release_directory=feature_release,
-        eligibility_census=census,
-        prediction_ledger=ledger,
-    )
-    assert commit["feature_release_id"] == manifest.release_id
-    assert commit["prediction_count"] == 2
-    assert "predictions" not in commit
-    anchor = Path(str(commit["anchor_path"]))
-    assert len(ledger.verify(anchor)) == 2
+    with pytest.raises(
+        ContractError,
+        match="production prediction commit rejects synthetic-only",
+    ):
+        engine.predict_and_commit(
+            feature_release_directory=feature_release,
+            eligibility_census=census,
+            prediction_ledger=ledger,
+        )
+    assert not ledger_path.exists()
+    assert not (tmp_path / "atomic-anchors").exists()
 
-    outcome_ledger = OutcomeLedger(
-        tmp_path / "atomic-ledger" / "outcomes.jsonl",
-        ledger,
-        anchor_root=tmp_path / "atomic-outcome-anchors",
-        clock=_clock(NOW + timedelta(days=8)),
-    )
-    with pytest.raises(ContractError, match="caller-constructed outcomes"):
-        outcome_ledger.append(None, prediction_anchor=anchor)  # type: ignore[arg-type]
+    predictions = _predict(engine, rows)
+    with pytest.raises(
+        ContractError,
+        match="production prediction commit rejects synthetic-only",
+    ):
+        ledger._append_census_from_engine(
+            predictions,
+            census=census,
+            bundle_id=metadata.bundle_id,
+            feature_release_id=manifest.release_id,
+        )
+    assert not ledger_path.exists()
+    assert not (tmp_path / "atomic-anchors").exists()
 
 
 def test_prediction_and_outcome_ledgers_exactly_cover_the_eligibility_census(
