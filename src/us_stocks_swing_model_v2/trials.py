@@ -16,9 +16,8 @@ from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from .governance import (
-    AuthorizationAuthority,
+    LocalIntegrityRecord,
     ReleaseBinding,
-    SignedAuthorizationReceipt,
     release_bindings_hash,
     verify_release_bindings,
 )
@@ -451,8 +450,7 @@ class TrialRegistry:
         evaluation_input_hash: str,
         evaluator_code_hash: str,
         holdout_receipt: HoldoutStateReceipt,
-        authorization: SignedAuthorizationReceipt,
-        authorization_authority: AuthorizationAuthority,
+        action_record: LocalIntegrityRecord,
         initial_holdout_receipt: HoldoutStateReceipt | None = None,
     ) -> TrialPermit:
         registration = self.authorize(trial_id)
@@ -496,8 +494,7 @@ class TrialRegistry:
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "holdout_receipt_id": holdout_receipt.receipt_id,
         }
-        authorization.validate(
-            authority=authorization_authority,
+        action_record.validate(
             expected_scope=f"AUTHORIZE_{evaluation_scope}",
             expected_subject_id=trial_id,
             required_bindings=required_bindings,
@@ -518,7 +515,7 @@ class TrialRegistry:
             "robustness_policy_id": spec.robustness_policy_id,
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "holdout_receipt_id": holdout_receipt.receipt_id,
-            "authorization_receipt_id": authorization.receipt_id,
+            "authorization_receipt_id": action_record.record_id,
             "issued_at": iso_z(issued),
             "time_authority": self._clock.mode,
             "synthetic_clock_permit_id": self._clock.synthetic_permit_id,

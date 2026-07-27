@@ -17,7 +17,7 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, EvaluationAuthorizationError, IntegrityError
-from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
+from .governance import LocalIntegrityRecord
 from .ledger import HashChainLedger, LedgerAnchorStore
 from .monitoring_policy import (
     FROZEN_MONITORING_POLICY,
@@ -320,7 +320,7 @@ class MonitoringRecord:
                 "monitoring cannot retrain, retune, substitute sources, resume, or promote"
             )
         if self.recovery_authorization is not None:
-            SignedAuthorizationReceipt.from_dict(
+            LocalIntegrityRecord.from_dict(
                 self.recovery_authorization
             ).validate_content()
         if self.record_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
@@ -363,7 +363,6 @@ class ProspectiveMonitoringLedger:
         bundle_id: str,
         monitoring_policy_hash: str,
         monitoring_reference_hash: str,
-        recovery_authority: AuthorizationAuthority,
         clock: TrustedClock,
         synthetic_history_clock_permit_ids: tuple[str, ...] = (),
         synthetic_history_permit: SyntheticOnlyPermit | None = None,
@@ -378,11 +377,9 @@ class ProspectiveMonitoringLedger:
             raise ContractError(
                 "monitoring policy hash differs from the frozen evaluated policy"
             )
-        recovery_authority.validate()
         self.bundle_id = bundle_id
         self.monitoring_policy_hash = monitoring_policy_hash
         self.monitoring_reference_hash = monitoring_reference_hash
-        self.recovery_authority = recovery_authority
         self._clock = require_trusted_clock(clock)
         self._ledger = HashChainLedger(
             Path(path),
@@ -429,7 +426,7 @@ class ProspectiveMonitoringLedger:
         observation: MonitoringObservation,
         *,
         previous_anchor: Path | None,
-        recovery_authorization: SignedAuthorizationReceipt | None = None,
+        recovery_authorization: LocalIntegrityRecord | None = None,
         policy: MonitoringPolicy = MonitoringPolicy(),
     ) -> Mapping[str, object]:
         if policy.policy_hash != self.monitoring_policy_hash:
@@ -466,7 +463,6 @@ class ProspectiveMonitoringLedger:
                 reasons.append("RECOVERY_REVIEW_REQUIRED")
             else:
                 recovery_authorization.validate(
-                    authority=self.recovery_authority,
                     expected_scope="AUTHORIZE_MONITORING_RECOVERY",
                     expected_subject_id=self.bundle_id,
                     required_bindings=self._recovery_bindings(
@@ -596,11 +592,10 @@ class ProspectiveMonitoringLedger:
                     raise IntegrityError(
                         "monitoring resumed without reviewed recovery"
                     )
-                authorization = SignedAuthorizationReceipt.from_dict(
+                authorization = LocalIntegrityRecord.from_dict(
                     record.recovery_authorization
                 )
                 authorization.validate_at(
-                    authority=self.recovery_authority,
                     expected_scope="AUTHORIZE_MONITORING_RECOVERY",
                     expected_subject_id=self.bundle_id,
                     required_bindings=self._recovery_bindings(

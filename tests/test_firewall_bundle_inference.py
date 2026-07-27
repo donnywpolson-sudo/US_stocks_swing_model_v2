@@ -41,10 +41,9 @@ from us_stocks_swing_model_v2.gates import (
 )
 from us_stocks_swing_model_v2.monitoring import MonitoringPolicy
 from us_stocks_swing_model_v2.governance import (
-    AuthorizationAuthority,
     ReleaseBinding,
+    create_local_integrity_record,
     release_bindings_hash,
-    sign_authorization_receipt,
 )
 from us_stocks_swing_model_v2.inference import (
     FitFreeInferenceEngine,
@@ -75,7 +74,6 @@ from us_stocks_swing_model_v2.trials import (
 
 
 NOW = datetime(2026, 7, 15, 20, 0, tzinfo=timezone.utc)
-AUTH_KEY = b"synthetic-test-authorization-key"
 
 
 def _clock(at: datetime) -> TrustedClock:
@@ -84,17 +82,6 @@ def _clock(at: datetime) -> TrustedClock:
         permit=SyntheticOnlyPermit.create(
             fixture_id=f"firewall-{at.isoformat()}",
             scope="TRUSTED_CLOCK_FIXED_TIME",
-        ),
-    )
-
-
-def _authority() -> AuthorizationAuthority:
-    return AuthorizationAuthority.synthetic(
-        key_id="synthetic-test-key",
-        verification_key=AUTH_KEY,
-        permit=SyntheticOnlyPermit.create(
-            fixture_id="firewall-authorization",
-            scope="SYNTHETIC_AUTHORIZATION_AUTHORITY",
         ),
     )
 
@@ -331,27 +318,23 @@ def _bundle(
         maximum_identity_age_minutes=1440,
         maximum_inference_latency_minutes=10,
     )
-    authorization = sign_authorization_receipt(
+    authorization = create_local_integrity_record(
         scope="AUTHORIZE_CANDIDATE_SEALING",
         subject_id=candidate.candidate_id,
         bindings=candidate.sealing_bindings(),
-        issued_at=iso_z(sealing_observed_at - timedelta(minutes=1)),
-        expires_at=iso_z(sealing_observed_at + timedelta(minutes=30)),
-        authority=_authority(),
+        clock=sealing_clock,
     )
     metadata = build_metadata(
         candidate,
         sealing_authorization=authorization,
-        authorization_authority=_authority(),
         clock=sealing_clock,
     )
     seal_bundle(
         root,
         metadata,
-        authorization_authority=_authority(),
         clock=sealing_clock,
     )
-    assert load_bundle(root, authorization_authority=_authority()) == metadata
+    assert load_bundle(root) == metadata
     return root
 
 
@@ -366,7 +349,7 @@ def test_bundle_preparation_rejects_duplicate_artifact_declarations(
 
 
 def _load_bundle(bundle_path: Path):
-    return load_bundle(bundle_path, authorization_authority=_authority())
+    return load_bundle(bundle_path)
 
 
 def test_bundle_sealing_is_reachable_with_production_clock(tmp_path: Path) -> None:
@@ -393,7 +376,6 @@ def test_bundle_sealing_window_rejects_future_and_stale_times() -> None:
 def _engine(bundle_path: Path, *, clock: TrustedClock) -> FitFreeInferenceEngine:
     return FitFreeInferenceEngine(
         bundle_path,
-        authorization_authority=_authority(),
         accepted_release_root=bundle_path.parent / "accepted",
         clock=clock,
     )
@@ -605,18 +587,14 @@ def test_bundle_artifact_mutation_fails_closed(tmp_path: Path) -> None:
         _load_bundle(root)
 
 
-def test_bundle_reload_rechecks_authority_and_exact_numeric_json_types(tmp_path: Path) -> None:
+def test_bundle_reload_rechecks_local_record_and_exact_numeric_json_types(tmp_path: Path) -> None:
     root = _bundle(tmp_path)
-    wrong_authority = AuthorizationAuthority.synthetic(
-        key_id="wrong-synthetic-key",
-        verification_key=b"wrong-synthetic-key",
-        permit=SyntheticOnlyPermit.create(
-            fixture_id="wrong-bundle-authority",
-            scope="SYNTHETIC_AUTHORIZATION_AUTHORITY",
-        ),
+    poisoned_record = json.loads(
+        (root / "sealed_bundle.json").read_text(encoding="utf-8")
     )
-    with pytest.raises(EvaluationAuthorizationError, match="pinned external authority"):
-        load_bundle(root, authorization_authority=wrong_authority)
+    poisoned_record["sealing_authorization"]["record_id"] = "f" * 64
+    with pytest.raises(EvaluationAuthorizationError, match="record ID"):
+        SealedBundleMetadata.from_dict(poisoned_record)
 
     payload = json.loads((root / "sealed_bundle.json").read_text(encoding="utf-8"))
     payload["maximum_feature_age_minutes"] = True
@@ -674,22 +652,19 @@ def test_prepared_bundle_rejects_non_string_signing_fields_before_bindings(
             candidate.sealing_bindings()
 
 
-def test_authorization_expiry_is_half_open() -> None:
-    receipt = sign_authorization_receipt(
-        scope="AUDIT_HALF_OPEN_EXPIRY",
+def test_local_integrity_record_rejects_observation_before_creation() -> None:
+    record = create_local_integrity_record(
+        scope="AUDIT_LOCAL_RECORD_TIME",
         subject_id="1" * 64,
         bindings={"evidence": "2" * 64},
-        issued_at="2026-07-15T19:00:00Z",
-        expires_at="2026-07-15T20:00:00Z",
-        authority=_authority(),
+        clock=_clock(datetime(2026, 7, 15, 20, tzinfo=timezone.utc)),
     )
-    with pytest.raises(EvaluationAuthorizationError, match="not current"):
-        receipt.validate(
-            authority=_authority(),
-            expected_scope="AUDIT_HALF_OPEN_EXPIRY",
+    with pytest.raises(EvaluationAuthorizationError, match="before it was created"):
+        record.validate(
+            expected_scope="AUDIT_LOCAL_RECORD_TIME",
             expected_subject_id="1" * 64,
             required_bindings={"evidence": "2" * 64},
-            clock=_clock(datetime(2026, 7, 15, 20, tzinfo=timezone.utc)),
+            clock=_clock(datetime(2026, 7, 15, 19, tzinfo=timezone.utc)),
         )
 
 
@@ -1246,13 +1221,11 @@ def _outer_permit(
         "release_bindings_hash": release_bindings_hash(spec.release_bindings),
         "holdout_receipt_id": holdout.receipt_id,
     }
-    authorization = sign_authorization_receipt(
+    authorization = create_local_integrity_record(
         scope="AUTHORIZE_OUTER_SCREEN",
         subject_id=trial_id,
         bindings=bindings,
-        issued_at="2026-07-15T00:30:00Z",
-        expires_at="2026-07-15T04:00:00Z",
-        authority=_authority(),
+        clock=_clock(datetime(2026, 7, 15, 0, 30, tzinfo=timezone.utc)),
     )
     permit = registry.with_clock(_clock(permit_issued_at)).issue_permit(
         trial_id,
@@ -1260,8 +1233,7 @@ def _outer_permit(
         evaluation_input_hash="8" * 64,
         evaluator_code_hash="9" * 64,
         holdout_receipt=holdout,
-        authorization=authorization,
-        authorization_authority=_authority(),
+        action_record=authorization,
     )
     return permit, holdout
 
@@ -1297,13 +1269,11 @@ def _final_permit(
         "release_bindings_hash": release_bindings_hash(spec.release_bindings),
         "holdout_receipt_id": unlocked.receipt_id,
     }
-    authorization = sign_authorization_receipt(
+    authorization = create_local_integrity_record(
         scope="AUTHORIZE_FINAL_HOLDOUT",
         subject_id=trial_id,
         bindings=bindings,
-        issued_at="2026-07-15T02:45:00Z",
-        expires_at="2026-07-15T04:00:00Z",
-        authority=_authority(),
+        clock=_clock(datetime(2026, 7, 15, 2, 45, tzinfo=timezone.utc)),
     )
     permit = registry.with_clock(_clock(permit_issued_at)).issue_permit(
         trial_id,
@@ -1312,8 +1282,7 @@ def _final_permit(
         evaluator_code_hash="b" * 64,
         holdout_receipt=unlocked,
         initial_holdout_receipt=initial_holdout,
-        authorization=authorization,
-        authorization_authority=_authority(),
+        action_record=authorization,
     )
     return permit, unlocked
 

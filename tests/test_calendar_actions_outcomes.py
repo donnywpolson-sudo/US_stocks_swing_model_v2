@@ -29,10 +29,7 @@ from us_stocks_swing_model_v2.errors import (
     EvaluationAuthorizationError,
     IntegrityError,
 )
-from us_stocks_swing_model_v2.governance import (
-    AuthorizationAuthority,
-    sign_authorization_receipt,
-)
+from us_stocks_swing_model_v2.governance import create_local_integrity_record
 from us_stocks_swing_model_v2.ledger import OutcomeLedger, _outcome_interval_bars
 from us_stocks_swing_model_v2.outcomes import (
     DailyBar,
@@ -56,24 +53,12 @@ from us_stocks_swing_model_v2.schemas import (
 SESSIONS = ["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-13"]
 AS_OF = datetime(2026, 7, 14, tzinfo=timezone.utc)
 BAR_RELEASE_ID = "e" * 64
-AUTH_KEY = b"synthetic-corporate-action-completeness-key"
 
 
 def _action_permit() -> SyntheticOnlyPermit:
     return SyntheticOnlyPermit.create(
         fixture_id="calendar-actions-ledger",
         scope="SYNTHETIC_CORPORATE_ACTION_LEDGER",
-    )
-
-
-def _coverage_authority() -> AuthorizationAuthority:
-    return AuthorizationAuthority.synthetic(
-        key_id="synthetic-corporate-action-completeness",
-        verification_key=AUTH_KEY,
-        permit=SyntheticOnlyPermit.create(
-            fixture_id="calendar-action-coverage-authority",
-            scope="SYNTHETIC_AUTHORIZATION_AUTHORITY",
-        ),
     )
 
 
@@ -117,7 +102,6 @@ def _provider_coverage() -> CorporateActionCoverageEvidence:
 
 def _governed_coverage() -> tuple[
     GovernedEffectiveEventCoverage,
-    AuthorizationAuthority,
     TrustedClock,
 ]:
     prepared = prepare_effective_event_coverage(
@@ -131,23 +115,19 @@ def _governed_coverage() -> tuple[
         provider_contract_id="1" * 64,
         late_arrival_policy_id="2" * 64,
     )
-    authority = _coverage_authority()
     clock = _coverage_clock()
-    authorization = sign_authorization_receipt(
+    authorization = create_local_integrity_record(
         scope=AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS,
         subject_id=prepared.coverage.coverage_content_id,
         bindings=prepared.authorization_bindings(),
-        issued_at="2026-07-14T00:00:00Z",
-        expires_at="2026-07-15T00:00:00Z",
-        authority=authority,
+        clock=clock,
     )
     governed = authorize_effective_event_coverage(
         prepared,
         authorization=authorization,
-        authority=authority,
         clock=clock,
     )
-    return governed, authority, clock
+    return governed, clock
 
 
 def _coverage(permit: SyntheticOnlyPermit) -> CorporateActionCoverage:
@@ -661,12 +641,11 @@ def test_verified_zero_action_release_preserves_explicit_coverage(
 ) -> None:
     stage = tmp_path / "stage"
     stage.mkdir()
-    governed, authority, clock = _governed_coverage()
+    governed, clock = _governed_coverage()
     (stage / "corporate_actions.json").write_bytes(
         build_governed_corporate_action_release_payload(
             actions=(),
             governed_coverage=(governed,),
-            authority=authority,
             clock=clock,
         )
     )
@@ -688,7 +667,7 @@ def test_verified_zero_action_release_preserves_explicit_coverage(
         environment_hash="4" * 64,
     )
     release = AtomicReleasePublisher(tmp_path / "accepted").publish(stage, manifest)
-    with pytest.raises(ContractError, match="requires an authority and trusted clock"):
+    with pytest.raises(ContractError, match="requires a trusted clock"):
         BitemporalActionLedger(
             verified_release_directory=release,
             accepted_release_root=tmp_path / "accepted",
@@ -696,7 +675,6 @@ def test_verified_zero_action_release_preserves_explicit_coverage(
     ledger = BitemporalActionLedger(
         verified_release_directory=release,
         accepted_release_root=tmp_path / "accepted",
-        coverage_authorization_authority=authority,
         clock=clock,
     )
     assert ledger.visible_as_of("asset-1", AS_OF) == ()
@@ -747,20 +725,18 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
     )
     assert legacy_actions.trust_eligible is False
 
-    governed, authority, clock = _governed_coverage()
+    governed, clock = _governed_coverage()
     governed_root, governed_release = publish_actions(
         "governed",
         build_governed_corporate_action_release_payload(
             actions=(),
             governed_coverage=(governed,),
-            authority=authority,
             clock=clock,
         ),
     )
     governed_actions = BitemporalActionLedger(
         verified_release_directory=governed_release,
         accepted_release_root=governed_root,
-        coverage_authorization_authority=authority,
         clock=clock,
     )
     assert governed_actions.trust_eligible is True
@@ -854,7 +830,6 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
             calendar_release_directory=tmp_path / "calendar-release",
             bar_release_directory=tmp_path / "bar-release",
             action_release_directory=legacy_release,
-            coverage_authorization_authority=authority,
         )
     assert not legacy_outcomes._ledger.path.exists()
 
@@ -888,7 +863,6 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
             calendar_release_directory=tmp_path / "calendar-release",
             bar_release_directory=tmp_path / "bar-release",
             action_release_directory=governed_release,
-            coverage_authorization_authority=authority,
         )
 
 
@@ -902,7 +876,7 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
 def test_governed_release_binds_each_action_to_asset_and_session_coverage(
     mutation: dict[str, object],
 ) -> None:
-    governed, authority, clock = _governed_coverage()
+    governed, clock = _governed_coverage()
     action = replace(
         _action(ActionType.SPLIT, ratio=2.0),
         source_release_id="0" * 64,
@@ -913,7 +887,6 @@ def test_governed_release_binds_each_action_to_asset_and_session_coverage(
         build_governed_corporate_action_release_payload(
             actions=(action,),
             governed_coverage=(governed,),
-            authority=authority,
             clock=clock,
         )
 
@@ -921,7 +894,7 @@ def test_governed_release_binds_each_action_to_asset_and_session_coverage(
 def test_verified_governed_release_rechecks_action_coverage_binding(
     tmp_path: Path,
 ) -> None:
-    governed, authority, clock = _governed_coverage()
+    governed, clock = _governed_coverage()
     action = replace(
         _action(ActionType.SPLIT, ratio=2.0),
         source_release_id="0" * 64,
@@ -931,7 +904,6 @@ def test_verified_governed_release_rechecks_action_coverage_binding(
         build_governed_corporate_action_release_payload(
             actions=(action,),
             governed_coverage=(governed,),
-            authority=authority,
             clock=clock,
         )
     )
@@ -965,15 +937,14 @@ def test_verified_governed_release_rechecks_action_coverage_binding(
         BitemporalActionLedger(
             verified_release_directory=release,
             accepted_release_root=accepted,
-            coverage_authorization_authority=authority,
             clock=clock,
         )
 
 
-def test_verified_coverage_rejects_noncanonical_timestamp_and_missing_authority(
+def test_verified_coverage_rejects_noncanonical_timestamp_and_missing_local_record(
     tmp_path: Path,
 ) -> None:
-    governed, authority, clock = _governed_coverage()
+    governed, clock = _governed_coverage()
     governed_row = governed.payload_dict()
     for suffix, mutate, expected in (
         (
@@ -995,7 +966,7 @@ def test_verified_coverage_rejects_noncanonical_timestamp_and_missing_authority(
                 "late_arrival_policy_id",
                 "3" * 64,
             ),
-            "authorization bindings differ",
+            "local integrity bindings differ",
         ),
     ):
         stage = tmp_path / f"{suffix}-stage"
@@ -1039,7 +1010,6 @@ def test_verified_coverage_rejects_noncanonical_timestamp_and_missing_authority(
             BitemporalActionLedger(
                 verified_release_directory=release,
                 accepted_release_root=accepted,
-                coverage_authorization_authority=authority,
                 clock=clock,
             )
 

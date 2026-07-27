@@ -29,7 +29,6 @@ from .schemas import OutcomeRow, OutcomeStatus, UnderlyingPrediction, assert_und
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .corporate_actions import BitemporalActionLedger
 from .exchange_calendar import load_xnys_calendar_release
-from .governance import AuthorizationAuthority
 from .outcomes import DailyBar, build_outcome, load_daily_bar_release
 
 
@@ -1184,7 +1183,6 @@ class OutcomeLedger:
         calendar_release_directory: Path,
         bar_release_directory: Path,
         action_release_directory: Path,
-        coverage_authorization_authority: AuthorizationAuthority | None = None,
         previous_anchor: Path | None = None,
     ) -> dict[str, Any]:
         predictions = {
@@ -1205,7 +1203,6 @@ class OutcomeLedger:
         actions = BitemporalActionLedger(
             verified_release_directory=action_release_directory,
             accepted_release_root=accepted_release_root,
-            coverage_authorization_authority=coverage_authorization_authority,
             clock=self._clock,
         )
         if actions.trust_eligible is not True:

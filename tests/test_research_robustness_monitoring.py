@@ -9,10 +9,7 @@ import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.governance import (
-    AuthorizationAuthority,
-    sign_authorization_receipt,
-)
+from us_stocks_swing_model_v2.governance import create_local_integrity_record
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.monitoring import (
     MonitoringObservation,
@@ -42,9 +39,6 @@ from us_stocks_swing_model_v2.research import (
 )
 
 
-AUTH_KEY = b"synthetic-monitoring-recovery-key"
-
-
 def test_monitoring_constructor_public_annotations_resolve() -> None:
     hints = get_type_hints(ProspectiveMonitoringLedger.__init__)
     assert hints["synthetic_history_permit"] == SyntheticOnlyPermit | None
@@ -61,17 +55,6 @@ def _clock(hour: int) -> TrustedClock:
     )
 
 
-def _authority() -> AuthorizationAuthority:
-    return AuthorizationAuthority.synthetic(
-        key_id="synthetic-monitoring-key",
-        verification_key=AUTH_KEY,
-        permit=SyntheticOnlyPermit.create(
-            fixture_id="monitoring-recovery-authority",
-            scope="SYNTHETIC_AUTHORIZATION_AUTHORITY",
-        ),
-    )
-
-
 def _monitoring_ledger(tmp_path: Path, hour: int, *, bundle_id: str = "b" * 64):
     history_permit_ids = tuple(
         sorted(_clock(value).synthetic_permit_id for value in range(1, hour + 1))
@@ -82,7 +65,6 @@ def _monitoring_ledger(tmp_path: Path, hour: int, *, bundle_id: str = "b" * 64):
         bundle_id=bundle_id,
         monitoring_policy_hash=MonitoringPolicy().policy_hash,
         monitoring_reference_hash="d" * 64,
-        recovery_authority=_authority(),
         clock=_clock(hour),
         synthetic_history_clock_permit_ids=history_permit_ids,
         synthetic_history_permit=SyntheticOnlyPermit.create(
@@ -110,7 +92,6 @@ def test_monitoring_ledger_rejects_policy_hash_not_derived_from_policy(
             bundle_id="b" * 64,
             monitoring_policy_hash=policy_hash,
             monitoring_reference_hash="d" * 64,
-            recovery_authority=_authority(),
             clock=_clock(1),
         )
 
@@ -324,13 +305,11 @@ def test_monitoring_ledger_requires_reviewed_recovery_and_exact_bindings(
         "previous_monitoring_record_id": previous_record_id,
         "observation_hash": clean_observation.observation_hash,
     }
-    authorization = sign_authorization_receipt(
+    authorization = create_local_integrity_record(
         scope="AUTHORIZE_MONITORING_RECOVERY",
         subject_id="b" * 64,
         bindings=bindings,
-        issued_at="2026-07-15T02:30:00Z",
-        expires_at="2026-07-15T04:00:00Z",
-        authority=_authority(),
+        clock=_clock(3),
     )
     recovered = _monitoring_ledger(tmp_path, 3).append(
         clean_observation,

@@ -51,7 +51,7 @@ from .foundation_orchestrator import (
     _contract_id as foundation_contract_id,
     _implementation_hash as foundation_implementation_hash,
 )
-from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
+from .governance import LocalIntegrityRecord, create_local_integrity_record
 from .historical_foundation import OUTPUT_KINDS, load_hfdl_historical_foundation
 from .releases import (
     AtomicReleasePublisher,
@@ -242,6 +242,7 @@ class MechanicalReadinessAssessment:
 @dataclass(frozen=True)
 class MechanicalReadinessPublication:
     assessment_id: str
+    local_action_record: LocalIntegrityRecord | None
     rebuild_complete_release_directory: Path
     historical_research_ready_release_directory: Path
 
@@ -1164,8 +1165,6 @@ def publish_stock_mechanical_readiness(
     accepted_release_root: Path,
     readiness_work_root: Path,
     created_at: str,
-    authorization: SignedAuthorizationReceipt | None = None,
-    authorization_authority: AuthorizationAuthority | None = None,
     clock: TrustedClock | None = None,
     synthetic_permit: SyntheticOnlyPermit | None = None,
 ) -> MechanicalReadinessPublication:
@@ -1184,33 +1183,21 @@ def publish_stock_mechanical_readiness(
         accepted_release_root=accepted_root,
         synthetic_permit=synthetic_permit,
     )
+    local_action_record: LocalIntegrityRecord | None = None
     if synthetic_permit is None:
-        if authorization is None or authorization_authority is None or clock is None:
+        if clock is None:
             raise PermissionError(
-                "mechanical-readiness publication requires an exact external authorization "
-                "receipt, authority, and trusted production clock"
-            )
-        if (
-            type(authorization) is not SignedAuthorizationReceipt
-            or type(authorization_authority) is not AuthorizationAuthority
-        ):
-            raise PermissionError(
-                "mechanical-readiness publication requires exact authorization objects"
-            )
-        if authorization_authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
-            raise PermissionError(
-                "mechanical-readiness publication requires external user authority"
+                "mechanical-readiness publication requires the production system UTC clock"
             )
         trusted_clock = require_trusted_clock(clock)
         if trusted_clock.mode != "PRODUCTION_SYSTEM_UTC":
             raise PermissionError(
                 "mechanical-readiness publication requires the production system UTC clock"
             )
-        authorization.validate(
-            authority=authorization_authority,
-            expected_scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
-            expected_subject_id=assessment.assessment_id,
-            required_bindings=mechanical_readiness_authorization_bindings(
+        local_action_record = create_local_integrity_record(
+            scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
+            subject_id=assessment.assessment_id,
+            bindings=mechanical_readiness_authorization_bindings(
                 assessment=assessment,
                 accepted_release_root=accepted_root,
                 readiness_work_root=work_root,
@@ -1219,12 +1206,9 @@ def publish_stock_mechanical_readiness(
             clock=trusted_clock,
         )
         work_root.parent.mkdir(parents=True, exist_ok=True)
-    elif any(
-        value is not None
-        for value in (authorization, authorization_authority, clock)
-    ):
+    elif clock is not None:
         raise PermissionError(
-            "synthetic mechanical-readiness publication cannot mix external authority inputs"
+            "synthetic mechanical-readiness publication cannot name a production clock"
         )
     build_id = sha256_bytes(
         canonical_json_bytes(
@@ -1276,6 +1260,7 @@ def publish_stock_mechanical_readiness(
     )
     result = MechanicalReadinessPublication(
         assessment_id=assessment.assessment_id,
+        local_action_record=local_action_record,
         rebuild_complete_release_directory=rebuild_dir,
         historical_research_ready_release_directory=historical_dir,
     )
@@ -1398,6 +1383,7 @@ def _verify_stock_mechanical_readiness_publication_against_assessment(
     )
     return MechanicalReadinessPublication(
         assessment_id=assessment.assessment_id,
+        local_action_record=None,
         rebuild_complete_release_directory=Path(rebuild_complete_release_directory),
         historical_research_ready_release_directory=Path(
             historical_research_ready_release_directory

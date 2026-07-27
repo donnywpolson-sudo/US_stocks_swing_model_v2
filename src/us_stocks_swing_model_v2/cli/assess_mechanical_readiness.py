@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 
 from ..clock import TrustedClock
-from ..governance import load_external_authority, load_signed_authorization_receipt
 from ..mechanical_readiness import (
     assess_stock_mechanical_readiness,
     publish_stock_mechanical_readiness,
@@ -37,18 +36,6 @@ def parser() -> argparse.ArgumentParser:
     )
     value.add_argument("--created-at", help="canonical UTC Z timestamp; required with --execute")
     value.add_argument(
-        "--authorization",
-        type=Path,
-        help="externally signed exact mechanical-readiness publication authorization",
-    )
-    value.add_argument(
-        "--authority-registry",
-        type=Path,
-        help="exact reviewed config/authorization_authorities.json",
-    )
-    value.add_argument("--authority-key-id", help="active external authority key ID")
-    value.add_argument("--public-key-file", type=Path, help="external RSA public JWK")
-    value.add_argument(
         "--execute",
         action="store_true",
         help="publish only the two non-authorizing mechanical milestone receipts",
@@ -59,35 +46,26 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.execute:
-        required = {
-            "--created-at": args.created_at,
-            "--authorization": args.authorization,
-            "--authority-registry": args.authority_registry,
-            "--authority-key-id": args.authority_key_id,
-            "--public-key-file": args.public_key_file,
-        }
+        required = {"--created-at": args.created_at}
         missing = [name for name, value in required.items() if value is None]
         if missing:
             parser().error(f"--execute requires: {', '.join(missing)}")
-        authorization = load_signed_authorization_receipt(args.authorization)
-        authority = load_external_authority(
-            args.authority_registry,
-            key_id=args.authority_key_id,
-            verification_key=args.public_key_file.read_bytes(),
-        )
         result = publish_stock_mechanical_readiness(
             foundation_release_directory=args.foundation_release,
             accepted_release_root=args.accepted_root,
             readiness_work_root=args.work_root,
             created_at=args.created_at,
-            authorization=authorization,
-            authorization_authority=authority,
             clock=TrustedClock.production(),
         )
         payload: dict[str, object] = {
             "schema_version": 1,
             "mode": "PUBLISH_NON_AUTHORIZING_MECHANICAL_MILESTONES",
             "assessment_id": result.assessment_id,
+            "local_action_record": (
+                None
+                if result.local_action_record is None
+                else result.local_action_record.as_dict()
+            ),
             "rebuild_complete_release_directory": str(
                 result.rebuild_complete_release_directory
             ),
@@ -99,14 +77,6 @@ def main(argv: list[str] | None = None) -> int:
             "alpha_claim": False,
         }
     else:
-        authorization_inputs = (
-            args.authorization,
-            args.authority_registry,
-            args.authority_key_id,
-            args.public_key_file,
-        )
-        if any(value is not None for value in authorization_inputs):
-            parser().error("authorization inputs are accepted only with --execute")
         assessment = assess_stock_mechanical_readiness(
             foundation_release_directory=args.foundation_release,
             accepted_release_root=args.accepted_root,

@@ -19,7 +19,6 @@ from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError, IntegrityError
 from .eligibility import EligibilityCensus
 from .feature_release import load_feature_release
-from .governance import AuthorizationAuthority
 from .ledger import PredictionLedger
 from .schemas import FeatureRow, SecurityType, UnderlyingPrediction
 
@@ -112,17 +111,13 @@ class FitFreeInferenceEngine:
         self,
         bundle_dir: Path,
         *,
-        authorization_authority: AuthorizationAuthority,
         accepted_release_root: Path,
         clock: TrustedClock | None = None,
     ):
         self.bundle_dir = Path(bundle_dir)
         self.accepted_release_root = Path(accepted_release_root)
         self._clock = require_trusted_clock(clock)
-        self.metadata = load_bundle(
-            self.bundle_dir,
-            authorization_authority=authorization_authority,
-        )
+        self.metadata = load_bundle(self.bundle_dir)
         if self._clock.trust_eligible and not self.metadata.trust_eligible:
             raise ContractError(
                 "production inference rejects synthetic or readiness-blocked bundles"

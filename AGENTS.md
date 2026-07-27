@@ -162,6 +162,12 @@
   initial URL, checked network registry, timeout, response limit, and
   pagination bound. Request attempts are ordered and single-use. Interruption
   spends the current attempt and retry requires a new local invocation.
+- Research permits, candidate sealing, monitoring recovery, corporate-action
+  completeness review, and mechanical-readiness publication use exact
+  schema-v2 owner-operated local integrity records. These records are
+  content-addressed evidence, not independent authorization. Reject legacy
+  schema-v1 signed records at local-record boundaries; never migrate or
+  relabel them.
 - `build_historical_foundation` is plan-only. Foundation publication mechanics
   require an explicit synthetic-only permit and exact containing fixture root;
   there is no production publication authority.
