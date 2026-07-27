@@ -23,9 +23,8 @@ from .errors import ContractError, IntegrityError
 from .gates import GateReceipt, GateState
 from .monitoring_policy import frozen_monitoring_policy_hash
 from .governance import (
-    AuthorizationAuthority,
+    LocalIntegrityRecord,
     ReleaseBinding,
-    SignedAuthorizationReceipt,
     release_bindings_hash,
     verify_release_bindings,
 )
@@ -104,7 +103,7 @@ class SealedBundleMetadata:
     monitoring_policy_hash: str
     monitoring_reference_hash: str
     gate_receipt: GateReceipt
-    sealing_authorization: SignedAuthorizationReceipt
+    sealing_authorization: LocalIntegrityRecord
     code_hash: str
     config_hash: str
     environment_hash: str
@@ -559,7 +558,7 @@ class SealedBundleMetadata:
             monitoring_policy_hash=value["monitoring_policy_hash"],
             monitoring_reference_hash=value["monitoring_reference_hash"],
             gate_receipt=GateReceipt.from_dict(value["gate_receipt"]),
-            sealing_authorization=SignedAuthorizationReceipt.from_dict(value["sealing_authorization"]),
+            sealing_authorization=LocalIntegrityRecord.from_dict(value["sealing_authorization"]),
             code_hash=value["code_hash"],
             config_hash=value["config_hash"],
             environment_hash=value["environment_hash"],
@@ -723,18 +722,16 @@ def prepare_bundle_candidate(
         data_release_ids=data_release_ids,
         release_bindings=bindings,
         gate_receipt=gate_receipt,
-        sealing_authorization=SignedAuthorizationReceipt(
-            schema_version=1,
-            scope="PREPARATION_ONLY_NOT_AUTHORITY",
-            subject_id="PREPARATION_ONLY_NOT_AUTHORITY",
+        sealing_authorization=LocalIntegrityRecord(
+            schema_version=2,
+            record_type="OWNER_OPERATED_LOCAL_INTEGRITY",
+            scope="PREPARATION_ONLY",
+            subject_id="PREPARATION_ONLY",
             bindings={"preparation": "not_authority"},
-            issued_at="1970-01-01T00:00:00Z",
-            expires_at="1970-01-01T00:00:01Z",
-            key_id="PREPARATION_ONLY_NOT_AUTHORITY",
-            authority_registry_id="0" * 64,
-            authorization_class="SYNTHETIC_ONLY_NOT_AUTHORITY",
-            signature="0" * 64,
-            receipt_id="0" * 64,
+            recorded_at="1970-01-01T00:00:00Z",
+            clock_mode="SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE",
+            synthetic_permit_id="0" * 64,
+            record_id="0" * 64,
         ),
         candidate_id="",
         bundle_id="",
@@ -751,8 +748,7 @@ def prepare_bundle_candidate(
 def build_metadata(
     candidate: PreparedBundleCandidate,
     *,
-    sealing_authorization: SignedAuthorizationReceipt,
-    authorization_authority: AuthorizationAuthority,
+    sealing_authorization: LocalIntegrityRecord,
     clock: TrustedClock,
 ) -> SealedBundleMetadata:
     candidate_payload = candidate.candidate_dict()
@@ -762,7 +758,6 @@ def build_metadata(
         trusted_clock.now(),
     )
     sealing_authorization.validate(
-        authority=authorization_authority,
         expected_scope="AUTHORIZE_CANDIDATE_SEALING",
         expected_subject_id=candidate.candidate_id,
         required_bindings=candidate.sealing_bindings(),
@@ -783,14 +778,12 @@ def seal_bundle(
     bundle_dir: Path,
     metadata: SealedBundleMetadata,
     *,
-    authorization_authority: AuthorizationAuthority,
     clock: TrustedClock,
 ) -> Path:
     metadata.validate()
     trusted_clock = require_trusted_clock(clock)
     _require_reachable_sealing_time(metadata.sealed_at, trusted_clock.now())
     metadata.sealing_authorization.validate(
-        authority=authorization_authority,
         expected_scope="AUTHORIZE_CANDIDATE_SEALING",
         expected_subject_id=metadata.candidate_id,
         required_bindings=metadata.sealing_bindings(),
@@ -799,20 +792,18 @@ def seal_bundle(
     root = Path(bundle_dir)
     manifest = root / BUNDLE_MANIFEST
     if manifest.exists():
-        existing = load_bundle(root, authorization_authority=authorization_authority)
+        existing = load_bundle(root)
         if existing != metadata:
             raise IntegrityError("sealed bundle cannot be overwritten")
         return manifest
     _verify_artifacts(root, metadata, sealed=False)
     atomic_write(manifest, canonical_json_bytes(metadata.as_dict()))
-    load_bundle(root, authorization_authority=authorization_authority)
+    load_bundle(root)
     return manifest
 
 
 def load_bundle(
     bundle_dir: Path,
-    *,
-    authorization_authority: AuthorizationAuthority,
 ) -> SealedBundleMetadata:
     root = Path(bundle_dir)
     try:
@@ -821,11 +812,13 @@ def load_bundle(
         raise IntegrityError("sealed bundle manifest is missing or invalid") from exc
     metadata = SealedBundleMetadata.from_dict(payload)
     metadata.sealing_authorization.validate_at(
-        authority=authorization_authority,
         expected_scope="AUTHORIZE_CANDIDATE_SEALING",
         expected_subject_id=metadata.candidate_id,
         required_bindings=metadata.sealing_bindings(),
-        observed_at=parse_utc_z(metadata.sealed_at, "sealed_at"),
+        observed_at=parse_utc_z(
+            metadata.sealing_authorization.recorded_at,
+            "sealing_authorization.recorded_at",
+        ),
     )
     _verify_artifacts(root, metadata, sealed=True)
     return metadata

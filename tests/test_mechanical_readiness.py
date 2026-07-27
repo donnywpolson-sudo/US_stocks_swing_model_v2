@@ -157,7 +157,7 @@ def test_publication_reuses_the_verified_assessment_once(
     assert calls == 1
 
 
-def test_production_publication_requires_exact_authorization_before_mutation(
+def test_production_publication_requires_production_clock_before_mutation(
     readiness_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     permit, accepted, foundation = _foundation(readiness_tmp)
@@ -198,7 +198,7 @@ def test_production_publication_requires_exact_authorization_before_mutation(
         "rebuild_dataset": REBUILD_DATASET,
         "rebuild_filename": "rebuild_complete.json",
     }
-    with pytest.raises(PermissionError, match="external authorization"):
+    with pytest.raises(PermissionError, match="production system UTC clock"):
         publish_stock_mechanical_readiness(
             foundation_release_directory=foundation,
             accepted_release_root=accepted,

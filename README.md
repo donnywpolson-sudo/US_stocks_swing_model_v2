@@ -248,6 +248,12 @@ provenance. See `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
 commands operate only on accepted local releases and make no provider or
 historical-research calls.
 
+Research, candidate sealing, monitoring recovery, corporate-action
+completeness review, and mechanical-readiness publication use content-addressed
+schema-v2 local integrity records. They preserve exact evidence binding without
+pretending that a second signing authority exists. See
+`docs/OWNER_OPERATED_LOCAL_MODE.md`.
+
 ## Completion language
 
 - `REBUILD_COMPLETE`: architecture, deterministic rebuild, recovery, and

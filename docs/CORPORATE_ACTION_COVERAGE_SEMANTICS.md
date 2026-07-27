@@ -56,29 +56,28 @@ candidate bound to the proposed effective interval, asset census, accepted
 release epoch, reviewed provider-contract hash, and reviewed late-arrival
 policy hash. `authorize_effective_event_coverage` turns that candidate into
 release evidence only after an exact current
-`AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS` receipt validates against the pinned
-authority. `build_governed_corporate_action_release_payload` is the sole
-schema-v5 payload builder: it revalidates every authorization, rejects missing
+`AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS` local integrity record validates
+against the candidate. `build_governed_corporate_action_release_payload` is the
+sole schema-v5 payload builder: it revalidates every record, rejects missing
 or duplicate coverage, and requires every action's source epoch, snapshot,
 asset, and effective session to fall within one exact governed coverage row.
 The verified-release loader independently repeats this row-to-coverage check;
 an authenticated payload cannot gain trust merely because a different action
 or interval elsewhere in the release is covered.
 
-External authority is required for network-as-received provider evidence.
-Synthetic authority is accepted only with synthetic provider evidence and
-remains non-authorizing mechanics. Because the production authority registry
-is currently `NOT_CONFIGURED`, no production completeness receipt can be
-issued or loaded; outcomes continue to fail closed as `MISSING_SOURCE`.
+Production local records require network-as-received provider evidence and the
+production UTC clock. Synthetic records are accepted only with synthetic
+provider evidence and remain non-production mechanics. Missing or mismatched
+records continue to fail closed as `MISSING_SOURCE`.
 
 Corporate-action release schemas 2, 3, and 4 are rejected: schema 2 has
 generic coverage bounds, schema 3 lacks a container-bound coverage identity,
 and schema 4 lacks governed completeness authorization. Schema 5 retains the
 complete process-date acquisition receipt, contract and late-arrival policy
-hashes, and signed completeness authorization. Its effective-event content ID
-is authorization-bound before publication; the loader then derives the
+hashes, and local completeness record. Its effective-event content ID is
+record-bound before publication; the loader then derives the
 operative coverage ID from that content ID plus the verified release ID and
-source epoch. Identical authorized evidence in two releases therefore has the
+source epoch. Identical reviewed evidence in two releases therefore has the
 same content ID but distinct operative IDs. Schema 1 remains readable as
 immutable historical action rows, but is explicitly not trust eligible,
 supplies no coverage, and therefore cannot mature an outcome.

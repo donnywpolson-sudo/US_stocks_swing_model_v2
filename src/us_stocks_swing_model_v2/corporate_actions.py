@@ -19,10 +19,7 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, IntegrityError
-from .governance import (
-    AuthorizationAuthority,
-    SignedAuthorizationReceipt,
-)
+from .governance import LocalIntegrityRecord
 from .releases import verify_accepted_release
 
 
@@ -358,7 +355,7 @@ class PreparedEffectiveEventCoverage:
 @dataclass(frozen=True)
 class GovernedEffectiveEventCoverage:
     prepared: PreparedEffectiveEventCoverage
-    authorization: SignedAuthorizationReceipt
+    authorization: LocalIntegrityRecord
 
     @property
     def coverage(self) -> CorporateActionCoverage:
@@ -367,23 +364,21 @@ class GovernedEffectiveEventCoverage:
     def validate(
         self,
         *,
-        authority: AuthorizationAuthority,
         clock: TrustedClock,
     ) -> None:
         self.prepared.validate()
         provider_mode = self.prepared.provider_coverage.acquisition_mode
         if (
-            authority.authorization_class == "EXTERNAL_USER_AUTHORITY"
+            clock.trust_eligible
             and provider_mode != "NETWORK_AS_RECEIVED"
         ) or (
-            authority.authorization_class == "SYNTHETIC_ONLY_NOT_AUTHORITY"
+            not clock.trust_eligible
             and provider_mode != "SYNTHETIC_DIRECT_NOT_AS_RECEIVED"
         ):
             raise ContractError(
-                "effective-event authority class differs from provider evidence"
+                "effective-event clock mode differs from provider evidence"
             )
         self.authorization.validate(
-            authority=authority,
             expected_scope=AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS,
             expected_subject_id=self.coverage.coverage_content_id,
             required_bindings=self.prepared.authorization_bindings(),
@@ -443,15 +438,14 @@ def prepare_effective_event_coverage(
 def authorize_effective_event_coverage(
     prepared: PreparedEffectiveEventCoverage,
     *,
-    authorization: SignedAuthorizationReceipt,
-    authority: AuthorizationAuthority,
+    authorization: LocalIntegrityRecord,
     clock: TrustedClock,
 ) -> GovernedEffectiveEventCoverage:
     governed = GovernedEffectiveEventCoverage(
         prepared=prepared,
         authorization=authorization,
     )
-    governed.validate(authority=authority, clock=clock)
+    governed.validate(clock=clock)
     return governed
 
 
@@ -459,7 +453,6 @@ def build_governed_corporate_action_release_payload(
     *,
     actions: Iterable[CorporateAction],
     governed_coverage: Iterable[GovernedEffectiveEventCoverage],
-    authority: AuthorizationAuthority,
     clock: TrustedClock,
 ) -> bytes:
     action_rows: list[dict[str, object]] = []
@@ -479,7 +472,7 @@ def build_governed_corporate_action_release_payload(
             raise ContractError(
                 "schema-v5 publication contains invalid governed coverage"
             )
-        governed.validate(authority=authority, clock=clock)
+        governed.validate(clock=clock)
         content_id = governed.coverage.coverage_content_id
         if content_id in seen_coverage_content_ids:
             raise ContractError(
@@ -555,7 +548,6 @@ def _load_action_release_payload(
     release_id: str,
     source_epoch: str,
     expected_row_count: int,
-    coverage_authorization_authority: AuthorizationAuthority | None,
     clock: TrustedClock | None,
 ) -> tuple[
     tuple[CorporateAction, ...],
@@ -650,11 +642,10 @@ def _load_action_release_payload(
     if payload["schema_version"] == 1:
         return tuple(actions), (), 1
     if (
-        type(coverage_authorization_authority) is not AuthorizationAuthority
-        or type(clock) is not TrustedClock
+        type(clock) is not TrustedClock
     ):
         raise ContractError(
-            "governed corporate-action coverage requires an authority and trusted clock"
+            "governed corporate-action coverage requires a trusted clock"
         )
     from .providers.corporate_actions import CorporateActionCoverageEvidence
 
@@ -769,13 +760,12 @@ def _load_action_release_payload(
             raise IntegrityError(
                 "governed effective-event coverage differs from serialized evidence"
             )
-        authorization = SignedAuthorizationReceipt.from_dict(
+        authorization = LocalIntegrityRecord.from_dict(
             governed_row["authorization"]
         )
         governed = authorize_effective_event_coverage(
             prepared,
             authorization=authorization,
-            authority=coverage_authorization_authority,
             clock=clock,
         )
         coverage.append(governed.coverage)
@@ -805,7 +795,6 @@ class BitemporalActionLedger:
         accepted_release_root: Path | None = None,
         synthetic_permit: SyntheticOnlyPermit | None = None,
         coverage: Iterable[CorporateActionCoverage] = (),
-        coverage_authorization_authority: AuthorizationAuthority | None = None,
         clock: TrustedClock | None = None,
     ):
         supplied_actions = tuple(actions)
@@ -839,7 +828,6 @@ class BitemporalActionLedger:
                     release_id=manifest.release_id,
                     source_epoch=manifest.source_epoch,
                     expected_row_count=manifest.row_count,
-                    coverage_authorization_authority=coverage_authorization_authority,
                     clock=clock,
                 )
             )
@@ -847,9 +835,9 @@ class BitemporalActionLedger:
         else:
             if accepted_release_root is not None:
                 raise ContractError("synthetic corporate actions cannot name an accepted release root")
-            if coverage_authorization_authority is not None or clock is not None:
+            if clock is not None:
                 raise ContractError(
-                    "synthetic corporate-action ledgers cannot name release coverage authority"
+                    "synthetic corporate-action ledgers cannot name a release coverage clock"
                 )
             permit = require_synthetic_permit(
                 synthetic_permit,
