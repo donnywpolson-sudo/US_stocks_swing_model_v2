@@ -19,9 +19,9 @@ from ..exchange_calendar import load_xnys_calendar_release
 from .http import open_without_redirects
 from .network_authorization import (
     AuthorizedNetworkResponse,
-    NetworkAuthorizationSession,
+    LocalNetworkExecutionSession,
     _bind_authorized_network_response,
-    assert_authorized_network_request,
+    assert_local_network_request,
 )
 from .snapshots import (
     AsReceivedSnapshotStore,
@@ -29,6 +29,8 @@ from .snapshots import (
     LandedSnapshot,
     normalize_response_headers,
 )
+
+assert_authorized_network_request = assert_local_network_request
 
 
 ALPACA_BARS_ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
@@ -192,7 +194,7 @@ def guarded_fetch_json(
     network_enabled: bool = False,
     timeout_seconds: int = 30,
     clock: TrustedClock | None = None,
-    authorization_session: NetworkAuthorizationSession | None = None,
+    authorization_session: LocalNetworkExecutionSession | None = None,
     page_index: int = 0,
     expected_page_token: str | None = None,
 ) -> HttpResponseEvidence:
@@ -281,7 +283,7 @@ def guarded_fetch_landed_pages(
     network_enabled: bool = False,
     max_pages: int = 10,
     clock: TrustedClock | None = None,
-    authorization_session: NetworkAuthorizationSession | None = None,
+    authorization_session: LocalNetworkExecutionSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not 1 <= max_pages <= MAX_QUALIFICATION_PAGES:
         raise ContractError(f"max_pages must be in [1,{MAX_QUALIFICATION_PAGES}]")

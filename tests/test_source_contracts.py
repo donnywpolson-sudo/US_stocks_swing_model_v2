@@ -15,15 +15,10 @@ from us_stocks_swing_model_v2.clock import TrustedClock
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import (
     ContractError,
-    EvaluationAuthorizationError,
     IntegrityError,
     NetworkGuardError,
 )
 from us_stocks_swing_model_v2.cli.qualify_free_sources import main as qualification_main
-from us_stocks_swing_model_v2.cli.assemble_network_authorization import (
-    _bounded_new_output,
-    _write_new_output,
-)
 import us_stocks_swing_model_v2.cli.qualify_free_sources as qualification_cli
 from us_stocks_swing_model_v2.providers.alpaca import (
     MAX_TRUSTED_REQUEST_AGE_MINUTES,
@@ -35,9 +30,6 @@ from us_stocks_swing_model_v2.providers.alpaca import (
 )
 import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
 from us_stocks_swing_model_v2.providers.http import _RejectRedirects
-from us_stocks_swing_model_v2.providers.network_authorization import (
-    NetworkRequestPlan,
-)
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
     NasdaqCompletenessPolicy,
@@ -58,41 +50,6 @@ def _nasdaq_policy() -> NasdaqCompletenessPolicy:
             scope="NASDAQ_COMPLETENESS_FIXTURE",
         )
     )
-
-
-def test_network_authorization_outputs_require_an_explicit_approved_root(
-    tmp_path: Path,
-) -> None:
-    allowed_root = tmp_path / "authorization-artifacts"
-    allowed_root.mkdir()
-    inside = allowed_root / "nested" / "receipt.json"
-    assert _bounded_new_output(inside, allowed_root=allowed_root) == inside
-    with pytest.raises(ContractError, match="escapes its approved root"):
-        _bounded_new_output(
-            tmp_path / "outside.json",
-            allowed_root=allowed_root,
-        )
-    existing = allowed_root / "existing.json"
-    existing.write_text("preserve", encoding="utf-8")
-    with pytest.raises(EvaluationAuthorizationError, match="already exists"):
-        _bounded_new_output(existing, allowed_root=allowed_root)
-
-
-def test_network_authorization_output_never_replaces_an_intervening_file(
-    tmp_path: Path,
-) -> None:
-    allowed_root = tmp_path / "authorization-artifacts"
-    allowed_root.mkdir()
-    destination = _bounded_new_output(
-        allowed_root / "receipt.json",
-        allowed_root=allowed_root,
-    )
-    destination.write_bytes(b"intervening-owner-content")
-
-    with pytest.raises(EvaluationAuthorizationError, match="already exists"):
-        _write_new_output(destination, b"new-authorization-content")
-
-    assert destination.read_bytes() == b"intervening-owner-content"
 
 
 def _snapshot_permit() -> SyntheticOnlyPermit:
@@ -331,37 +288,21 @@ def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorizat
         qualification_main(["--execute-network"])
 
 
-def test_authorization_request_emission_is_an_explicit_non_plan_mode(
+def test_obsolete_authorization_arguments_are_rejected_without_writes(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    destination = tmp_path / "requests"
-    assert qualification_main(
-        [
-            "--nasdaq-only",
-            "--emit-authorization-requests",
-            str(destination),
-        ]
-    ) == 0
-    captured = capsys.readouterr()
-    assert '"mode": "authorization_request_emission"' in captured.out
-    assert captured.err == ""
-    assert [path.name for path in destination.iterdir()] == ["nasdaqtraded.json"]
-
-    legacy_destination = tmp_path / "legacy-requests"
-    assert qualification_main(
-        [
-            "--nasdaq-only",
-            "--authorization-request-directory",
-            str(legacy_destination),
-        ]
-    ) == 0
-    captured = capsys.readouterr()
-    assert '"mode": "authorization_request_emission"' in captured.out
-    assert "--authorization-request-directory is deprecated" in captured.err
-    assert [path.name for path in legacy_destination.iterdir()] == [
-        "nasdaqtraded.json"
-    ]
+    for option in (
+        "--emit-authorization-requests",
+        "--authorization-request-directory",
+        "--network-authorization",
+        "--network-authority-registry",
+        "--network-key-id",
+        "--network-public-key-file",
+    ):
+        destination = tmp_path / option.removeprefix("--")
+        with pytest.raises(SystemExit):
+            qualification_main(["--nasdaq-only", option, str(destination)])
+        assert not destination.exists()
 
     with pytest.raises(SystemExit):
         qualification_main(
@@ -400,7 +341,7 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         root = Path("C:/fixture/snapshot")
         raw_sha256 = "2" * 64
         retrieved_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
-        trust_eligible = False
+        local_integrity_verified = True
 
     class Store:
         def __init__(self, *args, **kwargs):
@@ -409,35 +350,11 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         def _land_network_response(self, **kwargs):
             return Snapshot()
 
-    class UseStore:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def authorize(self, **kwargs):
-            return object()
-
     root = Path(__file__).resolve().parents[1]
     source_config = qualification_cli._load_source_config(root)
     source_config["snapshot_store_root"] = str(
         root / "data" / "vault" / "qualification" / "as_received"
     )
-    registry_contract = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json",
-        allowed_root=root / "config",
-    )
-    request_plan = NetworkRequestPlan.create(
-        registry=registry_contract,
-        source="nasdaqtraded",
-        initial_url=NASDAQ_TRADED_URL,
-        timeout_seconds=30,
-        max_response_bytes=qualification_cli.MAX_NASDAQ_RESPONSE_BYTES,
-        max_pages=1,
-        pagination_parameter=None,
-    )
-    registry = tmp_path / "authority.json"
-    public_key = tmp_path / "public.jwk"
-    authorization = tmp_path / "authorization.json"
-    public_key.write_bytes(b"public")
     monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
     monkeypatch.setattr(
         qualification_cli,
@@ -445,7 +362,6 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         lambda *args, **kwargs: Response(),
     )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
-    monkeypatch.setattr(qualification_cli, "NetworkAuthorizationUseStore", UseStore)
     monkeypatch.setattr(
         qualification_cli,
         "_load_source_config",
@@ -453,7 +369,12 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
     )
     monkeypatch.setattr(
         qualification_cli,
-        "assert_authorized_network_request",
+        "start_local_network_execution",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        qualification_cli,
+        "assert_local_network_request",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
@@ -461,40 +382,19 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
         "_bind_authorized_network_response",
         lambda *args, **kwargs: object(),
     )
-    monkeypatch.setattr(
-        qualification_cli, "load_external_authority", lambda *args, **kwargs: object()
-    )
-    monkeypatch.setattr(
-        qualification_cli,
-        "load_signed_authorization_receipt",
-        lambda path: SimpleNamespace(subject_id=request_plan.plan_id),
-    )
-    monkeypatch.setattr(
-        qualification_cli,
-        "network_acquisition_attestation_bindings",
-        lambda snapshot: {"raw_sha256": snapshot.raw_sha256},
-    )
     assert qualification_main([
         "--execute-network",
         "--nasdaq-only",
-        "--network-authorization",
-        str(authorization),
-        "--network-authority-registry",
-        str(registry),
-        "--network-key-id",
-        "external-user",
-        "--network-public-key-file",
-        str(public_key),
     ]) == 0
     output = capsys.readouterr().out
     assert '"mode": "network_capture"' in output
-    assert '"trust_eligible": false' in output
-    assert '"attestation_request"' in output
+    assert '"local_integrity_verified": true' in output
+    assert '"attestation_request"' not in output
     assert '"record_count"' not in output
     assert '"nasdaq"' in output
 
 
-def test_attested_nasdaq_verification_is_offline_and_reports_trust(
+def test_local_nasdaq_verification_is_offline_and_reports_integrity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -503,15 +403,14 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
         def __init__(self, *args, **kwargs):
             pass
 
-        def load_attested(self, *args, **kwargs):
+        def load(self, *args, **kwargs):
             return SimpleNamespace(
                 source="nasdaqtraded",
                 url=NASDAQ_TRADED_URL,
                 snapshot_id="1" * 64,
-                acquisition_attestation=SimpleNamespace(receipt_id="2" * 64),
                 raw_sha256="3" * 64,
                 retrieved_at=datetime(2026, 7, 15, 12, tzinfo=timezone.utc),
-                trust_eligible=True,
+                local_integrity_verified=True,
             )
 
     class Record:
@@ -520,11 +419,6 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
     def unexpected_network(*args, **kwargs):
         raise AssertionError("offline attestation verification attempted network access")
 
-    attestation = tmp_path / "attestation.json"
-    registry = tmp_path / "authority-registry.json"
-    public_key = tmp_path / "public.jwk"
-    for path in (attestation, registry, public_key):
-        path.write_text("fixture", encoding="utf-8")
     root = Path(__file__).resolve().parents[1]
     source_config = qualification_cli._load_source_config(root)
     source_config["snapshot_store_root"] = str(
@@ -538,11 +432,6 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
         qualification_cli,
         "_load_source_config",
         lambda _repo_root: source_config,
-    )
-    monkeypatch.setattr(
-        qualification_cli,
-        "load_external_authority",
-        lambda *args, **kwargs: object(),
     )
     observed: dict[str, object] = {}
 
@@ -558,20 +447,12 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
     assert qualification_main([
         "--verify-nasdaq-snapshot",
         str(tmp_path / "snapshot"),
-        "--acquisition-attestation",
-        str(attestation),
-        "--attestation-authority-registry",
-        str(registry),
-        "--attestation-key-id",
-        "external-user",
-        "--attestation-public-key-file",
-        str(public_key),
         "--prior-nasdaq-accepted-record-count",
         "13050",
     ]) == 0
     output = capsys.readouterr().out
-    assert '"mode": "verify_attested_nasdaq_snapshot"' in output
-    assert '"trust_eligible": true' in output
+    assert '"mode": "verify_local_nasdaq_snapshot"' in output
+    assert '"local_integrity_verified": true' in output
     assert '"record_count": 1' in output
     assert observed == {"prior_accepted_record_count": 13050}
 

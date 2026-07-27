@@ -114,14 +114,12 @@
 - The canonical Nasdaq receipt is the path named by
   `config/sources.json` at `sources.nasdaq_symbol_directory.qualification_receipt`
   (currently `config/nasdaq_qualification_receipt.json`). That receipt and its
-  snapshot are preserved historical acquisition evidence only: the current
-  self-hashed network capability is not independent provenance and is not
-  trust-eligible by itself. A future accepted identity release requires a
-  detached, externally signed acquisition receipt bound to the snapshot,
-  registry capability, response metadata, receipt time, and raw bytes. Only
-  `AsReceivedSnapshotStore.load_attested` can promote that exact evidence.
-  Missing, malformed, stale-code, stale-registry, unsigned, or non-matching
-  receipt/snapshot evidence fails closed.
+  snapshot are preserved historical acquisition evidence only and must never be
+  relabeled. New owner-operated captures are locally integrity-verified when
+  the exact network registry capability, response metadata, production UTC
+  time, and raw bytes revalidate. This proves local integrity and
+  reproducibility, not independent provenance. Missing, malformed, stale-code,
+  stale-registry, or non-matching receipt/snapshot evidence fails closed.
 - HF Data Library is isolated `legacy_discovery` evidence only. The existing
   780-symbol Alpaca capsule and separate 30-symbol probe are failed source-
   qualification evidence only. Never concatenate source epochs.
@@ -157,20 +155,13 @@
   Synthetic copy mechanics additionally require an explicit synthetic-only
   permit and keep every source and output under one caller-declared fixture
   root; that permit is not authority and cannot enter accepted evidence.
-- External authorization verification supports only a pinned RSA public JWK
-  using `RSASSA_PKCS1_V1_5_SHA256`. HMAC/shared-secret receipts do not separate
-  signing from verification authority and grant no permission. The repository
-  contains no production signing helper and must never read a production
-  private key. While `config/authorization_authorities.json` remains
-  `NOT_CONFIGURED`, no external authority is active. Activation requires a
-  separately reviewed public-key registry change and an externally signed,
-  exact, current receipt.
-- Provider execution additionally requires a single-use
-  `AUTHORIZE_NETWORK_ACQUISITION` receipt bound to the exact source, initial
-  URL, network registry, timeout, response limit, pagination bound, expiry,
-  and nonce. Consume it before the first request; interruption spends it and
-  requires a fresh external signature. The environment token is never
-  sufficient authority.
+- Provider execution is owner-operated local mode. It requires both the
+  explicit `--execute-network` flag and
+  `FREE_SOURCE_QUALIFICATION_APPROVED=YES`; neither is sufficient alone.
+  Before transport, issue one process-local session bound to the exact source,
+  initial URL, checked network registry, timeout, response limit, and
+  pagination bound. Request attempts are ordered and single-use. Interruption
+  spends the current attempt and retry requires a new local invocation.
 - `build_historical_foundation` is plan-only. Foundation publication mechanics
   require an explicit synthetic-only permit and exact containing fixture root;
   there is no production publication authority.

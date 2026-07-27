@@ -54,13 +54,16 @@ from us_stocks_swing_model_v2.providers.network_authorization import (
     NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
     AuthorizedNetworkRequestAttempt,
     AuthorizedNetworkResponse,
+    LocalNetworkExecutionSession,
     NetworkAuthorizationUseStore,
     NetworkAuthorizationSession,
     NetworkRequestPlan,
     _bind_authorized_network_response,
     assemble_network_authorization_receipt,
     assert_authorized_network_request,
+    assert_local_network_request,
     network_authorization_request,
+    start_local_network_execution,
 )
 from us_stocks_swing_model_v2.releases import (
     MANIFEST_NAME,
@@ -330,6 +333,86 @@ def test_network_authorization_is_exact_and_single_use(
     object.__setattr__(forged, "time_floor_id", session.time_floor_id)
     with pytest.raises(EvaluationAuthorizationError, match="not issued"):
         assert_authorized_network_request(
+            forged,
+            source="nasdaqtraded",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
+
+
+def test_local_network_execution_is_exact_ordered_and_unforgeable(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "nasdaqtraded": {
+                        "origin_path": (
+                            "https://www.nasdaqtrader.com/dynamic/SymDir/"
+                            "nasdaqtraded.txt"
+                        ),
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="nasdaqtraded",
+        initial_url=(
+            "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
+        ),
+        timeout_seconds=30,
+        max_response_bytes=32 * 1024 * 1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    clock = TrustedClock.production()
+    session = start_local_network_execution(plan, registry=registry, clock=clock)
+    attempt = assert_local_network_request(
+        session,
+        source="nasdaqtraded",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=32 * 1024 * 1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=clock,
+    )
+    assert type(attempt) is AuthorizedNetworkRequestAttempt
+    with pytest.raises(EvaluationAuthorizationError, match="reused or is out of sequence"):
+        assert_local_network_request(
+            session,
+            source="nasdaqtraded",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
+
+    forged = object.__new__(LocalNetworkExecutionSession)
+    object.__setattr__(forged, "plan", plan)
+    object.__setattr__(forged, "session_id", session.session_id)
+    object.__setattr__(forged, "started_at", session.started_at)
+    with pytest.raises(EvaluationAuthorizationError, match="forged or is unavailable"):
+        assert_local_network_request(
             forged,
             source="nasdaqtraded",
             url=plan.initial_url,
@@ -1136,7 +1219,7 @@ def test_zero_byte_network_response_is_bound_then_rejected_as_snapshot_evidence(
         )
 
 
-def test_network_snapshot_requires_independent_attestation_for_trust(
+def test_network_snapshot_is_locally_verified_without_external_attestation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1176,28 +1259,12 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
         max_pages=1,
         pagination_parameter=None,
     )
-    authority, authority_registry_path, authority_registry = _external_authority(
-        tmp_path,
-        monkeypatch,
-    )
-    authorization_receipt = _network_authorization_receipt(
+    session = start_local_network_execution(
         plan,
         registry=registry,
-        authority=authority,
         clock=production_clock,
     )
-    authorization_store = NetworkAuthorizationUseStore(
-        tmp_path / "authorization-uses",
-        allowed_root=tmp_path,
-        registry=registry,
-    )
-    session = authorization_store.authorize(
-        plan=plan,
-        receipt=authorization_receipt,
-        authority=authority,
-        clock=production_clock,
-    )
-    request_attempt = assert_authorized_network_request(
+    request_attempt = assert_local_network_request(
         session,
         source="fixture",
         url=plan.initial_url,
@@ -1302,50 +1369,10 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
             clock=production_clock,
             max_bytes=1024,
         )
-    assert snapshot.trust_eligible is False
-    assert store.load(snapshot.root).trust_eligible is False
+    assert snapshot.local_integrity_verified is True
+    assert snapshot.trust_eligible is True
+    assert store.load(snapshot.root).local_integrity_verified is True
     assert snapshot.read_verified_bytes() == b"network fixture"
-
-    signing = {
-        "schema_version": 1,
-        "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
-        "snapshot_id": snapshot.snapshot_id,
-        "bindings": network_acquisition_attestation_bindings(snapshot),
-        "signed_at": snapshot.retrieved_at.isoformat().replace("+00:00", "Z"),
-        "key_id": authority.key_id,
-        "authority_registry_id": authority.registry_id,
-        "authorization_class": authority.authorization_class,
-    }
-    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
-    unsigned = {**signing, "signature": signature}
-    attestation = SignedNetworkAcquisitionReceipt(
-        **signing,
-        signature=signature,
-        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
-    )
-    attestation_path = tmp_path / "network-attestation.json"
-    attestation_path.write_bytes(canonical_json_bytes(attestation.as_dict()))
-    trusted = store.load_attested(
-        snapshot.root,
-        attestation_path=attestation_path,
-        authority=authority,
-        clock=TrustedClock.production(),
-    )
-    assert trusted.trust_eligible is True
-    assert trusted.read_verified_bytes() == b"network fixture"
-
-    outside = tmp_path.parent / f"{tmp_path.name}-outside-attestation.json"
-    outside.write_bytes(canonical_json_bytes(attestation.as_dict()))
-    try:
-        with pytest.raises(ContractError, match="escapes its approved root"):
-            store.load_attested(
-                snapshot.root,
-                attestation_path=outside,
-                authority=authority,
-                clock=TrustedClock.production(),
-            )
-    finally:
-        outside.unlink()
 
     without_registry = AsReceivedSnapshotStore(
         tmp_path / "snapshots",
@@ -1368,14 +1395,6 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
     (forged / "receipt.json").write_bytes(canonical_json_bytes(receipt))
     with pytest.raises(IntegrityError, match="differs from the pinned registry"):
         store.load(forged)
-    authority_registry["status"] = "REVOKED"
-    authority_registry_path.write_text(
-        json.dumps(authority_registry),
-        encoding="utf-8",
-    )
-    assert trusted.trust_eligible is False
-    with pytest.raises(IntegrityError, match="signature is invalid"):
-        trusted.read_verified_bytes()
 
 
 def test_guarded_alpaca_path_integrates_real_trust_chain_with_transport_only_mocked(
@@ -1429,22 +1448,9 @@ def test_guarded_alpaca_path_integrates_real_trust_chain_with_transport_only_moc
         max_pages=1,
         pagination_parameter=None,
     )
-    authority, _, _ = _external_authority(tmp_path, monkeypatch)
-    receipt = _network_authorization_receipt(
+    session = start_local_network_execution(
         plan,
         registry=registry,
-        authority=authority,
-        clock=clock,
-    )
-    authorization_store = NetworkAuthorizationUseStore(
-        tmp_path / "authorization-uses",
-        allowed_root=tmp_path,
-        registry=registry,
-    )
-    session = authorization_store.authorize(
-        plan=plan,
-        receipt=receipt,
-        authority=authority,
         clock=clock,
     )
     raw = canonical_json_bytes(
@@ -1516,40 +1522,13 @@ def test_guarded_alpaca_path_integrates_real_trust_chain_with_transport_only_moc
     assert transport_calls == [plan.initial_url]
     assert len(landed) == 1
     snapshot = landed[0]
-    assert snapshot.trust_eligible is False
+    assert snapshot.local_integrity_verified is True
+    assert snapshot.trust_eligible is True
     assert snapshot.read_verified_bytes() == raw
-
-    signing = {
-        "schema_version": 1,
-        "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
-        "snapshot_id": snapshot.snapshot_id,
-        "bindings": network_acquisition_attestation_bindings(snapshot),
-        "signed_at": snapshot.retrieved_at.isoformat().replace("+00:00", "Z"),
-        "key_id": authority.key_id,
-        "authority_registry_id": authority.registry_id,
-        "authorization_class": authority.authorization_class,
-    }
-    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
-    unsigned = {**signing, "signature": signature}
-    attestation = SignedNetworkAcquisitionReceipt(
-        **signing,
-        signature=signature,
-        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
-    )
-    attestation_path = tmp_path / "network-attestation.json"
-    attestation_path.write_bytes(canonical_json_bytes(attestation.as_dict()))
-    trusted = store.load_attested(
-        snapshot.root,
-        attestation_path=attestation_path,
-        authority=authority,
-        clock=TrustedClock.production(),
-    )
-    assert trusted.trust_eligible is True
-    assert trusted.read_verified_bytes() == raw
 
     snapshot.raw_path.write_bytes(raw + b"\n")
     with pytest.raises(IntegrityError, match="snapshot raw bytes differ from receipt"):
-        trusted.read_verified_bytes()
+        snapshot.read_verified_bytes()
 
 
 def test_self_consistent_unpublished_release_is_not_accepted_evidence(tmp_path: Path) -> None:

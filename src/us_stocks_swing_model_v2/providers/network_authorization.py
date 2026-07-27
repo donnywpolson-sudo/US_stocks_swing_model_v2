@@ -79,6 +79,9 @@ class NetworkRequestPlan:
             "network_registry_id": self.network_registry_id,
         }
 
+    def as_dict(self) -> dict[str, object]:
+        return {**self._unsigned(), "plan_id": self.plan_id}
+
     def validate(self, *, registry: NetworkAcquisitionRegistry) -> None:
         if type(registry) is not NetworkAcquisitionRegistry:
             raise ContractError("network authorization plan requires its pinned registry")
@@ -262,8 +265,28 @@ class NetworkAuthorizationSession:
             )
 
 
+@dataclass(frozen=True, init=False, eq=False)
+class LocalNetworkExecutionSession:
+    """Process-local owner session for one exact bounded request plan."""
+
+    plan: NetworkRequestPlan
+    session_id: str
+    started_at: str
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "local network sessions must be issued from a validated request plan"
+        )
+
+    def _assert_request(self, **kwargs: object) -> None:
+        NetworkAuthorizationSession._assert_request(self, **kwargs)
+
+
 _ISSUED_SESSIONS: WeakKeyDictionary[
     NetworkAuthorizationSession, dict[str, object]
+] = WeakKeyDictionary()
+_ISSUED_LOCAL_SESSIONS: WeakKeyDictionary[
+    LocalNetworkExecutionSession, dict[str, object]
 ] = WeakKeyDictionary()
 _ISSUED_SESSIONS_LOCK = threading.Lock()
 _COMMIT_RESULT = TypeVar("_COMMIT_RESULT")
@@ -519,6 +542,132 @@ def assert_authorized_network_request(
             "max_response_bytes": max_response_bytes,
             "page_index": page_index,
             "expires_at": session.expires_at,
+            "attempt_nonce": secrets.token_urlsafe(32),
+        }
+        attempt = object.__new__(AuthorizedNetworkRequestAttempt)
+        attempt_fields = {
+            key: value
+            for key, value in attempt_unsigned.items()
+            if key != "attempt_nonce"
+        }
+        attempt_fields["attempt_id"] = sha256_bytes(
+            canonical_json_bytes(attempt_unsigned)
+        )
+        for name, value in attempt_fields.items():
+            object.__setattr__(attempt, name, value)
+        _ISSUED_REQUEST_ATTEMPTS[attempt] = {
+            "attempt_id": attempt.attempt_id,
+            "bound": False,
+        }
+        return attempt
+
+
+def start_local_network_execution(
+    plan: NetworkRequestPlan,
+    *,
+    registry: NetworkAcquisitionRegistry,
+    clock: TrustedClock,
+) -> LocalNetworkExecutionSession:
+    """Issue an in-memory session after explicit local-owner confirmation."""
+
+    if type(plan) is not NetworkRequestPlan:
+        raise EvaluationAuthorizationError(
+            "local network execution requires an exact request plan"
+        )
+    plan.validate(registry=registry)
+    trusted_clock = require_trusted_clock(clock)
+    if not trusted_clock.trust_eligible:
+        raise EvaluationAuthorizationError(
+            "local network execution requires the production UTC clock"
+        )
+    started_at = iso_z(trusted_clock.now())
+    unsigned = {
+        "schema_version": 1,
+        "mode": "OWNER_OPERATED_LOCAL",
+        "project": "US_stocks_swing_model_v2",
+        "plan_id": plan.plan_id,
+        "network_registry_id": registry.registry_id,
+        "started_at": started_at,
+        "session_nonce": secrets.token_urlsafe(32),
+    }
+    session = object.__new__(LocalNetworkExecutionSession)
+    object.__setattr__(session, "plan", plan)
+    object.__setattr__(
+        session,
+        "session_id",
+        sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    object.__setattr__(session, "started_at", started_at)
+    with _ISSUED_SESSIONS_LOCK:
+        _ISSUED_LOCAL_SESSIONS[session] = {
+            "session_id": session.session_id,
+            "registry": registry,
+            "next_page": 0,
+        }
+    return session
+
+
+def assert_local_network_request(
+    session: LocalNetworkExecutionSession | None,
+    *,
+    source: str,
+    url: str,
+    timeout_seconds: int,
+    max_response_bytes: int,
+    page_index: int,
+    expected_page_token: str | None,
+    clock: TrustedClock,
+) -> AuthorizedNetworkRequestAttempt:
+    """Spend one ordered request attempt from a local-owner session."""
+
+    if type(session) is not LocalNetworkExecutionSession:
+        raise EvaluationAuthorizationError(
+            "network request lacks a local owner execution session"
+        )
+    with _ISSUED_SESSIONS_LOCK:
+        issued = _ISSUED_LOCAL_SESSIONS.get(session)
+        if issued is None or issued.get("session_id") != session.session_id:
+            raise EvaluationAuthorizationError(
+                "local network execution session was forged or is unavailable"
+            )
+        trusted_clock = require_trusted_clock(clock)
+        if not trusted_clock.trust_eligible:
+            raise EvaluationAuthorizationError(
+                "local network execution requires the production UTC clock"
+            )
+        registry = issued.get("registry")
+        if type(registry) is not NetworkAcquisitionRegistry:
+            raise EvaluationAuthorizationError(
+                "local network session lacks its pinned registry"
+            )
+        try:
+            session.plan.validate(registry=registry)
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(
+                "local network request plan is invalid"
+            ) from exc
+        if page_index != issued.get("next_page"):
+            raise EvaluationAuthorizationError(
+                "local network page was reused or is out of sequence"
+            )
+        session._assert_request(
+            source=source,
+            url=url,
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
+            page_index=page_index,
+            expected_page_token=expected_page_token,
+        )
+        issued["next_page"] = page_index + 1
+        attempt_unsigned = {
+            "plan_id": session.plan.plan_id,
+            "receipt_id": session.session_id,
+            "source": source,
+            "requested_url": url,
+            "timeout_seconds": timeout_seconds,
+            "max_response_bytes": max_response_bytes,
+            "page_index": page_index,
+            "expires_at": session.started_at,
             "attempt_nonce": secrets.token_urlsafe(32),
         }
         attempt = object.__new__(AuthorizedNetworkRequestAttempt)
