@@ -47,6 +47,28 @@ The repository does not:
 - treat a synthetic HMAC receipt as production authority; or
 - activate an authority merely because verification code exists.
 
+## Production time integrity
+
+Final network execution does not rely on a bare wall-clock comparison alone.
+The authorization-use store persists a hash-bound time floor containing the
+pinned network-registry ID, repository clock identity, UTC observation, and
+operating-system monotonic counter. Authorization and every pre-transport
+request check fail closed when:
+
+- wall time moves backward or forward by more than five seconds relative to
+  monotonic elapsed time;
+- the monotonic epoch changes across a reboot or equivalent reset;
+- the time-floor schema, hash, registry binding, or clock identity differs; or
+- ordinary signed issue-time, expiry, or ten-minute lifetime checks fail.
+
+The first time-floor observation remains an operational trust-establishment
+event: the supported host must begin with correctly synchronized system UTC.
+After establishment, a reboot or intentional floor recovery requires explicit
+owner review before another production authorization. Receipt assembly is
+preliminary verification only; it never authorizes transport, and the final
+use-store validation always applies the persisted time floor before issuing a
+network session.
+
 ## Hash-copy CLI
 
 An externally authorized copy requires all of:

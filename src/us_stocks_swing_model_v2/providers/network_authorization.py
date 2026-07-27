@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import re
 import secrets
 import threading
+import time
 from typing import Callable, Mapping, TypeVar
 from urllib.parse import parse_qsl, urlparse
 from weakref import WeakKeyDictionary
@@ -28,6 +29,8 @@ from .snapshots import NetworkAcquisitionRegistry, normalize_response_headers
 
 NETWORK_ACQUISITION_AUTHORIZATION_SCOPE = "AUTHORIZE_NETWORK_ACQUISITION"
 MAX_NETWORK_AUTHORIZATION_LIFETIME = timedelta(minutes=10)
+MAX_AUTHORIZATION_CLOCK_DRIFT = timedelta(seconds=5)
+AUTHORIZATION_TIME_FLOOR_SCHEMA_VERSION = 1
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
@@ -194,6 +197,7 @@ class NetworkAuthorizationSession:
     nonce: str
     consumed_at: str
     expires_at: str
+    time_floor_id: str
 
     def _assert_request(
         self,
@@ -309,6 +313,111 @@ _ISSUED_NETWORK_RESPONSES: WeakKeyDictionary[
 ] = WeakKeyDictionary()
 
 
+def _advance_authorization_time_floor(
+    *,
+    root: Path,
+    allowed_root: Path,
+    network_registry_id: str,
+    clock: TrustedClock,
+) -> tuple[datetime, str]:
+    """Persist a rollback-resistant wall/monotonic authorization time floor."""
+
+    trusted_clock = require_trusted_clock(clock)
+    floor_path = require_contained_path(
+        root / "authorization-time-floor.json",
+        allowed_root,
+        must_exist=False,
+    )
+    lock_path = require_contained_path(
+        root / ".locks" / "authorization-time-floor.lock",
+        allowed_root,
+        must_exist=False,
+    )
+    with ExclusiveFileLock(lock_path, allowed_root=allowed_root):
+        observed = trusted_clock.now()
+        monotonic_ns = time.monotonic_ns()
+        if floor_path.exists():
+            try:
+                payload_bytes = floor_path.read_bytes()
+                payload = json.loads(payload_bytes)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise EvaluationAuthorizationError(
+                    "network authorization time floor is unavailable or invalid"
+                ) from exc
+            expected_fields = {
+                "schema_version",
+                "network_registry_id",
+                "time_authority",
+                "observed_at",
+                "monotonic_ns",
+                "time_floor_id",
+            }
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != expected_fields
+                or type(payload.get("schema_version")) is not int
+                or payload.get("schema_version")
+                != AUTHORIZATION_TIME_FLOOR_SCHEMA_VERSION
+                or payload.get("network_registry_id") != network_registry_id
+                or payload.get("time_authority") != trusted_clock.mode
+                or type(payload.get("monotonic_ns")) is not int
+                or payload["monotonic_ns"] < 0
+            ):
+                raise EvaluationAuthorizationError(
+                    "network authorization time floor differs from its contract"
+                )
+            unsigned_prior = {
+                key: value
+                for key, value in payload.items()
+                if key != "time_floor_id"
+            }
+            if payload.get("time_floor_id") != sha256_bytes(
+                canonical_json_bytes(unsigned_prior)
+            ):
+                raise EvaluationAuthorizationError(
+                    "network authorization time floor integrity differs"
+                )
+            prior_observed = parse_utc_z(
+                payload["observed_at"],
+                "network_authorization_time_floor.observed_at",
+            )
+            prior_monotonic_ns = payload["monotonic_ns"]
+            if monotonic_ns < prior_monotonic_ns:
+                raise EvaluationAuthorizationError(
+                    "network authorization monotonic epoch changed; "
+                    "time-floor recovery is required"
+                )
+            elapsed = timedelta(
+                microseconds=(monotonic_ns - prior_monotonic_ns) // 1_000
+            )
+            expected = prior_observed + elapsed
+            if (
+                observed < expected - MAX_AUTHORIZATION_CLOCK_DRIFT
+                or observed > expected + MAX_AUTHORIZATION_CLOCK_DRIFT
+            ):
+                raise EvaluationAuthorizationError(
+                    "network authorization clock moved outside the allowed drift"
+                )
+        unsigned = {
+            "schema_version": AUTHORIZATION_TIME_FLOOR_SCHEMA_VERSION,
+            "network_registry_id": network_registry_id,
+            "time_authority": trusted_clock.mode,
+            "observed_at": iso_z(observed),
+            "monotonic_ns": monotonic_ns,
+        }
+        time_floor_id = sha256_bytes(canonical_json_bytes(unsigned))
+        atomic_write(
+            floor_path,
+            canonical_json_bytes(
+                {
+                    **unsigned,
+                    "time_floor_id": time_floor_id,
+                }
+            ),
+        )
+        return observed, time_floor_id
+
+
 def assert_authorized_network_request(
     session: NetworkAuthorizationSession | None,
     *,
@@ -354,13 +463,26 @@ def assert_authorized_network_request(
             or marker.get("authorization_nonce") != session.nonce
             or marker.get("consumed_at") != session.consumed_at
             or marker.get("expires_at") != session.expires_at
+            or marker.get("time_floor_id") != session.time_floor_id
         ):
             raise EvaluationAuthorizationError(
                 "network authorization consumption marker differs"
             )
-        if require_trusted_clock(clock).now() >= parse_utc_z(
+        trusted_clock = require_trusted_clock(clock)
+        expires_at = parse_utc_z(
             session.expires_at, "network_authorization.expires_at"
-        ):
+        )
+        if trusted_clock.now() >= expires_at:
+            raise EvaluationAuthorizationError(
+                "network authorization session has expired"
+            )
+        observed, _ = _advance_authorization_time_floor(
+            root=issued["time_floor_root"],
+            allowed_root=issued["allowed_root"],
+            network_registry_id=issued["network_registry_id"],
+            clock=trusted_clock,
+        )
+        if observed >= expires_at:
             raise EvaluationAuthorizationError(
                 "network authorization session has expired"
             )
@@ -616,6 +738,19 @@ class NetworkAuthorizationUseStore:
             required_bindings=required,
             observed_at=observed,
         )
+        observed, time_floor_id = _advance_authorization_time_floor(
+            root=self.root,
+            allowed_root=self.allowed_root,
+            network_registry_id=self.registry.registry_id,
+            clock=trusted_clock,
+        )
+        receipt.validate_at(
+            authority=authority,
+            expected_scope=NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
+            expected_subject_id=plan.plan_id,
+            required_bindings=required,
+            observed_at=observed,
+        )
         uses = self.root / "uses"
         marker = uses / f"{receipt.receipt_id}.json"
         lock_path = self.root / ".locks" / f"{receipt.receipt_id}.lock"
@@ -632,9 +767,10 @@ class NetworkAuthorizationUseStore:
                     "plan_id": plan.plan_id,
                     "receipt_id": receipt.receipt_id,
                     "authorization_nonce": nonce,
-                        "consumed_at": iso_z(observed),
-                        "expires_at": receipt.expires_at,
-                        "time_authority": trusted_clock.mode,
+                    "consumed_at": iso_z(observed),
+                    "expires_at": receipt.expires_at,
+                    "time_authority": trusted_clock.mode,
+                    "time_floor_id": time_floor_id,
                 }
             )
             atomic_write(
@@ -647,12 +783,16 @@ class NetworkAuthorizationUseStore:
         object.__setattr__(session, "nonce", nonce)
         object.__setattr__(session, "consumed_at", iso_z(observed))
         object.__setattr__(session, "expires_at", receipt.expires_at)
+        object.__setattr__(session, "time_floor_id", time_floor_id)
         with _ISSUED_SESSIONS_LOCK:
             _ISSUED_SESSIONS[session] = {
                 "marker_path": marker,
                 "marker_sha256": sha256_bytes(marker_payload),
                 "next_page": 0,
                 "registry": self.registry,
+                "time_floor_root": self.root,
+                "allowed_root": self.allowed_root,
+                "network_registry_id": self.registry.registry_id,
             }
         return session
 
