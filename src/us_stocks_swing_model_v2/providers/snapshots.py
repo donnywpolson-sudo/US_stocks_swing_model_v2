@@ -505,25 +505,19 @@ class LandedSnapshot:
         raise TypeError("landed snapshots must be created by the verified store loader")
 
     @property
+    def local_integrity_verified(self) -> bool:
+        return (
+            self.acquisition_mode == "NETWORK_AS_RECEIVED"
+            and self.time_authority == "PRODUCTION_SYSTEM_UTC"
+            and self.synthetic_permit_id is None
+            and self.acquisition_registry is not None
+        )
+
+    @property
     def trust_eligible(self) -> bool:
-        if (
-            self.acquisition_mode != "NETWORK_AS_RECEIVED"
-            or self.time_authority != "PRODUCTION_SYSTEM_UTC"
-            or self.synthetic_permit_id is not None
-            or self.acquisition_attestation is None
-            or self.attestation_authority is None
-            or self.attestation_observed_at is None
-        ):
-            return False
-        try:
-            self.acquisition_attestation.validate(
-                snapshot=self,
-                authority=self.attestation_authority,
-                observed_at=self.attestation_observed_at,
-            )
-        except (ContractError, EvaluationAuthorizationError, IntegrityError):
-            return False
-        return True
+        """Compatibility alias for the owner-operated local integrity policy."""
+
+        return self.local_integrity_verified
 
     @property
     def raw_path(self) -> Path:

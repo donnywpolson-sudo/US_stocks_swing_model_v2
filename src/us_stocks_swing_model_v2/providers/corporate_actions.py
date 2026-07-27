@@ -27,9 +27,9 @@ from .alpaca import (
 from .http import open_without_redirects
 from .network_authorization import (
     AuthorizedNetworkRequestAttempt,
-    NetworkAuthorizationSession,
+    LocalNetworkExecutionSession,
     _bind_authorized_network_response,
-    assert_authorized_network_request,
+    assert_local_network_request,
 )
 from .snapshots import (
     AsReceivedSnapshotStore,
@@ -37,6 +37,8 @@ from .snapshots import (
     LandedSnapshot,
     normalize_response_headers,
 )
+
+assert_authorized_network_request = assert_local_network_request
 
 
 CORPORATE_ACTIONS_ENDPOINT = "https://data.alpaca.markets/v1/corporate-actions"
@@ -538,7 +540,7 @@ def guarded_fetch_corporate_action_pages(
     max_pages: int = 10,
     timeout_seconds: int = 30,
     clock: TrustedClock | None = None,
-    authorization_session: NetworkAuthorizationSession | None = None,
+    authorization_session: LocalNetworkExecutionSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not network_enabled or os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(

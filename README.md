@@ -227,7 +227,6 @@ python -m pytest -q <targeted-test-path>
 python -m us_stocks_swing_model_v2.cli.hash_copy --config config/migration_allowlist.json
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only --nasdaq-only
-python -m us_stocks_swing_model_v2.cli.qualify_free_sources --nasdaq-only --emit-authorization-requests C:\absolute\new\request-directory
 python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
 python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
 ```
@@ -236,18 +235,16 @@ Run validation in proportion to the task. Documentation-only work needs a
 reviewed diff, consistency checks, and `git diff --check`. Ask before running
 the full `python -m pytest -q` suite unless the task already authorizes it.
 Provider and copy CLIs are dry-run/plan-only by default. Execution requires
-explicit flags, bounded scope, and the exact required authorization. Foundation
+explicit flags and bounded scope. Foundation
 CLI operation is plan-only; its mutating mechanics are synthetic-fixture-only
-and root-bound. External authorization verification is RSA-public-key-only;
-shared-secret receipts are rejected, and no authority is active while the
-checked registry is `NOT_CONFIGURED`. See
-`docs/EXTERNAL_AUTHORIZATION.md`. Network capture and offline detached-
-attestation verification are separate operations; an unattested capture is
-never qualified. Free-source qualification `--plan-only` performs no filesystem
-writes; authorization-request files require the explicit
-`--emit-authorization-requests` mode. Provider execution also consumes a
-separate externally signed request authorization before opening a connection. See
-`docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
+and root-bound. Free-source qualification `--plan-only` performs no filesystem
+writes. In owner-operated local mode, a download requires both
+`--execute-network` and `FREE_SOURCE_QUALIFICATION_APPROVED=YES`; neither is
+accepted alone. The process-local session binds the checked network registry,
+exact URL, timeout, response limit, and page sequence. Landed bytes and
+normalized response metadata are content-addressed and verified offline as
+`LOCAL_INTEGRITY_VERIFIED`; this is reproducibility evidence, not independent
+provenance. See `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
 commands operate only on accepted local releases and make no provider or
 historical-research calls.
 

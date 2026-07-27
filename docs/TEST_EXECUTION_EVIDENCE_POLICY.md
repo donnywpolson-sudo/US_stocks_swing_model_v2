@@ -7,11 +7,11 @@ worktree.
 Trust-sensitive source qualification therefore has three distinct evidence
 layers:
 
-1. Offline integration tests exercise the real external-signature verifier,
-   request-plan binding, single-use authorization store, guarded provider
-   entry point, transport-response binding, atomic snapshot landing, detached
-   acquisition attestation, and verified reload. Only the network transport is
-   substituted.
+1. Offline integration tests exercise exact request-plan binding, unforgeable
+   process-local sessions, ordered single-use attempts, the guarded provider
+   entry point, transport-response binding, atomic snapshot landing, local
+   integrity verification, verified reload, and tamper refusal. Only the
+   network transport is substituted.
 2. Portable GitHub Actions runs execute the fresh-checkout test population and
    retain JUnit output, the installed environment, and a machine-readable
    evidence record bound to the source commit, tree, workflow, and run. These
@@ -22,14 +22,11 @@ layers:
    assessment launcher and is bound to its exact target inventory and complete
    file-population receipts.
 
-None of these layers authorizes a provider request. A real request still requires the
-exact external authorization workflow, and a downloaded snapshot remains
-non-trust-eligible until its independent acquisition attestation verifies.
+None of these layers initiates a provider request. A real request still
+requires the explicit CLI flag plus the local owner confirmation environment
+value. A downloaded snapshot can establish local integrity after complete
+offline verification, but it cannot establish independent provenance.
 
-The checked-in authority registry remains `NOT_CONFIGURED`. Consequently this
-repository must not claim that a local pytest log is a production-authenticated
-run artifact. A GitHub Actions artifact is time-limited review evidence, not an
-independently anchored immutable record, a production-authenticated receipt, or
-alpha evidence. Configuring an authority or signing an operating receipt is a
-separate owner action; synthetic fixture keys are test-only and prohibited from
-the production registry.
+A local pytest log and a GitHub Actions artifact are review evidence, not
+independently anchored immutable records, provider attestations, or alpha
+evidence.

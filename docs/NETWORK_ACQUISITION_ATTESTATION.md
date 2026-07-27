@@ -1,161 +1,74 @@
-# Network Acquisition Attestation
+# Owner-Operated Network Acquisition
 
-Network capture and trust promotion are separate operations.
+This personal project uses an owner-operated local acquisition mode. It does
+not use an external signer, public-key registry, or detached authorization
+receipt for provider downloads.
 
-An HTTPS response can be landed as immutable acquisition evidence, but its
-self-hashed capability is not independent provenance. It remains
-non-trust-eligible until an external signer attests the exact immutable
-snapshot.
+## Safety boundary
 
-## Bound evidence
-
-The detached receipt binds:
-
-- immutable snapshot ID;
-- network-acquisition registry ID and capability ID;
-- source and exact URL;
-- accepted HTTP status;
-- raw-byte SHA-256;
-- normalized-header SHA-256;
-- production UTC retrieval time; and
-- time-authority mode.
-
-The receipt also binds its scope, signature time, key ID, authority-registry
-ID, and authority class. Its required scope is
-`ATTEST_NETWORK_ACQUISITION`.
-
-The checked-in `config/nasdaq_qualification_receipt.json` predates the current
-trust closure and is preserved historical negative evidence. Its
-`NOT_ACTIVE` state and stale code/registry hashes are intentional: changing
-them in place would falsify the acquisition event. It grants no current
-capability. Requalification requires a new bounded response and a new detached
-receipt; see `ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md`.
-
-## Three-stage workflow
-
-### 1. Pre-request authorization
-
-Plan-only mode is filesystem-read-only: it prints the proposed requests but
-does not create directories or files. Request-packet creation is a separate,
-explicit mode:
-
-```powershell
-python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
-  --nasdaq-only `
-  --emit-authorization-requests C:\absolute\new\request-directory
-```
-
-The prior `--authorization-request-directory` spelling remains temporarily
-available as a deprecated alias for the explicit emission mode. It cannot be
-combined with `--plan-only`.
-
-After the public authority is active, prepare the exact canonical signing
-bytes:
-
-```powershell
-python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
-  --request C:\absolute\request\nasdaqtraded.json `
-  --signing-payload-output C:\absolute\new-signing-payload.bin `
-  --allowed-output-root C:\absolute\approved-artifact-root `
-  --authority-registry C:\absolute\project\config\authorization_authorities.json `
-  --authority-key-id <key-id> `
-  --public-key-file C:\absolute\public.jwk
-```
-
-The external authority signs those bytes outside the repository.
-The request binds `AUTHORIZE_NETWORK_ACQUISITION`, the initial URL, source,
-network registry, 30-second timeout, response limit, page limit, pagination
-policy, ten-minute expiry, and a 256-bit nonce. Assemble and verify the
-detached signature offline:
-
-```powershell
-python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
-  --request C:\absolute\request\nasdaqtraded.json `
-  --detached-signature C:\absolute\signature.txt `
-  --authority-registry C:\absolute\project\config\authorization_authorities.json `
-  --authority-key-id <key-id> `
-  --public-key-file C:\absolute\public.jwk `
-  --allowed-output-root C:\absolute\approved-artifact-root `
-  --output C:\absolute\new-network-authorization.json
-```
-
-The receipt is atomically consumed before the first request. It cannot be
-replayed; a failed or interrupted acquisition requires a freshly signed
-receipt.
-
-The guarded transport binds the exact HTTP result even when the response body
-has zero bytes, preserving what the authorized request actually returned.
-Zero-byte content is not valid source evidence: snapshot landing rejects it as
-empty before provider parsing, publication, qualification, or trust promotion.
-Transport binding therefore records the failure without misclassifying it as
-an authorization mismatch.
-
-### 2. Bounded capture
-
-When separately authorized, one exact Nasdaq capture can be performed with:
+Free-source qualification is plan-only by default. A real request requires both
+of these deliberate inputs in the same invocation:
 
 ```powershell
 $env:FREE_SOURCE_QUALIFICATION_APPROVED='YES'
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --execute-network `
-  --nasdaq-only `
-  --network-authorization C:\absolute\new-network-authorization.json `
-  --network-authority-registry C:\absolute\project\config\authorization_authorities.json `
-  --network-key-id <key-id> `
-  --network-public-key-file C:\absolute\public.jwk
+  --nasdaq-only
 ```
 
-This operation lands the immutable snapshot and prints an
-`attestation_request`. It does not parse the response as trusted identity
-evidence, write a qualification receipt, or make the source active.
+The flag without the environment confirmation fails closed. The environment
+confirmation without the flag remains plan-only.
 
-Provider execution additionally requires the repository-mandated exact
-request limit, timeout, output disposition, and explicit authorization. The
-environment variable alone is not authorization.
+Before transport, the CLI builds and validates an exact request plan against
+`config/network_acquisition_registry.json`. A process-local session binds:
 
-For Alpaca pagination, one receipt authorizes one bounded page sequence. Only
-the `page_token` returned by the immediately preceding verified response may
-change; all other signed URL parameters remain exact.
+- source and exact initial HTTPS URL;
+- checked network-registry identity;
+- GET method;
+- timeout and response-byte limit;
+- page limit and pagination policy; and
+- ordered, single-use request attempts.
 
-### 3. Acquisition signing and offline verification
+The session exists only in memory. It is not transferable between processes and
+cannot be reconstructed from a file. A failed or interrupted attempt is spent;
+retry by starting a new explicit invocation.
 
-The external signer independently reviews the captured bytes and request
-metadata, adds the exact signature fields, signs the canonical receipt outside
-the repository, and returns a detached JSON receipt. Copy the public receipt
-into the configured ignored qualification root before verification; the
-verifier rejects receipt paths outside its approved root. Production
-private-key material must never enter this checkout.
+## Landed evidence
 
-Offline verification uses:
+The guarded transport rejects redirects and binds the exact requested URL,
+response URL, HTTP status, normalized headers, and raw-byte hash before the
+snapshot is committed. Empty or oversized responses fail closed. Snapshot
+publication is atomic and content-addressed.
+
+A loaded network snapshot is `LOCAL_INTEGRITY_VERIFIED` only when all of these
+remain valid:
+
+- the receipt and files are internally hash-consistent;
+- the acquisition capability matches the checked active network registry;
+- the evidence is `NETWORK_AS_RECEIVED`;
+- the retrieval timestamp came from production system UTC; and
+- no synthetic-only permit is present.
+
+This state means the local bytes and their recorded acquisition metadata are
+tamper-evident and reproducible. It is not a claim of independent provenance,
+third-party witnessing, provider correctness, or research fitness.
+
+## Offline Nasdaq verification
+
+Verification performs no network call:
 
 ```powershell
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --verify-nasdaq-snapshot <absolute-snapshot-directory> `
-  --acquisition-attestation <absolute-signed-receipt> `
-  --attestation-authority-registry <exact-reviewed-project-registry> `
-  --attestation-key-id <key-id> `
-  --attestation-public-key-file <absolute-public-jwk> `
   --prior-nasdaq-accepted-record-count <trusted-prior-count>
 ```
 
-Verification performs no network call. It reloads the immutable snapshot,
-revalidates the network registry capability, revalidates the active external
-public authority, verifies the detached RSA signature and signing chronology,
-and only then permits the Nasdaq parser to consume the bytes. Production
-parsing always requires the record count from the immediately preceding
-accepted Nasdaq qualification receipt; there is no implicit first-run or
-routine-update bypass.
+The command reloads and rehashes the immutable snapshot, revalidates the pinned
+network capability, and only then permits parsing. Production parsing still
+requires the record count from the immediately preceding accepted Nasdaq
+qualification receipt; there is no implicit first-run or routine-update bypass.
 
-## Fail-closed properties
-
-- `LandedSnapshot` cannot be directly constructed by a caller.
-- Unattested captures report `trust_eligible=false`.
-- Synthetic snapshots cannot be promoted by an external receipt.
-- The receipt cannot be reused for another snapshot, source, URL, response,
-  registry, capability, or retrieval time.
-- A pre-request authorization receipt cannot be reused for a second network
-  acquisition.
-- Registry mutation or authority revocation invalidates verification.
-- Verification enriches an in-memory snapshot; it does not mutate the
-  content-addressed snapshot directory.
-- No code in this repository signs a production acquisition receipt.
+The checked-in `config/nasdaq_qualification_receipt.json` predates this mode and
+remains preserved historical negative evidence. Its `NOT_ACTIVE` state and
+stale identities must not be rewritten or relabeled. A future qualification is
+a new acquisition and a new receipt.
