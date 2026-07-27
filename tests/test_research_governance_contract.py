@@ -151,6 +151,16 @@ def test_robustness_and_monitoring_governance_are_binding_and_fail_closed() -> N
     assert monitoring["recovery_scope"] == "AUTHORIZE_MONITORING_RECOVERY"
     assert monitoring["automatic_retraining_retuning_source_substitution_or_resume"] is False
     policy = json.loads(MONITORING_POLICY_PATH.read_text(encoding="utf-8"))
+    assert policy["policy_version"] == (
+        "1.1.0-pending-before-warning-non-authorizing"
+    )
+    assert policy["state_precedence"] == [
+        "MONITORING_INVALID",
+        "MONITORING_PAUSED",
+        "MONITORING_PENDING",
+        "MONITORING_WARNING",
+        "MONITORING_OK",
+    ]
     assert policy["record_contract"]["append_only_hash_chain"] is True
     assert policy["record_contract"]["automatic_actions_must_be_empty"] is True
     assert policy["recovery"]["automatic_resume"] is False

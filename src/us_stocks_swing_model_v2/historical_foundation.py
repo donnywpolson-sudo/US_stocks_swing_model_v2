@@ -304,8 +304,9 @@ def _read_canonical_json(path: Path, expected_fields: set[str], label: str) -> d
 
 def _source_index(epoch_directory: Path) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
-    index_path = Path(epoch_directory) / "symbol_index.jsonl"
-    require_contained_path(index_path, Path(epoch_directory))
+    epoch_root = Path(epoch_directory)
+    index_path = epoch_root / "symbol_index.jsonl"
+    require_contained_path(index_path, epoch_root)
     reject_link(index_path)
     if not index_path.is_file() or index_path.stat().st_nlink != 1:
         raise IntegrityError("HFDL source index is not an independent plain file")
@@ -335,11 +336,12 @@ def _source_index(epoch_directory: Path) -> tuple[dict[str, Any], ...]:
             or row["size"] < 0
             or type(row["row_count"]) is not int
             or row["row_count"] <= 0
+            or type(row["data_path"]) is not str
             or not isinstance(row["session_start"], str)
             or not isinstance(row["session_end"], str)
         ):
             raise IntegrityError("HFDL source index value types differ")
-        safe_relative_path(row["data_path"])
+        relative = safe_relative_path(row["data_path"])
         try:
             start = date.fromisoformat(row["session_start"])
             end = date.fromisoformat(row["session_end"])
@@ -347,6 +349,37 @@ def _source_index(epoch_directory: Path) -> tuple[dict[str, Any], ...]:
             raise IntegrityError("HFDL source index session bounds are invalid") from exc
         if start > end:
             raise IntegrityError("HFDL source index session bounds are reversed")
+        data_path = epoch_root.joinpath(*relative.parts)
+        require_contained_path(data_path, epoch_root)
+        reject_link(data_path)
+        if (
+            not data_path.is_file()
+            or data_path.stat().st_nlink != 1
+            or data_path.stat().st_size != row["size"]
+            or sha256_file(data_path) != row["sha256"]
+        ):
+            raise IntegrityError(
+                "HFDL source index object hash, size, or file identity differs"
+            )
+        try:
+            source = pq.read_table(data_path, columns=["symbol", "session"])
+        except (OSError, pa.ArrowException) as exc:
+            raise IntegrityError(
+                "HFDL source index object is not readable Parquet evidence"
+            ) from exc
+        symbols = source.column("symbol").to_pylist()
+        sessions = source.column("session").to_pylist()
+        if (
+            source.num_rows != row["row_count"]
+            or source.num_rows <= 0
+            or any(type(symbol) is not str or symbol != row["symbol"] for symbol in symbols)
+            or any(type(session) is not date for session in sessions)
+            or min(sessions) != start
+            or max(sessions) != end
+        ):
+            raise IntegrityError(
+                "HFDL source index row count, symbol, or session bounds differ"
+            )
         rows.append(row)
     if not rows or [row["symbol"] for row in rows] != sorted({row["symbol"] for row in rows}):
         raise IntegrityError("HFDL source index is empty, duplicated, or unsorted")
@@ -411,6 +444,22 @@ def _derive_symbol_tables(
     if source.schema.remove_metadata() != HFDL_TAGGED_SCHEMA:
         raise IntegrityError("HFDL bridge source schema differs")
     source_rows = source.to_pylist()
+    for row in source_rows:
+        prices = tuple(row[name] for name in ("open", "high", "low", "close"))
+        if (
+            not all(
+                type(value) is float and math.isfinite(value) and value > 0.0
+                for value in prices
+            )
+            or row["high"] < max(row["open"], row["close"])
+            or row["low"] > min(row["open"], row["close"])
+            or row["high"] < row["low"]
+            or type(row["volume"]) is not int
+            or row["volume"] < 0
+        ):
+            raise IntegrityError(
+                "HFDL bridge source OHLCV values violate the canonical contract"
+            )
     if (
         not source_rows
         or any(row["symbol"] != symbol or row["source_epoch"] != epoch for row in source_rows)
@@ -1148,6 +1197,10 @@ def load_hfdl_historical_foundation(
         or set_manifest.row_count != 6
     ):
         raise IntegrityError("historical-foundation set manifest differs")
+    if {entry.path for entry in set_manifest.files} != {"bridge_set.json"}:
+        raise IntegrityError(
+            "historical-foundation set payload census must equal {bridge_set.json}"
+        )
     payload = _read_canonical_json(
         set_directory / "bridge_set.json",
         {
@@ -1171,9 +1224,13 @@ def load_hfdl_historical_foundation(
         "historical-foundation bridge set",
     )
     contract, contract_id = _load_contract()
+    implementation_hash = _implementation_hash()
+    environment_hash = _environment_hash()
     if (
         set_manifest.project != "US_stocks_swing_model_v2"
+        or set_manifest.code_hash != implementation_hash
         or set_manifest.config_hash != contract_id
+        or set_manifest.environment_hash != environment_hash
         or set_manifest.schema_fingerprint != sha256_bytes(canonical_json_bytes(payload))
         or payload["publication_state"] != "COMPLETE_SIX_PHYSICAL_RELEASES_TWO_UNPOOLED_EPOCHS"
         or type(payload["schema_version"]) is not int
@@ -1266,7 +1323,9 @@ def load_hfdl_historical_foundation(
                 or manifest.row_count != binding["row_count"]
                 or manifest.schema_fingerprint
                 != sha256_bytes(SCHEMAS[kind].serialize().to_pybytes())
+                or manifest.code_hash != implementation_hash
                 or manifest.config_hash != contract_id
+                or manifest.environment_hash != environment_hash
                 or manifest.event_start != source_manifest.event_start
                 or manifest.event_end != source_manifest.event_end
             ):

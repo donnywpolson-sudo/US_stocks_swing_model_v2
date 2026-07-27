@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from .capabilities import SyntheticOnlyPermit
 from .clock import TrustedClock, require_trusted_clock
 from .common import (
     canonical_json_bytes,
@@ -18,6 +19,12 @@ from .common import (
 from .errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
 from .ledger import HashChainLedger, LedgerAnchorStore
+from .monitoring_policy import (
+    FROZEN_MONITORING_POLICY,
+    MONITORING_POLICY_VERSION,
+    MONITORING_STATE_PRECEDENCE,
+    frozen_monitoring_policy_hash,
+)
 
 
 class MonitoringContractError(ValueError):
@@ -43,6 +50,32 @@ class MonitoringPolicy:
     coverage_warning_ratio: float = 0.95
     coverage_pause_ratio: float = 0.90
     matured_score_pause_degradation: float = 0.10
+
+    def as_dict(self) -> dict[str, object]:
+        self.validate()
+        payload = {
+            "policy_version": MONITORING_POLICY_VERSION,
+            "minimum_distinct_dates": self.minimum_distinct_dates,
+            "minimum_predictions": self.minimum_predictions,
+            "psi_warning": self.psi_warning,
+            "psi_pause": self.psi_pause,
+            "missingness_warning_delta": self.missingness_warning_delta,
+            "missingness_pause_delta": self.missingness_pause_delta,
+            "coverage_warning_ratio": self.coverage_warning_ratio,
+            "coverage_pause_ratio": self.coverage_pause_ratio,
+            "matured_score_pause_degradation": self.matured_score_pause_degradation,
+            "state_precedence": list(MONITORING_STATE_PRECEDENCE),
+        }
+        if payload != FROZEN_MONITORING_POLICY:
+            raise MonitoringContractError(
+                "monitoring policy differs from the frozen canonical payload"
+            )
+        return payload
+
+    @property
+    def policy_hash(self) -> str:
+        self.as_dict()
+        return frozen_monitoring_policy_hash()
 
     def validate(self) -> None:
         if self.minimum_distinct_dates != 30 or self.minimum_predictions != 500:
@@ -162,8 +195,6 @@ def assess_monitoring(
         pause.append("MATURED_SCORE_PAUSE")
     if pause:
         return MonitoringDecision(MonitoringState.MONITORING_PAUSED, tuple(pause))
-    if warning:
-        return MonitoringDecision(MonitoringState.MONITORING_WARNING, tuple(warning))
     if (
         observation.distinct_dates < policy.minimum_distinct_dates
         or observation.eligible_predictions < policy.minimum_predictions
@@ -172,6 +203,8 @@ def assess_monitoring(
             MonitoringState.MONITORING_PENDING,
             ("MINIMUM_WINDOW_PENDING",),
         )
+    if warning:
+        return MonitoringDecision(MonitoringState.MONITORING_WARNING, tuple(warning))
     return MonitoringDecision(MonitoringState.MONITORING_OK, ())
 
 
@@ -233,6 +266,10 @@ class MonitoringRecord:
                 "monitoring.previous_record_id",
             )
         observation = MonitoringObservation.from_dict(self.observation)
+        if self.monitoring_policy_hash != MonitoringPolicy().policy_hash:
+            raise MonitoringContractError(
+                "monitoring policy hash differs from the frozen evaluated policy"
+            )
         if observation.observation_hash != self.observation_hash:
             raise MonitoringContractError(
                 "monitoring observation hash differs from its evidence"
@@ -328,6 +365,8 @@ class ProspectiveMonitoringLedger:
         monitoring_reference_hash: str,
         recovery_authority: AuthorizationAuthority,
         clock: TrustedClock,
+        synthetic_history_clock_permit_ids: tuple[str, ...] = (),
+        synthetic_history_permit: SyntheticOnlyPermit | None = None,
     ):
         for name, value in (
             ("bundle_id", bundle_id),
@@ -335,6 +374,10 @@ class ProspectiveMonitoringLedger:
             ("monitoring_reference_hash", monitoring_reference_hash),
         ):
             require_sha256(value, f"monitoring.{name}")
+        if monitoring_policy_hash != MonitoringPolicy().policy_hash:
+            raise ContractError(
+                "monitoring policy hash differs from the frozen evaluated policy"
+            )
         recovery_authority.validate()
         self.bundle_id = bundle_id
         self.monitoring_policy_hash = monitoring_policy_hash
@@ -345,7 +388,22 @@ class ProspectiveMonitoringLedger:
             Path(path),
             "prospective_monitoring_v1",
             clock=self._clock,
+            unique_key="record_id",
+            payload_validator=lambda payload: MonitoringRecord.from_dict(payload),
         )
+        if synthetic_history_clock_permit_ids or synthetic_history_permit is not None:
+            if (
+                not synthetic_history_clock_permit_ids
+                or synthetic_history_permit is None
+            ):
+                raise ContractError(
+                    "synthetic monitoring history requires both its exact permit "
+                    "census and fixture permit"
+                )
+            self._ledger.authorize_synthetic_history(
+                synthetic_history_clock_permit_ids,
+                permit=synthetic_history_permit,
+            )
         self._anchors = LedgerAnchorStore(
             Path(anchor_root),
             self._ledger,
@@ -374,6 +432,10 @@ class ProspectiveMonitoringLedger:
         recovery_authorization: SignedAuthorizationReceipt | None = None,
         policy: MonitoringPolicy = MonitoringPolicy(),
     ) -> Mapping[str, object]:
+        if policy.policy_hash != self.monitoring_policy_hash:
+            raise MonitoringContractError(
+                "evaluated monitoring policy differs from the ledger binding"
+            )
         decision = assess_monitoring(observation, policy)
         before = self._verified_history(previous_anchor)
         previous = (
@@ -458,8 +520,6 @@ class ProspectiveMonitoringLedger:
         expected_head = before[-1]["record_hash"] if before else "0" * 64
         envelope = self._ledger.append(
             record.as_dict(),
-            unique_key="record_id",
-            payload_validator=lambda payload: MonitoringRecord.from_dict(payload),
             expected_record_count=len(before),
             expected_head_hash=expected_head,
         )

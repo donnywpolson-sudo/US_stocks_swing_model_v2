@@ -37,7 +37,7 @@ class PinnedSessionCalendar:
         )
         try:
             sessions = tuple(date.fromisoformat(value) for value in values)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise ContractError("calendar contains an invalid ISO session") from exc
         if release_id != permit.permit_id:
             raise ContractError("synthetic calendar release_id must equal its permit ID")

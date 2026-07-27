@@ -33,7 +33,7 @@ def _open_exclusive_lock(path: Path) -> int:
     handle = create_file(
         str(path),
         0x80000000 | 0x40000000 | 0x00010000,  # READ | WRITE | DELETE
-        0x00000001 | 0x00000002 | 0x00000004,  # shared read/write/delete
+        0x00000001 | 0x00000002,  # shared read/write; never share delete
         None,
         1,  # CREATE_NEW
         0x00000080,  # FILE_ATTRIBUTE_NORMAL
@@ -71,12 +71,49 @@ def _mark_open_file_for_deletion(descriptor: int) -> None:
         raise ctypes.WinError()
 
 
+def _retire_posix_lock(
+    path: Path,
+    *,
+    descriptor: int,
+    identity: tuple[int, int],
+    allowed_root: Path,
+    token: str,
+) -> None:
+    """Remove the authenticated POSIX lock while its owned descriptor is open."""
+
+    retired = path.with_name(
+        f".released-{path.name}-{token}-{uuid.uuid4().hex}"
+    )
+    require_contained_path(retired, allowed_root, must_exist=False)
+    os.replace(path, retired)
+    retired_metadata = os.stat(retired, follow_symlinks=False)
+    if (
+        ExclusiveFileLock._file_identity(retired_metadata) != identity
+        or retired_metadata.st_nlink != 1
+    ):
+        raise LockHeldError(f"lock pathname identity changed: {path}")
+    os.unlink(retired)
+    descriptor_metadata = os.fstat(descriptor)
+    if (
+        ExclusiveFileLock._file_identity(descriptor_metadata) != identity
+        or descriptor_metadata.st_nlink != 0
+    ):
+        raise LockHeldError(f"retired lock identity did not detach: {path}")
+
+
 class ExclusiveFileLock:
     """A fail-closed, non-stealing one-writer lock.
 
     Stale locks are never guessed from age. Recovery requires a deliberate
     operator action because automatically stealing a slow writer's lock can
     corrupt an accepted release or append-only ledger.
+
+    This lock serializes cooperating project processes. On the pinned Windows
+    runtime the owned file is opened without delete sharing and retired through
+    its exact handle. It is not an operating-system sandbox against a hostile
+    actor running as the same account and able to replace arbitrary ancestor
+    directory entries. That boundary is defined in
+    docs/FILESYSTEM_NAMESPACE_THREAT_MODEL.md.
     """
 
     def __init__(self, path: Path, *, allowed_root: Path):
@@ -140,21 +177,27 @@ class ExclusiveFileLock:
             ):
                 raise LockHeldError(f"cannot authenticate acquired lock identity: {self.path}")
         except Exception:
-            try:
-                descriptor_identity = self._file_identity(os.fstat(descriptor))
-                path_metadata = os.stat(self.path, follow_symlinks=False)
-                remove_created = (
-                    self._file_identity(path_metadata) == descriptor_identity
-                    and path_metadata.st_nlink == 1
-                )
-            except OSError:
-                remove_created = False
-            os.close(descriptor)
-            if remove_created:
+            # The pinned Windows platform can retire the exact owned file
+            # object through its still-open handle. Never close first and then
+            # unlink a pathname that another actor could have replaced. POSIX
+            # has no portable unlink-by-handle equivalent, so failed
+            # acquisition deliberately leaves the orphan for explicit
+            # non-stealing recovery.
+            if os.name == "nt":
                 try:
-                    self.path.unlink()
+                    descriptor_metadata = os.fstat(descriptor)
+                    path_metadata = os.stat(self.path, follow_symlinks=False)
+                    if (
+                        stat.S_ISREG(descriptor_metadata.st_mode)
+                        and descriptor_metadata.st_nlink == 1
+                        and path_metadata.st_nlink == 1
+                        and self._file_identity(descriptor_metadata)
+                        == self._file_identity(path_metadata)
+                    ):
+                        _mark_open_file_for_deletion(descriptor)
                 except OSError:
                     pass
+            os.close(descriptor)
             raise
         self._descriptor = descriptor
         self._identity = self._file_identity(descriptor_metadata)
@@ -202,28 +245,23 @@ class ExclusiveFileLock:
             return
 
         # POSIX has no portable unlink-by-handle operation. Atomically move the
-        # authenticated pathname to an unpredictable retired name while the
-        # descriptor remains open, authenticate the moved identity, and retain
-        # it. Never unlink a shared pathname after closing the descriptor.
-        retired = self.path.with_name(
-            f".released-{self.path.name}-{self.token}-{uuid.uuid4().hex}"
-        )
+        # authenticated pathname to an unpredictable retired name, authenticate
+        # it, and unlink it while the owned descriptor remains open.
         try:
-            require_contained_path(retired, self.allowed_root, must_exist=False)
-            os.replace(self.path, retired)
-            retired_metadata = os.stat(retired, follow_symlinks=False)
-            if (
-                self._file_identity(retired_metadata) != self._identity
-                or retired_metadata.st_nlink != 1
-            ):
-                raise LockHeldError(f"lock pathname identity changed: {self.path}")
+            _retire_posix_lock(
+                self.path,
+                descriptor=self._descriptor,
+                identity=self._identity,
+                allowed_root=self.allowed_root,
+                token=self.token,
+            )
         except LockHeldError:
             self._close_without_unlink()
             raise
         except (OSError, ContractError) as exc:
             self._close_without_unlink()
             raise LockHeldError(
-                f"cannot retire authenticated lock pathname: {self.path}"
+                f"cannot remove authenticated retired lock pathname: {self.path}"
             ) from exc
         os.close(self._descriptor)
         self._descriptor = None

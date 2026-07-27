@@ -320,7 +320,7 @@ def test_migration_checkpoint_resumes_without_partial_promotion(tmp_path: Path, 
 
 
 @pytest.mark.parametrize("orphan_bytes", [b"fixture", b"partial"])
-def test_resume_recovers_owned_copy_and_atomic_write_temps(
+def test_resume_recovers_only_plan_and_hash_bound_copy_temps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     orphan_bytes: bytes,
@@ -351,15 +351,59 @@ def test_resume_recovers_owned_copy_and_atomic_write_temps(
     copy_temp = stage / "payload" / "o" / f".cp.{object_name}.deadbeef.tmp"
     copy_temp.parent.mkdir(parents=True, exist_ok=True)
     copy_temp.write_bytes(orphan_bytes)
-    (stage / ".aw.deadbeef.tmp").write_bytes(b"orphan-checkpoint-temp")
-    family_dir = stage / "family_receipts"
-    family_dir.mkdir()
-    (family_dir / ".aw.deadbeef.tmp").write_bytes(b"orphan-family-temp")
-
     monkeypatch.setattr(migration_module.shutil, "copyfile", original_copy)
     release = execute_copy_plan(plan, approval=approval, execute=True, **execution)
     assert (release / "payload" / plan[0].payload_object).read_bytes() == b"fixture"
     assert not stage.exists()
+
+
+def test_resume_rejects_unowned_atomic_temp_without_mutating_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.bin").write_bytes(b"fixture")
+    plan = plan_migration(load_migration_config(_one_file_config(tmp_path, source)))
+    approval = MigrationApproval.from_dict(
+        approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
+    )
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
+    monkeypatch.setenv("HASH_COPY_APPROVED", "YES")
+    original_copy = migration_module.shutil.copyfile
+
+    def crash_before_copy(source_path, destination_path):
+        raise OSError("synthetic hard-stop window")
+
+    monkeypatch.setattr(migration_module.shutil, "copyfile", crash_before_copy)
+    with pytest.raises(OSError, match="hard-stop window"):
+        execute_copy_plan(plan, approval=approval, execute=True, **execution)
+    stage = (
+        Path(plan.destination_vault)
+        / ".s"
+        / f"{plan.plan_id[:16]}.{approval.approval_id[:16]}"
+    )
+    object_name = Path(plan[0].payload_object).name
+    reviewed_copy = stage / "payload" / "o" / f".cp.{object_name}.deadbeef.tmp"
+    reviewed_copy.parent.mkdir(parents=True, exist_ok=True)
+    reviewed_copy.write_bytes(b"fixture")
+    unexpected = stage / ".aw.deadbeef.tmp"
+    unexpected.write_bytes(b"unowned-failure-evidence")
+    before = {
+        path.relative_to(stage).as_posix(): path.read_bytes()
+        for path in stage.rglob("*")
+        if path.is_file()
+    }
+
+    monkeypatch.setattr(migration_module.shutil, "copyfile", original_copy)
+    with pytest.raises(IntegrityError, match="unowned atomic-write temp"):
+        execute_copy_plan(plan, approval=approval, execute=True, **execution)
+    after = {
+        path.relative_to(stage).as_posix(): path.read_bytes()
+        for path in stage.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
 
 
 @pytest.mark.parametrize(
@@ -416,33 +460,80 @@ def test_resume_is_idempotent_across_finalization_kill_windows(
     assert completion["state"] == "COMPLETE_NON_ACTIVE"
 
 
-def test_resume_adopts_only_an_exact_reviewed_file_written_before_checkpoint(
+@pytest.mark.parametrize("tamper_before_resume", [False, True])
+def test_public_resume_adopts_only_an_exact_reviewed_file_at_current_stage(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper_before_resume: bool,
 ) -> None:
     source = tmp_path / "source"
     source.mkdir()
     (source / "a.bin").write_bytes(b"fixture")
     plan = plan_migration(load_migration_config(_one_file_config(tmp_path, source)))
-    stage = tmp_path / "vault" / ".staging" / "migrations" / plan.plan_id
-    stage.mkdir(parents=True)
-    checkpoint = {"schema_version": 1, "state": "COPYING", "completed": {}}
-    (stage / "checkpoint.json").write_bytes(canonical_json_bytes(checkpoint))
+    approval = MigrationApproval.from_dict(
+        approval_payload_for_review(plan, "2026-07-15T00:00:00Z")
+    )
+    execution = _synthetic_execution_kwargs(tmp_path, plan, approval)
+    monkeypatch.setenv("HASH_COPY_APPROVED", "YES")
+    original_atomic = migration_module.atomic_write
+    checkpoint_writes = 0
+
+    def crash_before_second_checkpoint(path: Path, payload: bytes) -> None:
+        nonlocal checkpoint_writes
+        if path.name == "checkpoint.json":
+            checkpoint_writes += 1
+            if checkpoint_writes == 2:
+                raise OSError("synthetic pre-checkpoint hard-stop")
+        original_atomic(path, payload)
+
+    monkeypatch.setattr(
+        migration_module,
+        "atomic_write",
+        crash_before_second_checkpoint,
+    )
+    with pytest.raises(OSError, match="pre-checkpoint hard-stop"):
+        execute_copy_plan(
+            plan,
+            approval=approval,
+            execute=True,
+            **execution,
+        )
+
+    stage = (
+        tmp_path
+        / "vault"
+        / ".s"
+        / f"{plan.plan_id[:16]}.{approval.approval_id[:16]}"
+    )
+    checkpoint = json.loads((stage / "checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint["completed"] == {}
     entry = plan[0]
     relative = Path(entry.destination).relative_to(plan.destination_vault)
     copied = stage / "payload" / migration_payload_object_relative(
         relative, entry.sha256
     )
-    copied.parent.mkdir(parents=True)
-    copied.write_bytes(b"fixture")
+    assert copied.read_bytes() == b"fixture"
 
-    migration_module._verify_partial_stage(stage, plan, checkpoint)
-    persisted = json.loads((stage / "checkpoint.json").read_text(encoding="utf-8"))
-    assert persisted["completed"] == {relative.as_posix(): entry.sha256}
+    monkeypatch.setattr(migration_module, "atomic_write", original_atomic)
+    if tamper_before_resume:
+        copied.write_bytes(b"altered")
+        with pytest.raises(IntegrityError, match="not an exact reviewed copy"):
+            execute_copy_plan(
+                plan,
+                approval=approval,
+                execute=True,
+                **execution,
+            )
+        return
 
-    extra = stage / "payload" / "unreviewed.bin"
-    extra.write_bytes(b"not in plan")
-    with pytest.raises(IntegrityError, match="not an exact reviewed copy"):
-        migration_module._verify_partial_stage(stage, plan, persisted)
+    release = execute_copy_plan(
+        plan,
+        approval=approval,
+        execute=True,
+        **execution,
+    )
+    assert (release / "payload" / entry.payload_object).read_bytes() == b"fixture"
+    assert not stage.exists()
 
 
 def test_new_approval_uses_a_new_stage_and_preserves_old_partial(
@@ -651,6 +742,23 @@ def test_migration_rejects_outside_roots_and_hardlinked_sources(tmp_path: Path) 
     hardlink_config = _one_file_config(tmp_path, approved, marker="hardlink")
     with pytest.raises(ContractError, match="hardlinked source"):
         plan_migration(load_migration_config(hardlink_config))
+
+
+def test_migration_rejects_final_path_symlink_source(tmp_path: Path) -> None:
+    approved = tmp_path / "approved"
+    external = tmp_path / "external"
+    approved.mkdir()
+    external.mkdir()
+    target = external / "target.bin"
+    target.write_bytes(b"fixture")
+    try:
+        os.symlink(target, approved / "a.bin")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this test filesystem")
+
+    config = _one_file_config(tmp_path, approved, marker="final-symlink")
+    with pytest.raises(ContractError, match="links are prohibited"):
+        plan_migration(load_migration_config(config))
 
 
 def test_hash_copy_dry_run_is_concise_unless_detailed_is_requested(

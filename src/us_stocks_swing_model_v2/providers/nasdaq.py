@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ..common import require_aware_utc
@@ -116,6 +116,7 @@ class IdentityRecord:
     symbol: str
     security_name: str
     listing_exchange: str
+    nasdaq_traded: bool
     security_type: SecurityType
     test_issue: bool
     financial_status: str
@@ -128,23 +129,65 @@ class IdentityRecord:
     @property
     def eligible_type(self) -> bool:
         return (
+            self.nasdaq_traded
+            and
             self.security_type in {SecurityType.STOCK, SecurityType.ETF}
             and not self.test_issue
             and self.financial_status in {"", "N"}
         )
 
 
-def _classify(name: str, etf: str, test_issue: str, financial_status: str) -> SecurityType:
+def _classify(
+    name: str,
+    etf: str,
+    test_issue: str,
+    financial_status: str,
+    nasdaq_traded: str,
+) -> SecurityType:
     upper = name.upper()
-    if test_issue != "N" or financial_status not in {"", "N"}:
+    if (
+        nasdaq_traded != "Y"
+        or test_issue != "N"
+        or financial_status not in {"", "N"}
+    ):
+        return SecurityType.UNKNOWN
+    if any(pattern.search(upper) for pattern in NONSTANDARD_PATTERNS):
         return SecurityType.UNKNOWN
     if etf == "Y":
         return SecurityType.ETF
-    if any(pattern.search(upper) for pattern in NONSTANDARD_PATTERNS):
-        return SecurityType.UNKNOWN
     if any(token in upper for token in STOCK_TOKENS):
         return SecurityType.STOCK
     return SecurityType.UNKNOWN
+
+
+def _unambiguous_eastern_wall_time(value: str) -> datetime:
+    try:
+        naive = datetime.strptime(value, "%m%d%Y%H:%M")
+    except ValueError as exc:
+        raise ContractError(
+            "nasdaqtraded.txt creation timestamp is not a real date/time"
+        ) from exc
+    eastern = ZoneInfo("America/New_York")
+    candidates: list[datetime] = []
+    for fold in (0, 1):
+        local = naive.replace(tzinfo=eastern, fold=fold)
+        utc = local.astimezone(timezone.utc)
+        round_trip = utc.astimezone(eastern)
+        if (
+            round_trip.replace(tzinfo=None) == naive
+            and round_trip.fold == fold
+        ):
+            candidates.append(utc)
+    distinct = {candidate for candidate in candidates}
+    if not distinct:
+        raise ContractError(
+            "nasdaqtraded.txt creation timestamp is a nonexistent local time"
+        )
+    if len(distinct) != 1:
+        raise ContractError(
+            "nasdaqtraded.txt creation timestamp is an ambiguous local time"
+        )
+    return distinct.pop()
 
 
 def parse_nasdaq_traded(
@@ -213,14 +256,11 @@ def parse_nasdaq_traded(
     if not match:
         raise ContractError("nasdaqtraded.txt creation timestamp is malformed")
     file_creation_time = match.group(0).removeprefix("File Creation Time: ")
-    try:
-        file_created_at = datetime.strptime(file_creation_time, "%m%d%Y%H:%M").replace(
-            tzinfo=ZoneInfo("America/New_York")
-        )
-    except ValueError as exc:
-        raise ContractError("nasdaqtraded.txt creation timestamp is not a real date/time") from exc
+    # Nasdaq supplies no fold indicator, so repeated fall-back wall times are
+    # rejected instead of guessing which physical instant the trailer means.
+    file_created_at = _unambiguous_eastern_wall_time(file_creation_time)
     retrieved_at = require_aware_utc(snapshot.retrieved_at, "snapshot.retrieved_at")
-    if file_created_at.astimezone(retrieved_at.tzinfo) > retrieved_at:
+    if file_created_at > retrieved_at:
         raise ContractError("nasdaqtraded.txt creation timestamp is later than retrieval")
     records: list[IdentityRecord] = []
     seen: set[str] = set()
@@ -235,7 +275,12 @@ def parse_nasdaq_traded(
             )
         if row["ETF"] not in {"Y", "N"} or row["Test Issue"] not in {"Y", "N"}:
             raise ContractError(f"invalid ETF/test flag at line {line_number}")
-        symbol = row["Symbol"].strip().upper()
+        raw_symbol = row["Symbol"]
+        if not raw_symbol or raw_symbol != raw_symbol.strip().upper():
+            raise ContractError(
+                f"Nasdaq symbol must be exact canonical wire text at line {line_number}"
+            )
+        symbol = raw_symbol
         if not symbol or symbol in seen:
             raise ContractError(f"missing or duplicate symbol at line {line_number}: {symbol}")
         seen.add(symbol)
@@ -244,8 +289,13 @@ def parse_nasdaq_traded(
                 symbol=symbol,
                 security_name=row["Security Name"].strip(),
                 listing_exchange=row["Listing Exchange"].strip(),
+                nasdaq_traded=row["Nasdaq Traded"] == "Y",
                 security_type=_classify(
-                    row["Security Name"], row["ETF"], row["Test Issue"], row["Financial Status"]
+                    row["Security Name"],
+                    row["ETF"],
+                    row["Test Issue"],
+                    row["Financial Status"],
+                    row["Nasdaq Traded"],
                 ),
                 test_issue=row["Test Issue"] == "Y",
                 financial_status=row["Financial Status"].strip(),

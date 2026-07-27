@@ -160,6 +160,8 @@ class SyntheticResearchExecution:
                 artifact.outer_fold_number != expected_fold
                 or evaluation.outer_fold_number != expected_fold
                 or evaluation.prediction_artifact_id != artifact.artifact_id
+                or evaluation.audit_sample_ids
+                != artifact.fit_audit.outer_audit_sample_ids
                 or artifact.registration.registration_id != self.registration_id
             ):
                 raise ResearchContractError("execution fold bindings differ")

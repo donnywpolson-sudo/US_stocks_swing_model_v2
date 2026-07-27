@@ -94,6 +94,10 @@ class FeatureRow:
     values: Mapping[str, float]
 
     def validate(self) -> None:
+        if type(self.security_type) is not SecurityType:
+            raise ContractError("feature security_type must use the exact enum")
+        if type(self.decision_session) is not date:
+            raise ContractError("feature decision_session must be an exact date")
         required = (
             self.asset_id,
             self.symbol,
@@ -157,6 +161,9 @@ class FeatureRow:
         ) | {"ordered_values"}
         if set(payload) != expected:
             raise ContractError("feature release row fields differ from the exact contract")
+        text_fields = expected - {"ordered_values"}
+        if any(type(payload[name]) is not str for name in text_fields):
+            raise ContractError("feature release text/date/time fields must be exact strings")
         ordered_values = payload["ordered_values"]
         if not isinstance(ordered_values, list) or not ordered_values:
             raise ContractError("feature ordered_values must be a nonempty list")
@@ -174,28 +181,28 @@ class FeatureRow:
                 raise ContractError("feature ordered_values entry is invalid")
             values[pair[0]] = float(pair[1])
         row = cls(
-            asset_id=str(payload["asset_id"]),
-            symbol=str(payload["symbol"]),
-            security_type=SecurityType(str(payload["security_type"])),
-            decision_session=date.fromisoformat(str(payload["decision_session"])),
-            decision_at=parse_timestamp(str(payload["decision_at"]), "feature.decision_at"),
-            available_at=parse_timestamp(str(payload["available_at"]), "feature.available_at"),
+            asset_id=payload["asset_id"],
+            symbol=payload["symbol"],
+            security_type=SecurityType(payload["security_type"]),
+            decision_session=date.fromisoformat(payload["decision_session"]),
+            decision_at=parse_timestamp(payload["decision_at"], "feature.decision_at"),
+            available_at=parse_timestamp(payload["available_at"], "feature.available_at"),
             source_release_id=source_release_id,
-            feature_schema_id=str(payload["feature_schema_id"]),
-            identity_release_id=str(payload["identity_release_id"]),
-            security_type_evidence_id=str(payload["security_type_evidence_id"]),
-            calendar_release_id=str(payload["calendar_release_id"]),
-            action_release_id=str(payload["action_release_id"]),
+            feature_schema_id=payload["feature_schema_id"],
+            identity_release_id=payload["identity_release_id"],
+            security_type_evidence_id=payload["security_type_evidence_id"],
+            calendar_release_id=payload["calendar_release_id"],
+            action_release_id=payload["action_release_id"],
             source_epoch=source_epoch,
             identity_known_at=parse_timestamp(
-                str(payload["identity_known_at"]), "feature.identity_known_at"
+                payload["identity_known_at"], "feature.identity_known_at"
             ),
-            point_in_time_state=str(payload["point_in_time_state"]),
+            point_in_time_state=payload["point_in_time_state"],
             prediction_deadline_at=parse_timestamp(
-                str(payload["prediction_deadline_at"]), "feature.prediction_deadline_at"
+                payload["prediction_deadline_at"], "feature.prediction_deadline_at"
             ),
             information_barrier_at=parse_timestamp(
-                str(payload["information_barrier_at"]), "feature.information_barrier_at"
+                payload["information_barrier_at"], "feature.information_barrier_at"
             ),
             values=values,
         )
@@ -250,8 +257,27 @@ class OutcomeRow:
     action_view_as_of: datetime
     target_semantics: str = "SIMPLE_SPLIT_NORMALIZED_PRICE_RETURN"
 
+    @property
+    def evidence_view_as_of(self) -> datetime:
+        """Unified action-and-bar knowledge cutoff.
+
+        ``action_view_as_of`` is retained as the serialized schema-v1 field
+        name. Outcome construction deliberately applies the same cutoff to all
+        corporate-action and price-bar evidence.
+        """
+
+        return self.action_view_as_of
+
     def validate(self) -> None:
-        require_aware_utc(self.action_view_as_of, "action_view_as_of")
+        if type(self.status) is not OutcomeStatus:
+            raise ContractError("outcome status must use the exact enum")
+        if type(self.decision_session) is not date:
+            raise ContractError("outcome decision_session must be an exact date")
+        if self.entry_session is not None and type(self.entry_session) is not date:
+            raise ContractError("outcome entry_session must be an exact date or null")
+        if self.exit_session is not None and type(self.exit_session) is not date:
+            raise ContractError("outcome exit_session must be an exact date or null")
+        require_aware_utc(self.evidence_view_as_of, "action_view_as_of")
         required = (
             self.revision_id,
             self.prediction_id,
@@ -348,11 +374,30 @@ class OutcomeRow:
         if set(payload) != set(cls.__dataclass_fields__):
             raise ContractError("outcome ledger fields differ from the exact schema")
         fields = dict(payload)
-        fields["decision_session"] = date.fromisoformat(str(fields["decision_session"]))
+        exact_text = {
+            "revision_id",
+            "prediction_id",
+            "eligibility_census_id",
+            "asset_id",
+            "decision_session",
+            "status",
+            "calendar_release_id",
+            "bar_release_id",
+            "action_release_id",
+            "source_epoch",
+            "action_view_as_of",
+            "target_semantics",
+        }
+        if any(type(fields[name]) is not str for name in exact_text):
+            raise ContractError("outcome text/date/time fields must be exact strings")
+        for name in ("prior_revision_id", "entry_session", "exit_session", "reason"):
+            if fields[name] is not None and type(fields[name]) is not str:
+                raise ContractError(f"outcome {name} must be an exact string or null")
+        fields["decision_session"] = date.fromisoformat(fields["decision_session"])
         for name in ("entry_session", "exit_session"):
-            fields[name] = date.fromisoformat(str(fields[name])) if fields[name] is not None else None
-        fields["status"] = OutcomeStatus(str(fields["status"]))
-        fields["action_view_as_of"] = parse_timestamp(str(fields["action_view_as_of"]), "action_view_as_of")
+            fields[name] = date.fromisoformat(fields[name]) if fields[name] is not None else None
+        fields["status"] = OutcomeStatus(fields["status"])
+        fields["action_view_as_of"] = parse_timestamp(fields["action_view_as_of"], "action_view_as_of")
         outcome = cls(**fields)
         outcome.validate()
         return outcome
@@ -395,8 +440,44 @@ class UnderlyingPrediction:
     abstention_reason: str | None
 
     def validate(self) -> None:
-        if not isinstance(self.decision_session, date):
-            raise ContractError("decision_session must be a date")
+        exact_text_fields = (
+            self.prediction_id,
+            self.asset_id,
+            self.symbol,
+            self.time_authority,
+            self.eligibility_census_id,
+            self.bundle_id,
+            self.feature_release_id,
+            self.feature_row_hash,
+            self.identity_release_id,
+            self.security_type_evidence_id,
+            self.calendar_release_id,
+            self.action_release_id,
+            self.source_epoch,
+            self.point_in_time_state,
+        )
+        if any(type(value) is not str or not value for value in exact_text_fields):
+            raise ContractError(
+                "prediction identity/provenance fields must be exact nonempty text"
+            )
+        if (
+            self.synthetic_clock_permit_id is not None
+            and type(self.synthetic_clock_permit_id) is not str
+        ):
+            raise ContractError(
+                "prediction synthetic clock permit must be exact text or null"
+            )
+        if (
+            self.abstention_reason is not None
+            and type(self.abstention_reason) is not str
+        ):
+            raise ContractError(
+                "prediction abstention reason must be exact text or null"
+            )
+        if type(self.decision_session) is not date:
+            raise ContractError("decision_session must be an exact date")
+        if type(self.security_type) is not SecurityType:
+            raise ContractError("prediction security_type must use the exact enum")
         decision = require_aware_utc(self.decision_at, "decision_at")
         recorded = require_aware_utc(self.recorded_at, "recorded_at")
         if self.time_authority == "PRODUCTION_SYSTEM_UTC":
@@ -534,10 +615,54 @@ class UnderlyingPrediction:
         if set(payload) != expected:
             raise ContractError("prediction ledger fields differ from the exact schema")
         fields = dict(payload)
-        fields["security_type"] = SecurityType(str(fields["security_type"]))
-        fields["decision_session"] = date.fromisoformat(str(fields["decision_session"]))
-        for name in ("decision_at", "recorded_at", "prediction_deadline_at", "information_barrier_at"):
-            fields[name] = parse_timestamp(str(fields[name]), name)
+        timestamp_fields = (
+            "decision_at",
+            "recorded_at",
+            "prediction_deadline_at",
+            "information_barrier_at",
+        )
+        exact_text_fields = (
+            "prediction_id",
+            "asset_id",
+            "symbol",
+            "security_type",
+            "decision_session",
+            *timestamp_fields,
+            "time_authority",
+            "eligibility_census_id",
+            "bundle_id",
+            "feature_release_id",
+            "feature_row_hash",
+            "identity_release_id",
+            "security_type_evidence_id",
+            "calendar_release_id",
+            "action_release_id",
+            "source_epoch",
+            "point_in_time_state",
+        )
+        if any(
+            type(fields[name]) is not str
+            for name in exact_text_fields
+        ):
+            raise ContractError(
+                "prediction identity/enum/date/time fields require exact JSON strings"
+            )
+        for name in ("synthetic_clock_permit_id", "abstention_reason"):
+            if fields[name] is not None and type(fields[name]) is not str:
+                raise ContractError(
+                    f"prediction {name} must be an exact JSON string or null"
+                )
+        try:
+            fields["security_type"] = SecurityType(fields["security_type"])
+            fields["decision_session"] = date.fromisoformat(
+                fields["decision_session"]
+            )
+        except ValueError as exc:
+            raise ContractError(
+                "prediction security type or decision session is invalid"
+            ) from exc
+        for name in timestamp_fields:
+            fields[name] = parse_timestamp(fields[name], name)
         prediction = cls(**fields)
         prediction.validate()
         return prediction

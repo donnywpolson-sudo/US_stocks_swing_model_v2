@@ -10,11 +10,26 @@ import pytest
 from us_stocks_swing_model_v2.bundle import prepare_bundle_candidate
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.common import canonical_json_bytes, safe_relative_path, sha256_bytes
-from us_stocks_swing_model_v2.corporate_actions import ActionType, BitemporalActionLedger, CorporateAction
+from us_stocks_swing_model_v2.common import (
+    canonical_json_bytes,
+    safe_relative_path,
+    sha256_bytes,
+)
+from us_stocks_swing_model_v2.corporate_actions import (
+    ActionType,
+    BitemporalActionLedger,
+    CorporateAction,
+    CorporateActionCoverage,
+)
 from us_stocks_swing_model_v2.environment import validate_environment_lock
 from us_stocks_swing_model_v2.errors import ContractError, EvaluationAuthorizationError, IntegrityError
-from us_stocks_swing_model_v2.exchange_calendar import publish_xnys_calendar_release
+from us_stocks_swing_model_v2.exchange_calendar import (
+    SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+    calendar_environment_hash,
+    calendar_policy_hash,
+    calendar_publication_binding_id,
+    publish_xnys_calendar_release,
+)
 from us_stocks_swing_model_v2.gates import IndependentGatePolicy, SleeveMetric
 from us_stocks_swing_model_v2.governance import (
     AuthorizationAuthority,
@@ -38,6 +53,8 @@ from us_stocks_swing_model_v2.providers.nasdaq import (
 from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
 from us_stocks_swing_model_v2.schemas import (
     FeatureRow,
+    OutcomeRow,
+    OutcomeStatus,
     SecurityType,
     UnderlyingPrediction,
     assert_underlying_only_payload,
@@ -48,6 +65,35 @@ from us_stocks_swing_model_v2.calendar import PinnedSessionCalendar
 
 NOW = datetime(2026, 7, 15, 20, 0, tzinfo=timezone.utc)
 REPO = Path(__file__).parents[1]
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "artifact.json:stream",
+        "CON",
+        "con.txt",
+        "nested/PRN.csv",
+        "COM1",
+        "LPT9.log",
+        "trailing.",
+        "trailing ",
+        "nested//file.json",
+        "nested/./file.json",
+        "nested/../file.json",
+        "question?.json",
+        "control\u0001.json",
+    ),
+)
+def test_safe_relative_path_rejects_windows_special_forms(value: str) -> None:
+    with pytest.raises(ContractError, match="(unsafe|Windows-special)"):
+        safe_relative_path(value)
+
+
+def test_safe_relative_path_preserves_compatible_nested_paths() -> None:
+    assert safe_relative_path(r"nested\artifact.json").as_posix() == (
+        "nested/artifact.json"
+    )
 
 
 def _clock(at: datetime) -> TrustedClock:
@@ -77,7 +123,23 @@ def _action_permit() -> SyntheticOnlyPermit:
 
 
 def _action_ledger(actions=()) -> BitemporalActionLedger:
-    return BitemporalActionLedger(actions, synthetic_permit=_action_permit())
+    permit = _action_permit()
+    coverage = CorporateActionCoverage.create(
+        effective_start_session=date(2026, 1, 1),
+        effective_end_session=date(2026, 12, 31),
+        asset_scope="ALL_ASSETS",
+        asset_ids=(),
+        received_at=NOW - timedelta(days=1),
+        source_snapshot_ids=("a" * 64,),
+        provider_coverage_id="c" * 64,
+        source_release_id=permit.permit_id,
+        source_epoch="SYNTHETIC_ONLY",
+    )
+    return BitemporalActionLedger(
+        actions,
+        synthetic_permit=permit,
+        coverage=(coverage,),
+    )
 
 
 def _snapshot_permit() -> SyntheticOnlyPermit:
@@ -153,6 +215,28 @@ def test_as_received_snapshot_lands_atomically_and_tampering_fails(tmp_path: Pat
         store.load(snapshot.root)
 
 
+@pytest.mark.parametrize("symbol", ("abc", " ABC ", "AbC"))
+def test_nasdaq_symbol_requires_exact_canonical_wire_text(
+    tmp_path: Path,
+    symbol: str,
+) -> None:
+    store = AsReceivedSnapshotStore(
+        tmp_path / symbol.replace(" ", "_") / "snapshots",
+        allowed_root=tmp_path,
+    )
+    snapshot = store.land(
+        source="nasdaqtraded",
+        url=NASDAQ_TRADED_URL,
+        http_status=200,
+        raw=_nasdaq_raw(symbol=symbol),
+        headers={"ETag": "fixture", "Content-Type": "text/plain"},
+        retrieved_at=NOW,
+        synthetic_permit=_snapshot_permit(),
+    )
+    with pytest.raises(ContractError, match="exact canonical wire text"):
+        parse_nasdaq_traded(snapshot, policy=_nasdaq_policy())
+
+
 def test_alpaca_and_nasdaq_identity_merge_is_bitemporal_and_unknown_abstains(tmp_path: Path) -> None:
     with pytest.raises(ContractError, match="verified release or synthetic"):
         BitemporalIdentityLedger()
@@ -210,6 +294,18 @@ def test_feature_prefix_poison_and_abstention_uncertainty_fail() -> None:
     )
     with pytest.raises(ContractError, match="future/outcome"):
         row.validate()
+    with pytest.raises(ContractError, match="feature decision_session must be an exact date"):
+        replace(
+            row,
+            decision_session=datetime(2026, 7, 15, tzinfo=timezone.utc),
+            values={"momentum": 0.2},
+        ).validate()
+    with pytest.raises(ContractError, match="security_type must use the exact enum"):
+        replace(
+            row,
+            security_type="STOCK",
+            values={"momentum": 0.2},
+        ).validate()
     with pytest.raises(ContractError, match="actionable"):
         UnderlyingPrediction.create(
             asset_id="id",
@@ -241,6 +337,43 @@ def test_feature_prefix_poison_and_abstention_uncertainty_fail() -> None:
             abstain=True,
             abstention_reason="unknown",
         )
+
+
+def test_outcome_sessions_require_exact_date_objects_and_exact_json_strings() -> None:
+    outcome = OutcomeRow.create(
+        prediction_id="1" * 64,
+        eligibility_census_id="2" * 64,
+        revision_number=1,
+        prior_revision_id=None,
+        asset_id="id",
+        decision_session=date(2026, 7, 15),
+        entry_session=None,
+        exit_session=None,
+        status=OutcomeStatus.PENDING,
+        split_normalized_price_return=None,
+        reason="not yet mature",
+        calendar_release_id="3" * 64,
+        bar_release_id="4" * 64,
+        action_release_id="5" * 64,
+        source_epoch="epoch",
+        action_view_as_of=NOW,
+    )
+    with pytest.raises(ContractError, match="outcome decision_session must be an exact date"):
+        replace(
+            outcome,
+            decision_session=datetime(2026, 7, 15, tzinfo=timezone.utc),
+        ).validate()
+    with pytest.raises(ContractError, match="outcome entry_session must be an exact date"):
+        replace(
+            outcome,
+            entry_session=datetime(2026, 7, 16, tzinfo=timezone.utc),
+        ).validate()
+    with pytest.raises(ContractError, match="status must use the exact enum"):
+        replace(outcome, status="PENDING").validate()
+    payload = outcome.as_dict()
+    payload["decision_session"] = 20260715
+    with pytest.raises(ContractError, match="exact strings"):
+        OutcomeRow.from_dict(payload)
 
 
 def test_schema_mapping_keys_must_be_strings_before_case_normalization() -> None:
@@ -302,7 +435,7 @@ def test_action_revisions_and_outcome_availability_are_monotone() -> None:
         session: DailyBar("id", session, 10.0, 11.0, NOW)
         for session in calendar.sessions[1:]
     }
-    with pytest.raises(ContractError, match="predate"):
+    with pytest.raises(ContractError, match="unified outcome evidence view"):
         build_outcome(
             prediction_id="1" * 64, asset_id="id", decision_session=calendar.sessions[0], calendar=calendar,
             eligibility_census_id="c" * 64,
@@ -311,12 +444,28 @@ def test_action_revisions_and_outcome_availability_are_monotone() -> None:
         )
 
 
-def test_bundle_rejects_parent_path_before_hash_read(tmp_path: Path) -> None:
+def test_bundle_rejects_parent_path_before_hash_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = tmp_path / "bundle"
     root.mkdir()
     (tmp_path / "outside.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.bundle.sha256_file",
+        lambda _path: pytest.fail("hash read occurred before path rejection"),
+    )
     with pytest.raises(ContractError, match="unsafe relative"):
-        safe_relative_path("../outside.json")
+        prepare_bundle_candidate(
+            root,
+            ["../outside.json"],
+            verified_release_directories=(),
+            accepted_release_root=tmp_path / "accepted",
+            expected_project="US_stocks_swing_model_v2",
+            gate_receipt=None,
+            trial_registry=None,
+            trial_permit=None,
+        )
 
 
 def test_trial_permit_content_hash_cannot_be_forged(tmp_path: Path) -> None:
@@ -349,6 +498,17 @@ def test_trial_permit_content_hash_cannot_be_forged(tmp_path: Path) -> None:
 
 def test_environment_lock_matches_runtime() -> None:
     assert len(validate_environment_lock(REPO / "config" / "environment.lock.json")) == 64
+
+
+def test_environment_lock_rejects_boolean_schema_version(tmp_path: Path) -> None:
+    payload = json.loads(
+        (REPO / "config" / "environment.lock.json").read_text(encoding="utf-8")
+    )
+    payload["schema_version"] = True
+    lock_path = tmp_path / "environment.lock.json"
+    lock_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ContractError, match="Python runtime differs"):
+        validate_environment_lock(lock_path)
 
 
 def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
@@ -538,15 +698,23 @@ def test_snapshot_store_rejects_relative_roots(tmp_path: Path) -> None:
 
 
 def test_alpaca_http_200_needs_complete_strict_bar_evidence(tmp_path: Path) -> None:
+    calendar_kwargs = {
+        "staging_root": tmp_path / "calendar-stage",
+        "release_root": tmp_path / "calendar-releases",
+        "start": date(2026, 7, 1),
+        "end": date(2026, 7, 2),
+        "created_at": "2026-07-15T00:00:00Z",
+        "code_hash": "1" * 64,
+        "config_hash": calendar_policy_hash(),
+        "environment_hash": calendar_environment_hash(),
+    }
     calendar_release = publish_xnys_calendar_release(
-        staging_root=tmp_path / "calendar-stage",
-        release_root=tmp_path / "calendar-releases",
-        start=date(2026, 7, 1),
-        end=date(2026, 7, 2),
-        created_at="2026-07-15T00:00:00Z",
-        code_hash="1" * 64,
-        config_hash="2" * 64,
-        environment_hash="3" * 64,
+        **calendar_kwargs,
+        publication_synthetic_permit=SyntheticOnlyPermit.create(
+            fixture_id=calendar_publication_binding_id(**calendar_kwargs),
+            scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+        ),
+        publication_allowed_root=tmp_path,
     )
     request = AlpacaBarsRequest(
         symbols=("AAPL",),
@@ -570,7 +738,7 @@ def test_alpaca_http_200_needs_complete_strict_bar_evidence(tmp_path: Path) -> N
                             "h": 101.0,
                             "l": 98.0,
                             "c": 100.0,
-                            "v": 900.0,
+                            "v": 900,
                         },
                         {
                             "t": "2026-07-02T04:00:00Z",
@@ -578,7 +746,7 @@ def test_alpaca_http_200_needs_complete_strict_bar_evidence(tmp_path: Path) -> N
                             "h": 102.0,
                             "l": 99.0,
                             "c": 101.0,
-                            "v": 1000.0,
+                            "v": 1000,
                         }
                     ]
                 },
@@ -668,15 +836,23 @@ def test_alpaca_http_200_needs_complete_strict_bar_evidence(tmp_path: Path) -> N
 
 
 def test_alpaca_daily_bar_session_mapping_respects_new_york_dst(tmp_path: Path) -> None:
+    calendar_kwargs = {
+        "staging_root": tmp_path / "calendar-stage",
+        "release_root": tmp_path / "calendar-releases",
+        "start": date(2026, 11, 2),
+        "end": date(2026, 11, 3),
+        "created_at": "2026-11-04T00:00:00Z",
+        "code_hash": "1" * 64,
+        "config_hash": calendar_policy_hash(),
+        "environment_hash": calendar_environment_hash(),
+    }
     calendar_release = publish_xnys_calendar_release(
-        staging_root=tmp_path / "calendar-stage",
-        release_root=tmp_path / "calendar-releases",
-        start=date(2026, 11, 2),
-        end=date(2026, 11, 3),
-        created_at="2026-11-04T00:00:00Z",
-        code_hash="1" * 64,
-        config_hash="2" * 64,
-        environment_hash="3" * 64,
+        **calendar_kwargs,
+        publication_synthetic_permit=SyntheticOnlyPermit.create(
+            fixture_id=calendar_publication_binding_id(**calendar_kwargs),
+            scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+        ),
+        publication_allowed_root=tmp_path,
     )
     request = AlpacaBarsRequest(
         symbols=("AAPL",),

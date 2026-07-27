@@ -11,6 +11,7 @@ from .errors import ContractError
 
 
 REQUIRED_SLEEVES = ("stock_long", "stock_short", "etf_long", "etf_short")
+EVALUATION_SCOPES = {"OUTER_SCREEN", "FINAL_HOLDOUT"}
 
 
 class GateState(str, Enum):
@@ -259,21 +260,16 @@ class IndependentGatePolicy:
             elif metric.multiplicity_adjusted_confidence_upper <= expected_hurdle:
                 results[sleeve] = GateState.FAIL_NOT_ECONOMIC
             elif (
-                metric.multiplicity_adjusted_confidence_lower > expected_hurdle
-                and metric.multiplicity_adjusted_confidence_lower
-                >= self.minimum_confidence_lower
-                and (
-                    metric.rw_adjusted_p > self.rw_alpha
-                    or metric.dsr_probability < self.minimum_dsr_probability
-                    or (
-                        metric.pbo_applicability
-                        == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
-                        and metric.conservative_pbo is not None
-                        and metric.conservative_pbo > self.pbo_failure_threshold
-                    )
-                    or metric.negative_control_state == "FAIL"
-                    or metric.robustness_state == "FAIL"
+                metric.rw_adjusted_p > self.rw_alpha
+                or metric.dsr_probability < self.minimum_dsr_probability
+                or (
+                    metric.pbo_applicability
+                    == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
+                    and metric.conservative_pbo is not None
+                    and metric.conservative_pbo >= self.pbo_failure_threshold
                 )
+                or metric.negative_control_state == "FAIL"
+                or metric.robustness_state == "FAIL"
             ):
                 results[sleeve] = GateState.FAIL_MULTIPLICITY_OR_CONTROL
             elif (
@@ -283,8 +279,8 @@ class IndependentGatePolicy:
                 or (
                     metric.pbo_applicability == "APPLICABLE_MULTIPLE_CONFIGURATIONS"
                     and metric.conservative_pbo is not None
-                    and metric.conservative_pbo > self.maximum_conservative_pbo
-                    and metric.conservative_pbo <= self.pbo_failure_threshold
+                    and metric.conservative_pbo >= self.maximum_conservative_pbo
+                    and metric.conservative_pbo < self.pbo_failure_threshold
                 )
             ):
                 results[sleeve] = GateState.INCONCLUSIVE_DATA_OR_POWER
@@ -373,8 +369,10 @@ class GateReceipt:
             type(self.schema_version) is not int
             or self.schema_version != 3
             or self.state not in {item.value for item in GateState}
+            or type(self.evaluation_scope) is not str
+            or self.evaluation_scope not in EVALUATION_SCOPES
         ):
-            raise ContractError("gate receipt schema/state is invalid")
+            raise ContractError("gate receipt schema/state/scope is invalid")
         evaluated = parse_utc_z(self.evaluated_at, "gate.evaluated_at")
         issued = parse_utc_z(self.permit_issued_at, "gate.permit_issued_at")
         if evaluated <= issued:

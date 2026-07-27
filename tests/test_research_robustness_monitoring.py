@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import get_type_hints
 
 import numpy as np
 import pytest
@@ -12,12 +13,17 @@ from us_stocks_swing_model_v2.governance import (
     AuthorizationAuthority,
     sign_authorization_receipt,
 )
-from us_stocks_swing_model_v2.errors import IntegrityError
+from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.monitoring import (
     MonitoringObservation,
+    MonitoringPolicy,
     MonitoringState,
     ProspectiveMonitoringLedger,
     assess_monitoring,
+)
+from us_stocks_swing_model_v2.monitoring_policy import (
+    MONITORING_POLICY_VERSION,
+    MONITORING_STATE_PRECEDENCE,
 )
 from us_stocks_swing_model_v2.research import (
     FoldEffect,
@@ -37,6 +43,11 @@ from us_stocks_swing_model_v2.research import (
 
 
 AUTH_KEY = b"synthetic-monitoring-recovery-key"
+
+
+def test_monitoring_constructor_public_annotations_resolve() -> None:
+    hints = get_type_hints(ProspectiveMonitoringLedger.__init__)
+    assert hints["synthetic_history_permit"] == SyntheticOnlyPermit | None
 
 
 def _clock(hour: int) -> TrustedClock:
@@ -62,15 +73,46 @@ def _authority() -> AuthorizationAuthority:
 
 
 def _monitoring_ledger(tmp_path: Path, hour: int, *, bundle_id: str = "b" * 64):
+    history_permit_ids = tuple(
+        sorted(_clock(value).synthetic_permit_id for value in range(1, hour + 1))
+    )
     return ProspectiveMonitoringLedger(
         tmp_path / "ledger" / "monitoring.jsonl",
         tmp_path / "anchors",
         bundle_id=bundle_id,
-        monitoring_policy_hash="c" * 64,
+        monitoring_policy_hash=MonitoringPolicy().policy_hash,
         monitoring_reference_hash="d" * 64,
         recovery_authority=_authority(),
         clock=_clock(hour),
+        synthetic_history_clock_permit_ids=history_permit_ids,
+        synthetic_history_permit=SyntheticOnlyPermit.create(
+            fixture_id=f"monitoring-history-through-{hour}",
+            scope="SYNTHETIC_LEDGER_HISTORY_PERMITS",
+        ),
     )
+
+
+@pytest.mark.parametrize(
+    "policy_hash",
+    (
+        "c" * 64,
+        "203b1537230c378f59ba31ff4885d7e18456bdd722ed9e6caf99eb0c17acd049",
+    ),
+)
+def test_monitoring_ledger_rejects_policy_hash_not_derived_from_policy(
+    tmp_path: Path,
+    policy_hash: str,
+) -> None:
+    with pytest.raises(ContractError, match="frozen evaluated policy"):
+        ProspectiveMonitoringLedger(
+            tmp_path / "ledger.jsonl",
+            tmp_path / "anchors",
+            bundle_id="b" * 64,
+            monitoring_policy_hash=policy_hash,
+            monitoring_reference_hash="d" * 64,
+            recovery_authority=_authority(),
+            clock=_clock(1),
+        )
 
 
 @pytest.fixture
@@ -109,6 +151,19 @@ def test_temporal_and_variant_gates_are_binding_inconclusive(mechanics) -> None:
     assert verify_deterministic_repeat("1" * 64, "1" * 64)
 
 
+def test_single_temporal_fold_is_controlled_inconclusive(mechanics) -> None:
+    fixture, permit = mechanics
+    result = evaluate_temporal_concentration(
+        folds=_folds((0.10,)),
+        policy=TemporalConcentrationPolicy(),
+        permit=permit,
+        fixture=fixture,
+    )
+    assert result.state is RobustnessState.MECHANICS_INCONCLUSIVE
+    assert result.leave_one_out_effects == ()
+    assert "INSUFFICIENT_OUTER_FOLDS" in result.reasons
+
+
 def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
     fixture, permit = mechanics
     policy = SourceEpochPolicy(("HFDL_IEX_ONLY", "HFDL_PITRADING_CONSOLIDATED"))
@@ -136,6 +191,9 @@ def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
 
 
 def test_monitoring_boundaries_pause_and_abstain() -> None:
+    payload = MonitoringPolicy().as_dict()
+    assert payload["policy_version"] == MONITORING_POLICY_VERSION
+    assert payload["state_precedence"] == list(MONITORING_STATE_PRECEDENCE)
     pending = assess_monitoring(MonitoringObservation(30, 499, 0.0, 0.0, 1.0, 1.0, None))
     assert pending.state is MonitoringState.MONITORING_PENDING
     assert pending.requires_abstention
@@ -143,14 +201,53 @@ def test_monitoring_boundaries_pause_and_abstain() -> None:
         MonitoringObservation(1, 1, 0.25, 0.0, 1.0, 1.0, None)
     )
     assert low_window_pause.state is MonitoringState.MONITORING_PAUSED
+    assert low_window_pause.requires_abstention
+    low_window_warning = assess_monitoring(
+        MonitoringObservation(1, 1, 0.10, 0.05, 0.94, 1.0, None)
+    )
+    assert low_window_warning.state is MonitoringState.MONITORING_PENDING
+    assert low_window_warning.reasons == ("MINIMUM_WINDOW_PENDING",)
+    assert low_window_warning.requires_abstention
     warning = assess_monitoring(MonitoringObservation(30, 500, 0.10, 0.05, 0.94, 1.0, None))
     assert warning.state is MonitoringState.MONITORING_WARNING
+    assert not warning.requires_abstention
     paused = assess_monitoring(MonitoringObservation(30, 500, 0.25, 0.10, 0.89, 1.0, 0.10))
     assert paused.state is MonitoringState.MONITORING_PAUSED
     assert paused.requires_abstention
     invalid = assess_monitoring(MonitoringObservation(30, 500, 0.0, 0.0, -1.0, 1.0, None))
     assert invalid.state is MonitoringState.MONITORING_INVALID
     assert invalid.requires_abstention
+
+
+def test_monitoring_ledger_persists_pending_before_warning(
+    tmp_path: Path,
+) -> None:
+    warning_but_undersized = MonitoringObservation(
+        1,
+        1,
+        0.10,
+        0.05,
+        0.94,
+        1.0,
+        None,
+    )
+    appended = _monitoring_ledger(tmp_path, 1).append(
+        warning_but_undersized,
+        previous_anchor=None,
+    )
+    record = appended["record"]
+    assert record["assessed_state"] == "MONITORING_PENDING"
+    assert record["effective_state"] == "MONITORING_PENDING"
+    assert record["reasons"] == ["MINIMUM_WINDOW_PENDING"]
+    assert record["abstention_required"] is True
+    assert record["automatic_actions"] == []
+
+    verified = _monitoring_ledger(tmp_path, 1).verify(
+        Path(appended["anchor_path"])
+    )
+    assert len(verified) == 1
+    assert verified[0].effective_state == "MONITORING_PENDING"
+    assert verified[0].abstention_required is True
 
 
 @pytest.mark.parametrize(
@@ -222,7 +319,7 @@ def test_monitoring_ledger_requires_reviewed_recovery_and_exact_bindings(
     previous_record_id = str(blocked_resume["record"]["record_id"])
     bindings = {
         "bundle_id": "b" * 64,
-        "monitoring_policy_hash": "c" * 64,
+        "monitoring_policy_hash": MonitoringPolicy().policy_hash,
         "monitoring_reference_hash": "d" * 64,
         "previous_monitoring_record_id": previous_record_id,
         "observation_hash": clean_observation.observation_hash,

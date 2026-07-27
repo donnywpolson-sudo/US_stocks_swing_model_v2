@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
-from us_stocks_swing_model_v2.errors import ContractError
+from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
+from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.identity import (
     BitemporalIdentityLedger,
+    _load_identity_release_payload,
     merge_identity_snapshot,
     parse_alpaca_assets,
 )
@@ -106,6 +108,81 @@ def _complete_snapshot(
     return merge_identity_snapshot(alpaca, nasdaq)
 
 
+def _write_identity_payload(
+    root: Path,
+    snapshot,
+    *,
+    row_changes: dict[str, object] | None = None,
+) -> None:
+    receipt = snapshot.receipt_dict()
+    receipt["rows"][0].update(row_changes or {})
+    unsigned = json.loads(json.dumps(receipt))
+    unsigned.pop("snapshot_id")
+    for row in unsigned["rows"]:
+        row.pop("identity_snapshot_id")
+    snapshot_id = sha256_bytes(canonical_json_bytes(unsigned))
+    receipt["snapshot_id"] = snapshot_id
+    for row in receipt["rows"]:
+        row["identity_snapshot_id"] = snapshot_id
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "identity_snapshots.json").write_bytes(
+        canonical_json_bytes(
+            {
+                "schema_version": 1,
+                "snapshots": [receipt],
+            }
+        )
+    )
+
+
+def test_identity_release_payload_accepts_exact_generated_snapshot(
+    tmp_path: Path,
+) -> None:
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    snapshot = _complete_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc),
+        file_time="0715202613:00",
+        assets=(("asset-abc", "ABC", "active"),),
+    )
+    payload = tmp_path / "valid-identity-release"
+    _write_identity_payload(payload, snapshot)
+    assert _load_identity_release_payload(payload, 1) == (snapshot,)
+
+
+@pytest.mark.parametrize(
+    "row_changes",
+    [
+        {"active": False},
+        {"membership_present": False},
+        {"nasdaq_snapshot_id": None},
+        {"nasdaq_file_created_at": None},
+        {"security_type": "UNKNOWN"},
+        {"asset_id": ""},
+        {"asset_id": None},
+        {"symbol": "abc"},
+        {"listing_exchange": ""},
+        {"abstention_reason": "unexpected"},
+        {"eligible": False, "abstention_reason": None},
+    ],
+)
+def test_identity_release_payload_rejects_invalid_canonical_or_eligibility_state(
+    tmp_path: Path,
+    row_changes: dict[str, object],
+) -> None:
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    snapshot = _complete_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc),
+        file_time="0715202613:00",
+        assets=(("asset-abc", "ABC", "active"),),
+    )
+    payload = tmp_path / "invalid-identity-release"
+    _write_identity_payload(payload, snapshot, row_changes=row_changes)
+    with pytest.raises((ContractError, IntegrityError)):
+        _load_identity_release_payload(payload, 1)
+
+
 def test_alpaca_only_symbol_is_an_explicit_nonmember_until_nasdaq_reappears(
     tmp_path: Path,
 ) -> None:
@@ -133,6 +210,8 @@ def test_alpaca_only_symbol_is_an_explicit_nonmember_until_nasdaq_reappears(
     assert not absent_row.membership_present
     assert not absent_row.eligible
     assert absent_row.abstention_reason == "missing_nasdaq_identity"
+    assert absent_row.nasdaq_snapshot_id is None
+    assert absent_row.nasdaq_file_created_at is None
 
     ledger = _identity_ledger()
     for snapshot in (first, absent, reappeared):
@@ -146,6 +225,45 @@ def test_alpaca_only_symbol_is_an_explicit_nonmember_until_nasdaq_reappears(
     }
     assert visible["asset-abc"].membership_present
     assert visible["asset-abc"].eligible
+
+
+def test_nasdaq_only_identity_is_superseded_by_later_resolved_asset(
+    tmp_path: Path,
+) -> None:
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    unresolved = _complete_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc),
+        file_time="0715202613:00",
+        assets=(("asset-abc", "ABC", "active"),),
+        nasdaq_symbols=("XYZ",),
+    )
+    resolved = _complete_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc),
+        file_time="0716202613:00",
+        assets=(("asset-xyz", "XYZ", "active"),),
+    )
+    unresolved_row = next(row for row in unresolved.rows if row.symbol == "XYZ")
+    assert unresolved_row.asset_id.startswith("NASDAQ_UNRESOLVED_")
+    assert not unresolved_row.eligible
+
+    ledger = _identity_ledger()
+    ledger.append_snapshot(unresolved)
+    ledger.append_snapshot(resolved)
+    historical = ledger.visible_as_of(
+        effective_as_of=unresolved.effective_at,
+        known_as_of=unresolved.known_at,
+    )
+    assert any(row.asset_id == unresolved_row.asset_id for row in historical)
+    current = ledger.visible_as_of(
+        effective_as_of=resolved.effective_at,
+        known_as_of=resolved.known_at,
+    )
+    xyz = [row for row in current if row.symbol == "XYZ"]
+    assert len(xyz) == 1
+    assert xyz[0].asset_id == "asset-xyz"
+    assert xyz[0].eligible
 
 
 def test_complete_snapshots_tombstone_disappearance_reuse_and_symbol_change(tmp_path: Path) -> None:
@@ -180,6 +298,8 @@ def test_complete_snapshots_tombstone_disappearance_reuse_and_symbol_change(tmp_
     }
     assert not after_reuse["asset-old"].membership_present
     assert not after_reuse["asset-old"].eligible
+    assert after_reuse["asset-old"].nasdaq_snapshot_id is None
+    assert after_reuse["asset-old"].nasdaq_file_created_at is None
     assert after_reuse["asset-new"].membership_present
     assert after_reuse["asset-new"].symbol == "ABC"
     ledger.append_snapshot(renamed)
@@ -194,7 +314,9 @@ def test_complete_snapshots_tombstone_disappearance_reuse_and_symbol_change(tmp_
     assert after_change["asset-new"].eligible
 
 
-def test_late_same_effective_revision_is_not_visible_before_known_at(tmp_path: Path) -> None:
+def test_later_observed_alpaca_state_is_not_backdated_to_nasdaq_file_time(
+    tmp_path: Path,
+) -> None:
     store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
     initial = _complete_snapshot(
         store,
@@ -211,17 +333,26 @@ def test_late_same_effective_revision_is_not_visible_before_known_at(tmp_path: P
     ledger = _identity_ledger()
     ledger.append_snapshot(initial)
     ledger.append_snapshot(late_revision)
-    before_revision = ledger.visible_as_of(
-        effective_as_of=initial.effective_at,
-        known_as_of=datetime(2026, 7, 15, 18, 30, tzinfo=timezone.utc),
-    )[0]
-    after_revision = ledger.visible_as_of(
+    before_observation = ledger.visible_as_of(
         effective_as_of=initial.effective_at,
         known_as_of=late_revision.known_at,
     )[0]
-    assert before_revision.eligible
-    assert not after_revision.eligible
-    assert after_revision.abstention_reason == "inactive_or_not_tradable"
+    after_observation = ledger.visible_as_of(
+        effective_as_of=late_revision.effective_at,
+        known_as_of=late_revision.known_at,
+    )[0]
+    assert initial.effective_at == datetime(
+        2026, 7, 15, 18, 0, tzinfo=timezone.utc
+    )
+    assert late_revision.effective_at == datetime(
+        2026, 7, 15, 19, 0, tzinfo=timezone.utc
+    )
+    assert before_observation.eligible
+    assert not after_observation.eligible
+    assert after_observation.abstention_reason == "inactive_or_not_tradable"
+    assert late_revision.nasdaq_file_created_at.tzinfo is timezone.utc
+    assert late_revision.rows[0].nasdaq_file_created_at is not None
+    assert late_revision.rows[0].nasdaq_file_created_at.tzinfo is timezone.utc
     receipt = late_revision.receipt_dict()
     assert receipt["nasdaq_file_created_at"] == "2026-07-15T17:00:00Z"
 
@@ -238,4 +369,30 @@ def test_nasdaq_file_creation_cannot_be_future_relative_to_retrieval(tmp_path: P
         synthetic_permit=_snapshot_permit(),
     )
     with pytest.raises(ContractError, match="later than retrieval"):
+        parse_nasdaq_traded(landed, policy=_nasdaq_policy())
+
+
+@pytest.mark.parametrize(
+    ("file_time", "message"),
+    [
+        ("0310202402:30", "nonexistent local time"),
+        ("1103202401:30", "ambiguous local time"),
+    ],
+)
+def test_nasdaq_file_creation_rejects_dst_gap_and_fold(
+    tmp_path: Path,
+    file_time: str,
+    message: str,
+) -> None:
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    landed = store.land(
+        source="nasdaqtraded",
+        url=NASDAQ_TRADED_URL,
+        http_status=200,
+        raw=_nasdaq_bytes(("ABC",), file_time),
+        headers={"etag": "dst-boundary"},
+        retrieved_at=datetime(2024, 11, 3, 8, 0, tzinfo=timezone.utc),
+        synthetic_permit=_snapshot_permit(),
+    )
+    with pytest.raises(ContractError, match=message):
         parse_nasdaq_traded(landed, policy=_nasdaq_policy())

@@ -14,7 +14,7 @@ import shutil
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
@@ -24,9 +24,11 @@ import pyarrow.parquet as pq
 
 from ..capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from ..common import (
+    _fsync_directory,
     assert_exact_tree,
     atomic_write,
     canonical_json_bytes,
+    iso_z,
     parse_utc_z,
     reject_link,
     require_contained_path,
@@ -55,6 +57,7 @@ from .hfdl import (
     HFDL_HISTORICAL_AVAILABILITY,
     HFDL_POINT_IN_TIME_STATE,
     HFDL_TAGGED_SCHEMA,
+    load_validated_hfdl_sidecar,
     validate_and_tag_hfdl,
     write_tagged_hfdl_legacy_epochs,
 )
@@ -76,6 +79,7 @@ EPOCH_DATASETS = {
 SET_DATASET = "hfdl_legacy_epoch_set"
 SET_SOURCE_EPOCH = "hfdl_epoch_set_no_pooling"
 SYNTHETIC_CONTRACT_SCOPE = "SYNTHETIC_HFDL_LEGACY_PUBLISH_CONTRACT"
+SYNTHETIC_PUBLICATION_SCOPE = "SYNTHETIC_HFDL_LEGACY_PUBLICATION"
 QUALITY_STATE = "LEGACY_CAVEATED"
 EVIDENCE_CLASS = "LEGACY_DISCOVERY"
 SOURCE_ADJUSTMENT = "hfdl_clean_source_adjusted"
@@ -377,6 +381,20 @@ def verify_completed_migration_release(path: Path) -> CompletedMigrationRelease:
             or entry["size"] < 0
         ):
             raise IntegrityError("migration manifest size must be an exact nonnegative integer")
+        if any(
+            type(entry[name]) is not str
+            for name in (
+                "migration_id",
+                "role",
+                "source",
+                "destination",
+                "sha256",
+                "payload_object",
+            )
+        ):
+            raise IntegrityError(
+                "migration manifest identity/provenance fields must be exact strings"
+            )
         require_sha256(entry["sha256"], "migration.entry.sha256")
         try:
             payload_object = validate_migration_payload_object(entry["payload_object"])
@@ -414,7 +432,7 @@ def verify_completed_migration_release(path: Path) -> CompletedMigrationRelease:
     entries: list[MigrationPayloadEntry] = []
     used_keys: set[str] = set()
     for raw in raw_entries:
-        destination = str(raw["destination"]).replace("\\", "/")
+        destination = raw["destination"].replace("\\", "/")
         matches = [key for key in completed_keys if destination.endswith("/" + key)]
         if len(matches) != 1:
             raise IntegrityError("migration destination cannot be matched to exactly one payload receipt")
@@ -422,7 +440,7 @@ def verify_completed_migration_release(path: Path) -> CompletedMigrationRelease:
         if relative in used_keys or completed_keys[relative] != raw["sha256"]:
             raise IntegrityError("migration completion map differs from its reviewed manifest")
         used_keys.add(relative)
-        object_relative = validate_migration_payload_object(str(raw["payload_object"]))
+        object_relative = validate_migration_payload_object(raw["payload_object"])
         payload_path = root.joinpath(
             "payload", *safe_relative_path(object_relative).parts
         )
@@ -436,13 +454,13 @@ def verify_completed_migration_release(path: Path) -> CompletedMigrationRelease:
             raise IntegrityError(f"migration payload changed, linked, or is incomplete: {relative}")
         entries.append(
             MigrationPayloadEntry(
-                schema_version=int(raw["schema_version"]),
-                migration_id=str(raw["migration_id"]),
-                role=str(raw["role"]),
-                source=str(raw["source"]),
-                destination=str(raw["destination"]),
+                schema_version=raw["schema_version"],
+                migration_id=raw["migration_id"],
+                role=raw["role"],
+                source=raw["source"],
+                destination=raw["destination"],
                 size=raw["size"],
-                sha256=str(raw["sha256"]),
+                sha256=raw["sha256"],
                 payload_object=object_relative,
                 payload_relative=relative,
                 payload_path=payload_path,
@@ -606,39 +624,6 @@ def _environment_hash() -> str:
     return validate_environment_lock(repo / "config" / "environment.lock.json")
 
 
-def _strict_sidecar(path: Path) -> None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ContractError("HFDL sidecar is invalid JSON") from exc
-    required = {
-        "canonical_symbol",
-        "created_at_utc",
-        "row_count",
-        "sha256",
-        "timeframe",
-        "validation_passed",
-        "version",
-        "source_limitations",
-    }
-    if not isinstance(payload, dict) or not required <= set(payload):
-        raise ContractError("HFDL sidecar lacks its exact required evidence fields")
-    if (
-        not isinstance(payload["canonical_symbol"], str)
-        or not payload["canonical_symbol"].strip()
-        or not isinstance(payload["created_at_utc"], str)
-        or type(payload["row_count"]) is not int
-        or payload["row_count"] < 1
-        or not isinstance(payload["sha256"], str)
-        or type(payload["validation_passed"]) is not bool
-        or not isinstance(payload["source_limitations"], list)
-        or not payload["source_limitations"]
-        or any(not isinstance(item, str) or not item for item in payload["source_limitations"])
-    ):
-        raise ContractError("HFDL sidecar evidence types are invalid")
-    require_sha256(payload["sha256"], "hfdl_sidecar.sha256")
-
-
 def _verify_pair_inputs(pair: HfdlInputPair) -> None:
     for entry in (pair.parquet, pair.sidecar):
         reject_link(entry.payload_path)
@@ -649,7 +634,7 @@ def _verify_pair_inputs(pair: HfdlInputPair) -> None:
             or sha256_file(entry.payload_path) != entry.sha256
         ):
             raise IntegrityError("verified migration HFDL pair changed during publication")
-    _strict_sidecar(pair.sidecar.payload_path)
+    load_validated_hfdl_sidecar(pair.sidecar.payload_path)
 
 
 def _capsule_receipt(path: Path, *, pair: HfdlInputPair, build_id: str) -> dict[str, Any]:
@@ -746,6 +731,86 @@ def _capsule_receipt(path: Path, *, pair: HfdlInputPair, build_id: str) -> dict[
     return receipt
 
 
+def _pending_capsule_manifest(path: Path) -> tuple[dict[str, object], ...]:
+    reject_link(path)
+    if not path.is_dir():
+        raise IntegrityError("HFDL pending capsule is not an independent directory")
+    entries: list[dict[str, object]] = []
+    for candidate in sorted(
+        path.rglob("*"),
+        key=lambda item: item.relative_to(path).as_posix(),
+    ):
+        reject_link(candidate)
+        relative = candidate.relative_to(path).as_posix()
+        if candidate.is_dir():
+            entries.append({"kind": "directory", "path": relative})
+            continue
+        if not candidate.is_file() or candidate.stat().st_nlink != 1:
+            raise IntegrityError(
+                "HFDL pending capsule contains linked or non-regular evidence"
+            )
+        entries.append(
+            {
+                "kind": "file",
+                "path": relative,
+                "size": candidate.stat().st_size,
+                "sha256": sha256_file(candidate),
+            }
+        )
+    return tuple(entries)
+
+
+def _quarantine_pending_capsule(
+    pending: Path,
+    *,
+    pairs_root: Path,
+    reason: str,
+) -> Path:
+    """Atomically retain a failed/interrupted capsule; never reuse or delete it."""
+
+    if reason not in {
+        "MATERIALIZATION_FAILED",
+        "INTERRUPTED_BEFORE_RETRY",
+    }:
+        raise ContractError("HFDL pending-capsule quarantine reason is invalid")
+    require_contained_path(pending, pairs_root)
+    manifest = _pending_capsule_manifest(pending)
+    manifest_hash = sha256_bytes(canonical_json_bytes(list(manifest)))
+    original_path = str(pending.resolve(strict=True))
+    quarantine_root = pairs_root.parent / ".quarantine"
+    require_contained_path(
+        quarantine_root,
+        pairs_root.parent,
+        must_exist=False,
+    )
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    container = quarantine_root / uuid.uuid4().hex[:16]
+    container.mkdir()
+    payload_target = container / "payload"
+    os.replace(pending, payload_target)
+    _fsync_directory(pairs_root)
+    _fsync_directory(container)
+    receipt = {
+        "schema_version": 1,
+        "evidence_class": "HFDL_PENDING_CAPSULE_FAILURE_EVIDENCE",
+        "automation_identity": "HFDL_LEGACY_PUBLISHER_SYNTHETIC_ONLY",
+        "operator_action": "AUTOMATED_FAIL_CLOSED_QUARANTINE",
+        "reason": reason,
+        "original_path": original_path,
+        "quarantine_payload_path": str(payload_target.resolve(strict=True)),
+        "quarantined_at_utc": iso_z(datetime.now(timezone.utc)),
+        "payload_manifest_sha256": manifest_hash,
+        "payload_manifest": list(manifest),
+        "retention": "INDEFINITE_UNTIL_EXPLICIT_OWNER_DISPOSITION",
+        "direct_reuse_or_promotion": "PROHIBITED",
+    }
+    atomic_write(
+        container / "quarantine_receipt.json",
+        canonical_json_bytes(receipt),
+    )
+    return container
+
+
 def _materialize_pair_capsule(
     pair: HfdlInputPair,
     *,
@@ -776,7 +841,18 @@ def _materialize_pair_capsule(
                 "session_start": sessions[0].isoformat(),
                 "session_end": sessions[-1].isoformat(),
             }
-        shutil.rmtree(split_root)
+        for candidate in sorted(
+            split_root.rglob("*"),
+            key=lambda item: len(item.relative_to(split_root).parts),
+            reverse=True,
+        ):
+            reject_link(candidate)
+            if not candidate.is_dir() or any(candidate.iterdir()):
+                raise IntegrityError(
+                    "HFDL split staging contains unretained evidence"
+                )
+            candidate.rmdir()
+        split_root.rmdir()
         unsigned = {
             "schema_version": 1,
             "build_id": build_id,
@@ -793,9 +869,14 @@ def _materialize_pair_capsule(
         _capsule_receipt(pending, pair=pair, build_id=build_id)
         os.replace(pending, final)
         return _capsule_receipt(final, pair=pair, build_id=build_id)
-    finally:
+    except BaseException:
         if pending.exists():
-            shutil.rmtree(pending)
+            _quarantine_pending_capsule(
+                pending,
+                pairs_root=pairs_root,
+                reason="MATERIALIZATION_FAILED",
+            )
+        raise
 
 
 def _checkpoint_unsigned(
@@ -886,7 +967,11 @@ def _resume_capsules(
         if child.name.startswith(".pending-"):
             if not child.is_dir():
                 raise IntegrityError("HFDL pending capsule is not a directory")
-            shutil.rmtree(child)
+            _quarantine_pending_capsule(
+                child,
+                pairs_root=pairs_root,
+                reason="INTERRUPTED_BEFORE_RETRY",
+            )
             continue
         if not child.is_dir() or child.name not in pair_by_id:
             raise IntegrityError("HFDL checkpoint contains an extra or unknown derived capsule")
@@ -1195,20 +1280,45 @@ def publish_hfdl_legacy_discovery(
     derived_work_root: Path,
     created_at: str,
     contract: HfdlPublishContract | None = None,
+    publication_synthetic_permit: SyntheticOnlyPermit | None = None,
+    publication_allowed_root: Path | None = None,
 ) -> HfdlPublicationResult:
-    """Publish the two HFDL epochs without reading or writing the legacy repo."""
+    """Publish synthetic fixture epochs without reading or writing the legacy repo."""
 
-    selected_contract = contract or HfdlPublishContract.production()
+    if contract is None or contract.synthetic_permit_id is None:
+        raise PermissionError(
+            "HFDL publication is synthetic-only; production callers may only plan"
+        )
+    selected_contract = contract
     selected_contract.validate()
+    publication_permit = require_synthetic_permit(
+        publication_synthetic_permit,
+        scope=SYNTHETIC_PUBLICATION_SCOPE,
+    )
+    if publication_permit.fixture_id != selected_contract.contract_id:
+        raise ContractError(
+            "HFDL publication permit is not bound to the exact synthetic contract"
+        )
+    if publication_allowed_root is None:
+        raise ContractError("HFDL publication requires an explicit allowed root")
+    allowed_root = Path(publication_allowed_root)
+    require_contained_path(allowed_root, allowed_root)
     parse_utc_z(created_at, "hfdl_publish.created_at")
     accepted_root = Path(accepted_release_root)
     work_root = Path(derived_work_root)
-    for root, label in ((accepted_root, "accepted release"), (work_root, "derived work")):
+    migration_root = Path(migration_release_directory)
+    for root, label, must_exist in (
+        (migration_root, "migration release", True),
+        (accepted_root, "accepted release", accepted_root.exists()),
+        (work_root, "derived work", work_root.exists()),
+    ):
         if not root.is_absolute():
             raise ContractError(f"{label} root must be absolute")
+        require_contained_path(root, allowed_root, must_exist=must_exist)
+    for root, label in ((accepted_root, "accepted release"), (work_root, "derived work")):
         root.mkdir(parents=True, exist_ok=True)
         reject_link(root)
-    migration = verify_completed_migration_release(Path(migration_release_directory))
+    migration = verify_completed_migration_release(migration_root)
     for left, right in (
         (migration.root, accepted_root),
         (migration.root, work_root),

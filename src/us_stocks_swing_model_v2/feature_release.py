@@ -30,8 +30,10 @@ def load_feature_release(
         or manifest.quality_state != "PASS"
     ):
         raise ContractError("inference feature release has the wrong project/dataset/role")
-    if FEATURE_PAYLOAD not in {entry.path for entry in manifest.files}:
-        raise IntegrityError("feature release lacks the exact features.json payload")
+    if {entry.path for entry in manifest.files} != {FEATURE_PAYLOAD}:
+        raise IntegrityError(
+            "feature release payload census must equal {features.json}"
+        )
     try:
         payload = json.loads((directory / FEATURE_PAYLOAD).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

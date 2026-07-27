@@ -143,10 +143,19 @@ def evaluate_temporal_concentration(
     required = math.ceil(policy.minimum_positive_fraction * len(folds))
     positive = sum(item.stress_cost_effect > 0.0 for item in folds)
     leave_one_out: list[float] = []
-    for omitted in range(len(folds)):
-        retained = tuple(item for index, item in enumerate(folds) if index != omitted)
-        count = sum(item.observation_count for item in retained)
-        leave_one_out.append(sum(item.stress_cost_effect * item.observation_count for item in retained) / count)
+    if len(folds) > 1:
+        for omitted in range(len(folds)):
+            retained = tuple(
+                item for index, item in enumerate(folds) if index != omitted
+            )
+            count = sum(item.observation_count for item in retained)
+            leave_one_out.append(
+                sum(
+                    item.stress_cost_effect * item.observation_count
+                    for item in retained
+                )
+                / count
+            )
     reasons: list[str] = []
     if len(folds) < policy.minimum_folds:
         reasons.append("INSUFFICIENT_OUTER_FOLDS")

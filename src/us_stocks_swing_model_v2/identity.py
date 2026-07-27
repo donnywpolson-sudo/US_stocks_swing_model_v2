@@ -22,6 +22,20 @@ from .releases import verify_accepted_release
 from .schemas import SecurityType
 
 
+UNRESOLVED_NASDAQ_ASSET_PREFIX = "NASDAQ_UNRESOLVED_"
+
+
+def _unresolved_nasdaq_asset_id(symbol: str) -> str:
+    return UNRESOLVED_NASDAQ_ASSET_PREFIX + sha256_bytes(
+        canonical_json_bytes(
+            {
+                "namespace": "NASDAQ_UNRESOLVED_SYMBOL_V1",
+                "symbol": symbol,
+            }
+        )
+    )
+
+
 @dataclass(frozen=True)
 class AlpacaAssetRecord:
     asset_id: str
@@ -78,6 +92,69 @@ class IdentityVersion:
         if include_snapshot_id:
             payload["identity_snapshot_id"] = self.identity_snapshot_id
         return payload
+
+
+def _validate_identity_version(row: IdentityVersion) -> None:
+    if type(row) is not IdentityVersion:
+        raise ContractError("identity snapshot row must use the exact identity type")
+    for name in ("asset_id", "symbol", "listing_exchange"):
+        value = getattr(row, name)
+        if type(value) is not str or not value or value != value.strip():
+            raise ContractError(f"identity row {name} must be nonempty canonical text")
+    if row.symbol != row.symbol.upper():
+        raise ContractError("identity row symbol must be uppercase canonical text")
+    if row.listing_exchange != row.listing_exchange.upper():
+        raise ContractError(
+            "identity row listing_exchange must be uppercase canonical text"
+        )
+    if row.asset_id.startswith(UNRESOLVED_NASDAQ_ASSET_PREFIX) and (
+        row.asset_id != _unresolved_nasdaq_asset_id(row.symbol)
+        or row.active
+        or row.eligible
+    ):
+        raise ContractError(
+            "unresolved Nasdaq identity must use its stable ineligible symbol binding"
+        )
+    if type(row.security_type) is not SecurityType:
+        raise ContractError("identity row security type is invalid")
+    if (
+        type(row.active) is not bool
+        or type(row.eligible) is not bool
+        or type(row.membership_present) is not bool
+    ):
+        raise ContractError("identity row state flags must be exact booleans")
+    if row.eligible and (
+        not row.active
+        or not row.membership_present
+        or row.security_type not in {SecurityType.STOCK, SecurityType.ETF}
+    ):
+        raise ContractError(
+            "eligible identity row must be active, present, and STOCK or ETF"
+        )
+    if row.membership_present:
+        if (
+            row.nasdaq_snapshot_id is None
+            or row.nasdaq_file_created_at is None
+        ):
+            raise ContractError(
+                "member identity row requires exact Nasdaq membership evidence"
+            )
+    elif (
+        row.nasdaq_snapshot_id is not None
+        or row.nasdaq_file_created_at is not None
+    ):
+        raise ContractError(
+            "nonmember identity row cannot claim Nasdaq membership evidence"
+        )
+    if row.eligible:
+        if row.abstention_reason is not None:
+            raise ContractError("eligible identity row cannot carry an abstention reason")
+    elif (
+        type(row.abstention_reason) is not str
+        or not row.abstention_reason
+        or row.abstention_reason != row.abstention_reason.strip()
+    ):
+        raise ContractError("ineligible identity row requires a canonical abstention reason")
 
 
 @dataclass(frozen=True)
@@ -142,6 +219,7 @@ class IdentitySnapshot:
         if len(asset_ids) != len(set(asset_ids)) or len(symbols) != len(set(symbols)):
             raise ContractError("complete identity snapshot asset IDs and symbols must be unique")
         for row in self.rows:
+            _validate_identity_version(row)
             if (
                 row.identity_snapshot_id != self.snapshot_id
                 or require_aware_utc(row.effective_at, "row.effective_at") != effective
@@ -153,12 +231,6 @@ class IdentitySnapshot:
                 or row.synthetic_permit_ids != self.synthetic_permit_ids
             ):
                 raise ContractError("identity row does not bind the complete snapshot receipt")
-            if not row.membership_present and (
-                row.eligible
-                or row.nasdaq_snapshot_id is not None
-                or row.nasdaq_file_created_at is not None
-            ):
-                raise ContractError("nonmember identity row cannot claim Nasdaq membership evidence")
         unsigned = self.receipt_dict()
         unsigned.pop("snapshot_id")
         for row in unsigned["rows"]:
@@ -186,9 +258,20 @@ def parse_alpaca_assets(snapshot: LandedSnapshot) -> tuple[AlpacaAssetRecord, ..
     for row in rows:
         if not isinstance(row, dict) or not required <= row.keys():
             raise ContractError("Alpaca asset row lacks frozen fields")
-        asset_id = str(row["id"])
-        symbol = str(row["symbol"]).strip().upper()
-        if not asset_id or not symbol or asset_id in seen_ids or symbol in seen_symbols:
+        if any(
+            type(row[name]) is not str
+            for name in ("id", "symbol", "class", "exchange", "status")
+        ):
+            raise ContractError("Alpaca asset identity fields must be exact text")
+        asset_id = row["id"]
+        symbol = row["symbol"].strip().upper()
+        if (
+            not asset_id
+            or asset_id.startswith(UNRESOLVED_NASDAQ_ASSET_PREFIX)
+            or not symbol
+            or asset_id in seen_ids
+            or symbol in seen_symbols
+        ):
             raise ContractError("Alpaca asset IDs and symbols must be nonempty and unique per snapshot")
         seen_ids.add(asset_id)
         seen_symbols.add(symbol)
@@ -199,8 +282,8 @@ def parse_alpaca_assets(snapshot: LandedSnapshot) -> tuple[AlpacaAssetRecord, ..
                 asset_id=asset_id,
                 symbol=symbol,
                 asset_class=row["class"],
-                exchange=str(row["exchange"]),
-                status=str(row["status"]),
+                exchange=row["exchange"],
+                status=row["status"],
                 tradable=row["tradable"],
                 snapshot_id=snapshot.snapshot_id,
                 known_at=snapshot.retrieved_at,
@@ -261,10 +344,16 @@ def merge_identity_snapshot(
     if evidence_state == "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE" and not synthetic_permit_ids:
         raise ContractError("non-network identity merge lacks explicit synthetic provenance")
     known_at = max(next(iter(alpaca_known)), next(iter(nasdaq_known)))
-    # Nasdaq's embedded file-creation timestamp is the source-effective time;
-    # retrieval is the later knowledge time. Alpaca has no historical effective
-    # timestamp, so its membership evidence is never visible before knowledge_at.
-    effective_at = nasdaq_file_created_at
+    # Nasdaq's embedded file-creation timestamp is source-effective only for
+    # its census fields. Alpaca supplies current status/tradability without an
+    # independent historical effective timestamp, so those fields may become
+    # effective no earlier than the exact time they were observed. Using the
+    # later provenance boundary keeps the merged row invisible to earlier
+    # effective-time queries instead of backdating current Alpaca state.
+    effective_at = max(
+        nasdaq_file_created_at,
+        next(iter(alpaca_known)),
+    )
     nasdaq = {record.symbol: record for record in listings}
     alpaca = {record.symbol: record for record in assets}
     output: list[IdentityVersion] = []
@@ -290,8 +379,7 @@ def merge_identity_snapshot(
         asset_id = (
             asset.asset_id
             if asset is not None
-            else "NASDAQ_UNRESOLVED_"
-            + sha256_bytes(canonical_json_bytes({"snapshot_id": nasdaq_snapshot_id, "symbol": symbol}))
+            else _unresolved_nasdaq_asset_id(symbol)
         )
         output.append(
             IdentityVersion(
@@ -375,57 +463,113 @@ def _load_identity_release_payload(
         for raw_row in raw_rows:
             if not isinstance(raw_row, dict) or set(raw_row) != row_fields:
                 raise IntegrityError("identity row payload fields differ")
+            for text_name in (
+                "asset_id",
+                "symbol",
+                "security_type",
+                "listing_exchange",
+                "effective_at",
+                "known_at",
+                "identity_snapshot_id",
+                "alpaca_snapshot_id",
+                "evidence_state",
+            ):
+                if type(raw_row[text_name]) is not str:
+                    raise IntegrityError(
+                        f"identity row {text_name} must be exact text"
+                    )
+            for nullable_text_name in (
+                "abstention_reason",
+                "nasdaq_snapshot_id",
+                "nasdaq_file_created_at",
+            ):
+                if (
+                    raw_row[nullable_text_name] is not None
+                    and type(raw_row[nullable_text_name]) is not str
+                ):
+                    raise IntegrityError(
+                        f"identity row {nullable_text_name} must be exact text or null"
+                    )
+            if (
+                type(raw_row["synthetic_permit_ids"]) is not list
+                or any(
+                    type(value) is not str
+                    for value in raw_row["synthetic_permit_ids"]
+                )
+            ):
+                raise IntegrityError(
+                    "identity row synthetic_permit_ids must be an exact text list"
+                )
             for boolean_name in ("active", "eligible", "membership_present"):
                 if type(raw_row[boolean_name]) is not bool:
                     raise IntegrityError(f"identity row {boolean_name} must be boolean")
+            try:
+                security_type = SecurityType(raw_row["security_type"])
+            except ValueError as exc:
+                raise IntegrityError("identity row security_type is invalid") from exc
             row = IdentityVersion(
-                asset_id=str(raw_row["asset_id"]),
-                symbol=str(raw_row["symbol"]),
-                security_type=SecurityType(str(raw_row["security_type"])),
-                listing_exchange=str(raw_row["listing_exchange"]),
+                asset_id=raw_row["asset_id"],
+                symbol=raw_row["symbol"],
+                security_type=security_type,
+                listing_exchange=raw_row["listing_exchange"],
                 active=raw_row["active"],
                 eligible=raw_row["eligible"],
                 membership_present=raw_row["membership_present"],
-                abstention_reason=(
-                    str(raw_row["abstention_reason"])
-                    if raw_row["abstention_reason"] is not None
-                    else None
-                ),
-                effective_at=parse_timestamp(str(raw_row["effective_at"]), "identity.effective_at"),
-                known_at=parse_timestamp(str(raw_row["known_at"]), "identity.known_at"),
-                identity_snapshot_id=str(raw_row["identity_snapshot_id"]),
-                alpaca_snapshot_id=str(raw_row["alpaca_snapshot_id"]),
-                nasdaq_snapshot_id=(
-                    str(raw_row["nasdaq_snapshot_id"])
-                    if raw_row["nasdaq_snapshot_id"] is not None
-                    else None
-                ),
+                abstention_reason=raw_row["abstention_reason"],
+                effective_at=parse_timestamp(raw_row["effective_at"], "identity.effective_at"),
+                known_at=parse_timestamp(raw_row["known_at"], "identity.known_at"),
+                identity_snapshot_id=raw_row["identity_snapshot_id"],
+                alpaca_snapshot_id=raw_row["alpaca_snapshot_id"],
+                nasdaq_snapshot_id=raw_row["nasdaq_snapshot_id"],
                 nasdaq_file_created_at=(
                     parse_timestamp(
-                        str(raw_row["nasdaq_file_created_at"]),
+                        raw_row["nasdaq_file_created_at"],
                         "identity.nasdaq_file_created_at",
                     )
                     if raw_row["nasdaq_file_created_at"] is not None
                     else None
                 ),
-                evidence_state=str(raw_row["evidence_state"]),
+                evidence_state=raw_row["evidence_state"],
                 synthetic_permit_ids=tuple(raw_row["synthetic_permit_ids"]),
             )
             rows.append(row)
         if type(raw_snapshot["complete_membership"]) is not bool:
             raise IntegrityError("identity complete_membership must be boolean")
+        for text_name in (
+            "snapshot_id",
+            "effective_at",
+            "known_at",
+            "alpaca_snapshot_id",
+            "nasdaq_snapshot_id",
+            "nasdaq_file_created_at",
+            "evidence_state",
+        ):
+            if type(raw_snapshot[text_name]) is not str:
+                raise IntegrityError(
+                    f"identity snapshot {text_name} must be exact text"
+                )
+        if (
+            type(raw_snapshot["synthetic_permit_ids"]) is not list
+            or any(
+                type(value) is not str
+                for value in raw_snapshot["synthetic_permit_ids"]
+            )
+        ):
+            raise IntegrityError(
+                "identity snapshot synthetic_permit_ids must be an exact text list"
+            )
         snapshot = IdentitySnapshot(
-            snapshot_id=str(raw_snapshot["snapshot_id"]),
-            effective_at=parse_timestamp(str(raw_snapshot["effective_at"]), "identity.effective_at"),
-            known_at=parse_timestamp(str(raw_snapshot["known_at"]), "identity.known_at"),
+            snapshot_id=raw_snapshot["snapshot_id"],
+            effective_at=parse_timestamp(raw_snapshot["effective_at"], "identity.effective_at"),
+            known_at=parse_timestamp(raw_snapshot["known_at"], "identity.known_at"),
             complete_membership=raw_snapshot["complete_membership"],
-            alpaca_snapshot_id=str(raw_snapshot["alpaca_snapshot_id"]),
-            nasdaq_snapshot_id=str(raw_snapshot["nasdaq_snapshot_id"]),
+            alpaca_snapshot_id=raw_snapshot["alpaca_snapshot_id"],
+            nasdaq_snapshot_id=raw_snapshot["nasdaq_snapshot_id"],
             nasdaq_file_created_at=parse_timestamp(
-                str(raw_snapshot["nasdaq_file_created_at"]),
+                raw_snapshot["nasdaq_file_created_at"],
                 "identity.nasdaq_file_created_at",
             ),
-            evidence_state=str(raw_snapshot["evidence_state"]),
+            evidence_state=raw_snapshot["evidence_state"],
             synthetic_permit_ids=tuple(raw_snapshot["synthetic_permit_ids"]),
             rows=tuple(rows),
         )
@@ -530,14 +674,16 @@ class BitemporalIdentityLedger:
                 known_at=snapshot.known_at,
                 identity_snapshot_id=snapshot.snapshot_id,
                 alpaca_snapshot_id=snapshot.alpaca_snapshot_id,
-                nasdaq_snapshot_id=snapshot.nasdaq_snapshot_id,
-                nasdaq_file_created_at=snapshot.nasdaq_file_created_at,
+                nasdaq_snapshot_id=None,
+                nasdaq_file_created_at=None,
                 evidence_state=snapshot.evidence_state,
                 synthetic_permit_ids=snapshot.synthetic_permit_ids,
             )
             for asset_id, prior in previous_members.items()
             if asset_id not in represented_ids
         ]
+        for tombstone in tombstones:
+            _validate_identity_version(tombstone)
         self._rows.extend((*snapshot.rows, *tombstones))
         self._snapshots.append(snapshot)
 
@@ -555,4 +701,18 @@ class BitemporalIdentityLedger:
                 current = latest.get(row.asset_id)
                 if current is None or (row.effective_at, row.known_at) > (current.effective_at, current.known_at):
                     latest[row.asset_id] = row
-        return tuple(sorted(latest.values(), key=lambda row: row.asset_id))
+        resolved_symbols = {
+            row.symbol
+            for row in latest.values()
+            if row.membership_present
+            and not row.asset_id.startswith(UNRESOLVED_NASDAQ_ASSET_PREFIX)
+        }
+        visible = (
+            row
+            for row in latest.values()
+            if not (
+                row.asset_id.startswith(UNRESOLVED_NASDAQ_ASSET_PREFIX)
+                and row.symbol in resolved_symbols
+            )
+        )
+        return tuple(sorted(visible, key=lambda row: row.asset_id))

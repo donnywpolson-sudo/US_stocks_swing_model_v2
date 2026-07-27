@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
+import hashlib
 import importlib
 import json
 from pathlib import Path
+import socket
 from types import SimpleNamespace
 
 import numpy as np
@@ -130,8 +132,28 @@ def test_signal_executor_is_deterministic_absolute_and_linear_distribution_compa
     actual = _outer_targets(dataset, first.plan)
     assert np.corrcoef(predicted, actual)[0, 1] > 0.98
     assert np.mean(np.square(predicted - actual)) < 0.05 * np.var(actual)
+    signed_predictions = tuple(
+        prediction
+        for artifact in first.prediction_artifacts
+        for prediction in artifact.predictions
+    )
+    positive = tuple(
+        prediction
+        for prediction in signed_predictions
+        if prediction.expected_five_session_return > 0.0
+    )
+    negative = tuple(
+        prediction
+        for prediction in signed_predictions
+        if prediction.expected_five_session_return < 0.0
+    )
+    assert positive
+    assert negative
+    assert all(prediction.p_up > prediction.p_down for prediction in positive)
+    assert all(prediction.p_down > prediction.p_up for prediction in negative)
 
     for artifact in first.prediction_artifacts:
+        assert artifact.registration.schema_version == 2
         assert artifact.registration.direction_semantics == DIRECTION_SEMANTICS
         assert artifact.rank_used_as_direction is False
         assert not set(artifact.predictions[0].as_dict()) & {"rank", "direction", "bullish", "bearish"}
@@ -147,6 +169,34 @@ def test_signal_executor_is_deterministic_absolute_and_linear_distribution_compa
             SimpleNamespace(feature_schema_id="a" * 64, feature_names=dataset.feature_names),
         )
         assert tuple(loaded.coefficients) == dataset.feature_names
+
+
+def test_legacy_schema_v1_registration_is_rejected_without_migration_or_relabeling() -> None:
+    current = _registration()
+    legacy_unsigned = {
+        **current.unsigned_dict(),
+        "schema_version": 1,
+    }
+    legacy_id = hashlib.sha256(
+        json.dumps(
+            legacy_unsigned,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("ascii")
+    ).hexdigest()
+    legacy = replace(
+        current,
+        schema_version=1,
+        registration_id=legacy_id,
+    )
+
+    with pytest.raises(
+        ResearchContractError,
+        match="schema version 2.*cannot be migrated or relabeled",
+    ):
+        legacy.validate()
 
 
 def test_noise_fixture_never_becomes_alpha_or_candidate_evidence() -> None:
@@ -256,6 +306,150 @@ def test_role_isolation_overlap_artifact_tamper_and_fit_free_modules_fail_closed
             assert not any("builder" in name or "sklearn" in name for name in imports)
 
 
+def test_cross_inner_fold_duplicate_audit_ids_fail_at_request_and_artifact_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import us_stocks_swing_model_v2.research.executor as executor_module
+
+    original_builder = executor_module.build_frozen_outer_predictions
+    captured = []
+
+    def capture_request(request):
+        captured.append(request)
+        return original_builder(request)
+
+    monkeypatch.setattr(
+        executor_module,
+        "build_frozen_outer_predictions",
+        capture_request,
+    )
+    result = _execute(_dataset(), one_fold=True)
+    request = captured[0]
+    first_inner, second_inner = request.inner_folds
+    duplicate_id = second_inner.audit_sample_ids[0]
+    duplicate_position = request.fit_sample_ids.index(duplicate_id)
+    duplicate_first = replace(
+        first_inner,
+        audit_sample_ids=(
+            duplicate_id,
+            *first_inner.audit_sample_ids[1:],
+        ),
+        audit_features=np.concatenate(
+            (
+                request.fit_features[duplicate_position : duplicate_position + 1],
+                first_inner.audit_features[1:],
+            ),
+            axis=0,
+        ),
+        audit_targets=np.concatenate(
+            (
+                request.fit_targets[duplicate_position : duplicate_position + 1],
+                first_inner.audit_targets[1:],
+            )
+        ),
+    )
+    duplicate_request = replace(
+        request,
+        inner_folds=(duplicate_first, second_inner),
+    )
+    with pytest.raises(ResearchContractError, match="overlap across folds"):
+        original_builder(duplicate_request)
+
+    artifact = result.prediction_artifacts[0]
+    first_audit, second_audit = artifact.fit_audit.inner_folds
+    duplicate_first_audit = replace(
+        first_audit,
+        audit_sample_ids=(
+            second_audit.audit_sample_ids[0],
+            *first_audit.audit_sample_ids[1:],
+        ),
+    )
+    duplicate_fit_audit = replace(
+        artifact.fit_audit,
+        inner_folds=(duplicate_first_audit, second_audit),
+    )
+    duplicate_artifact = replace(
+        artifact,
+        fit_audit=duplicate_fit_audit,
+    )
+    with pytest.raises(ResearchContractError, match="overlap across folds"):
+        duplicate_artifact.validate()
+
+
+def test_execution_rejects_separately_consistent_evaluation_census_replacement() -> None:
+    import us_stocks_swing_model_v2.research.executor as executor_module
+
+    result = _execute(_dataset(), one_fold=True)
+    evaluation = result.evaluations[0]
+    replacement_ids = tuple(
+        f"replacement-{index:04d}"
+        for index in range(evaluation.evaluated_sample_count)
+    )
+    replacement = replace(
+        evaluation,
+        audit_sample_ids=replacement_ids,
+        evaluation_id="",
+    )
+    replacement = replace(
+        replacement,
+        evaluation_id=hashlib.sha256(
+            evaluator_module._canonical_bytes(replacement.unsigned_dict())
+        ).hexdigest(),
+    )
+    replacement.validate()
+    forged = replace(
+        result,
+        evaluations=(replacement,),
+        execution_id="",
+    )
+    forged = replace(
+        forged,
+        execution_id=hashlib.sha256(
+            executor_module._canonical_bytes(forged.unsigned_dict())
+        ).hexdigest(),
+    )
+    with pytest.raises(ResearchContractError, match="fold bindings differ"):
+        forged.validate()
+
+
+def test_public_executor_runtime_capability_surface_excludes_outer_labels_and_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import us_stocks_swing_model_v2.research.executor as executor_module
+
+    original_builder = executor_module.build_frozen_outer_predictions
+    observed_fields: list[tuple[str, ...]] = []
+
+    def inspect_dynamic_access(request):
+        fields = tuple(vars(request))
+        observed_fields.append(fields)
+        assert "audit_targets" not in fields
+        assert "outer_audit_targets" not in fields
+        with pytest.raises(AttributeError):
+            getattr(request, "audit_targets")
+        with pytest.raises(AttributeError):
+            getattr(request, "outer_audit_targets")
+        return original_builder(request)
+
+    def forbidden_io(*args, **kwargs):
+        raise AssertionError("synthetic public executor attempted filesystem or network I/O")
+
+    monkeypatch.setattr(
+        executor_module,
+        "build_frozen_outer_predictions",
+        inspect_dynamic_access,
+    )
+    monkeypatch.setattr(Path, "open", forbidden_io)
+    monkeypatch.setattr(socket, "socket", forbidden_io)
+    monkeypatch.setattr(socket, "create_connection", forbidden_io)
+
+    result = _execute(_dataset(), one_fold=True)
+    assert observed_fields
+    assert result.state == "SYNTHETIC_MECHANICS_ONLY"
+    assert result.alpha_evidence is False
+    assert result.candidate_eligible is False
+
+
 def test_ridge_solver_failure_is_a_controlled_research_contract_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,7 +497,11 @@ def test_registered_executor_status_is_mechanical_only_and_preserves_all_blocker
     assert registered["alpha_evidence"] is False
     assert registered["candidate_eligible"] is False
     readiness = contract["readiness"]
-    assert readiness["ready"] is True
+    assert "ready" not in readiness
+    assert (
+        readiness["mechanical_assessment_status"]
+        == "PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY"
+    )
     assert readiness["historical_evidence_scope"] == "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
     assert readiness["candidate_eligibility"] == "BLOCKED_PENDING_PROSPECTIVE_PIT"
     assert contract["production_evidence_anchors"]["trial_census_exact_status"] == (

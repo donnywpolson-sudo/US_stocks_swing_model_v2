@@ -21,6 +21,7 @@ from .canonical.hfdl_legacy_publisher import (
     SYNTHETIC_CONTRACT_SCOPE,
     HfdlPublicationResult,
     HfdlPublishContract,
+    SYNTHETIC_PUBLICATION_SCOPE,
     publish_hfdl_legacy_discovery,
     verify_completed_migration_release,
     verify_hfdl_legacy_publication,
@@ -1056,6 +1057,11 @@ def run_stock_historical_foundation(
                 derived_work_root=work / "h",
                 created_at=prepared.created_at,
                 contract=prepared.hfdl_contract,
+                publication_synthetic_permit=SyntheticOnlyPermit.create(
+                    fixture_id=prepared.hfdl_contract.contract_id,
+                    scope=SYNTHETIC_PUBLICATION_SCOPE,
+                ),
+                publication_allowed_root=execution_root,
             )
             hfdl_binding = _hfdl_binding_with_permit(
                 hfdl, accepted_root=accepted, permit=prepared.synthetic_permit

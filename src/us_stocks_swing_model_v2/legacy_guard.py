@@ -75,6 +75,32 @@ def _manifest(root: Path, paths: Iterable[str]) -> dict[str, Any]:
     return {"count": len(entries), "sha256": _sha256_json(entries)}
 
 
+def _porcelain_v1_z_record_count(status: bytes) -> int:
+    """Count logical Git porcelain-v1 records without counting rename paths twice."""
+
+    if not status:
+        return 0
+    fields = status.split(b"\0")
+    if fields[-1] != b"":
+        raise IntegrityError("legacy Git status lacks its terminal NUL")
+    count = 0
+    index = 0
+    while index < len(fields) - 1:
+        record = fields[index]
+        if len(record) < 4 or record[2:3] != b" " or not record[3:]:
+            raise IntegrityError("legacy Git status record is malformed")
+        state = record[:2]
+        index += 1
+        if b"R" in state or b"C" in state:
+            if index >= len(fields) - 1 or not fields[index]:
+                raise IntegrityError(
+                    "legacy Git rename/copy status lacks its second pathname"
+                )
+            index += 1
+        count += 1
+    return count
+
+
 def capture_legacy_baseline(legacy_root: Path) -> dict[str, Any]:
     root = legacy_root.resolve(strict=True)
     observed_root = Path(_git(root, "rev-parse", "--show-toplevel").decode("utf-8", "strict").strip()).resolve(strict=True)
@@ -97,7 +123,7 @@ def capture_legacy_baseline(legacy_root: Path) -> dict[str, Any]:
         "index_stage_sha256": hashlib.sha256(_git(root, "ls-files", "-s", "-z")).hexdigest(),
         "legacy_root": str(root),
         "schema_version": "1.0.0",
-        "status_count": len([item for item in status.split(b"\0") if item]),
+        "status_count": _porcelain_v1_z_record_count(status),
         "status_sha256": hashlib.sha256(status).hexdigest(),
         "tracked_content": _manifest(root, tracked_paths),
         "unstaged_diff_sha256": hashlib.sha256(_git(root, "diff", "--binary", "--no-ext-diff", "--no-textconv")).hexdigest(),

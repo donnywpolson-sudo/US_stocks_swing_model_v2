@@ -68,7 +68,36 @@ exclusive.
 Public-key configuration, external signing, and execution each require their
 own explicit review and authorization.
 
+## Mechanical-readiness publication authorization
+
+Assessment remains read-only and needs no authorization. Publication with
+`assess_mechanical_readiness --execute` requires an independently signed
+`AUTHORIZE_MECHANICAL_READINESS_PUBLICATION` receipt plus the exact reviewed
+authority registry, key ID, and public JWK. The receipt subject is the verified
+assessment ID. Its bindings fix the foundation release, creation time,
+accepted-release root, work root, the two dataset and receipt names, and an
+exact publication count of two.
+
+The receipt is verified with the production system UTC clock after the
+assessment succeeds and before any work directory or accepted release is
+created. Synthetic fixture publication remains a separate non-authorizing test
+path and cannot be mixed with external authority inputs. Mechanical milestone
+receipts remain non-authorizing for research, candidates, production, or
+trading even when their publication was authorized.
+
 ## Provider network authorization
+
+`ACTIVE` in `config/network_acquisition_registry.json` means only that the
+reviewed endpoint and accepted-status catalog is available for request-plan
+validation and response-capability checks. It is not permission to open a
+connection, transmit credentials, or acquire data. It does not activate an
+external signing authority and does not make landed evidence trust eligible.
+
+While `config/authorization_authorities.json` is `NOT_CONFIGURED`, every real
+network acquisition remains prohibited even when the network catalog is
+`ACTIVE`, the provider CLI execution flag is present, or an environment token
+is set. Those controls are necessary gates but never substitute for an active
+external authority and an exact externally signed receipt.
 
 Every provider request additionally requires an externally signed
 `AUTHORIZE_NETWORK_ACQUISITION` receipt. The receipt identifies one exact
@@ -77,6 +106,39 @@ environment token and execution flag remain separate gates. Missing, expired,
 replayed, over-broad, wrong-source, wrong-URL, or wrong-registry receipts fail
 before a provider connection is opened.
 
+Request-plan construction is not itself trusted. Signing-request generation,
+authorization consumption, and each request attempt independently recompute
+the plan identity and revalidate its source, origin, method, limits,
+pagination, and registry binding against the pinned network catalog.
+
+Authorization preflight issues one in-memory request-attempt capability. The
+guarded transport binds its exact response URL, status, byte hash, header hash,
+and response limit to that attempt. Production snapshot landing requires and
+irreversibly consumes the resulting transport evidence. Missing, forged,
+mismatched, or replayed evidence fails before any network snapshot is landed.
+Synthetic fixtures continue through the separate synthetic-only landing API
+and are never network-as-received or trust eligible.
+
 Nasdaq authorizes one exact GET. Alpaca bar and corporate-action receipts
 authorize a bounded pagination family: the signed initial URL is exact and
 only a verified preceding response may supply the next `page_token`.
+
+## Corporate-action completeness authorization
+
+Process-date acquisition evidence never authorizes outcome maturation.
+Schema-v5 corporate-action coverage requires a separate
+`AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS` receipt. Its subject is the immutable
+effective-event coverage content ID; its bindings include the full provider
+coverage identity and process-date bounds, snapshot and requested-symbol
+censuses, acquisition mode, effective-session interval, asset census,
+reviewed provider-contract hash, reviewed late-arrival policy hash, review
+time, and source epoch.
+
+The loader reconstructs those bindings from the retained provider receipt and
+coverage payload, verifies the current pinned authority and receipt window,
+then derives the operative coverage ID from the authorized content ID plus the
+accepted release ID and epoch. Network evidence requires external authority;
+synthetic authority is accepted only for synthetic provider evidence and
+cannot produce production trust. With the external authority registry
+`NOT_CONFIGURED`, production completeness promotion remains prohibited and
+outcomes fail closed.

@@ -18,11 +18,14 @@ from us_stocks_swing_model_v2.errors import IntegrityError
 from us_stocks_swing_model_v2.mechanical_readiness import (
     HISTORICAL_READY_DATASET,
     HISTORICAL_READY_MILESTONE,
+    MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
     READINESS_STATE,
     REBUILD_DATASET,
     REBUILD_MILESTONE,
+    _role_isolation_violations,
     assess_stock_mechanical_readiness,
     build_mechanical_isolation_attestation,
+    mechanical_readiness_authorization_bindings,
     publish_stock_mechanical_readiness,
     verify_mechanical_isolation_attestation,
     verify_stock_mechanical_readiness_publication,
@@ -154,6 +157,57 @@ def test_publication_reuses_the_verified_assessment_once(
     assert calls == 1
 
 
+def test_production_publication_requires_exact_authorization_before_mutation(
+    readiness_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permit, accepted, foundation = _foundation(readiness_tmp)
+    assessment = assess_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        synthetic_permit=permit,
+    )
+    data_root = readiness_tmp / "data"
+    data_root.mkdir(exist_ok=True)
+    work_root = data_root / "readiness" / "authorized-output"
+    monkeypatch.setattr(readiness_module, "_repo_root", lambda: readiness_tmp)
+    monkeypatch.setattr(
+        readiness_module,
+        "assess_stock_mechanical_readiness",
+        lambda **_kwargs: assessment,
+    )
+
+    bindings = mechanical_readiness_authorization_bindings(
+        assessment=assessment,
+        accepted_release_root=accepted,
+        readiness_work_root=work_root,
+        created_at=CREATED_AT,
+    )
+    assert MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE == (
+        "AUTHORIZE_MECHANICAL_READINESS_PUBLICATION"
+    )
+    assert bindings == {
+        "accepted_release_root": str(accepted.resolve(strict=True)),
+        "assessment_id": assessment.assessment_id,
+        "created_at": CREATED_AT,
+        "foundation_release_id": assessment.foundation["release_id"],
+        "historical_ready_dataset": HISTORICAL_READY_DATASET,
+        "historical_ready_filename": "historical_research_ready.json",
+        "project": "US_stocks_swing_model_v2",
+        "publication_count": "2",
+        "readiness_work_root": str(work_root.resolve(strict=False)),
+        "rebuild_dataset": REBUILD_DATASET,
+        "rebuild_filename": "rebuild_complete.json",
+    }
+    with pytest.raises(PermissionError, match="external authorization"):
+        publish_stock_mechanical_readiness(
+            foundation_release_directory=foundation,
+            accepted_release_root=accepted,
+            readiness_work_root=work_root,
+            created_at=CREATED_AT,
+        )
+    assert not work_root.exists()
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -193,6 +247,10 @@ def test_publication_reuses_the_verified_assessment_once(
             ),
             "blockers or isolation",
         ),
+        (
+            lambda value: value["readiness"].__setitem__("ready", True),
+            "blockers or isolation",
+        ),
     ],
 )
 def test_census_and_pit_blocker_substitutions_fail_closed(
@@ -221,6 +279,12 @@ def test_census_and_pit_blocker_substitutions_fail_closed(
 
 def test_isolation_attestation_tamper_and_recomputed_id_still_fail() -> None:
     attestation = build_mechanical_isolation_attestation()
+    assert attestation["analysis_policy_version"] == (
+        "FAIL_CLOSED_ROLE_ISOLATION_AST_V2"
+    )
+    assert attestation["analysis_boundary"] == (
+        "STATIC_SOURCE_AST_ONLY_NOT_RUNTIME_PROOF"
+    )
     tampered = dict(attestation)
     tampered["model_fit_executed"] = True
     unsigned = dict(tampered)
@@ -228,6 +292,115 @@ def test_isolation_attestation_tamper_and_recomputed_id_still_fail() -> None:
     tampered["attestation_id"] = sha256_bytes(canonical_json_bytes(unsigned))
     with pytest.raises(IntegrityError, match="differs from current source"):
         verify_mechanical_isolation_attestation(tampered)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "futures_intraday_model_v2/data",
+        "futures_rebuild\\artifacts",
+        "C:/foreign/futures_intraday_model/data",
+    ],
+)
+def test_mechanical_isolation_detects_foreign_project_path_components(
+    value: str,
+) -> None:
+    assert readiness_module._contains_foreign_project_path_literal(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "futures_intraday_model_v2",
+        "futures_intraday_model_v20/data",
+        "my_futures_rebuild/artifacts",
+        "C:/foreign/futures_intraday_model_notes/data",
+    ],
+)
+def test_mechanical_isolation_ignores_prefix_like_path_components(
+    value: str,
+) -> None:
+    assert not readiness_module._contains_foreign_project_path_literal(value)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("model.fit(values)", "fit_reference"),
+        ("runner = model.fit\nrunner(values)", "fit_reference"),
+        ("getattr(model, 'fit')(values)", "dynamic_reference:getattr"),
+        ("__import__('sklearn')", "dynamic_reference:__import__"),
+        (
+            "import importlib\nimportlib.import_module('sklearn')",
+            "dynamic_import_reference",
+        ),
+        (
+            "from importlib import import_module as load\nload('sklearn')",
+            "dynamic_import_alias:import_module",
+        ),
+        (
+            "from builtins import eval as evaluate\n"
+            "evaluate('1 + 1')",
+            "dynamic_import_alias_reference:eval",
+        ),
+        (
+            "from builtins import exec as run\n"
+            "run('value = 1')",
+            "dynamic_import_alias_reference:exec",
+        ),
+        (
+            "from builtins import __import__ as load\n"
+            "load('sklearn')",
+            "dynamic_import_alias_reference:__import__",
+        ),
+        (
+            "from importlib import import_module as load\n"
+            "load('sklearn')",
+            "dynamic_import_alias_reference:import_module",
+        ),
+        ("eval('model.' + 'fit(values)')", "dynamic_reference:eval"),
+        ("globals()['__import__']('sklearn')", "dynamic_reference:globals"),
+        (
+            "__builtins__['__import__']('sklearn')",
+            "dynamic_reference:__builtins__",
+        ),
+        (
+            "import builtins\nbuiltins.__import__('sklearn')",
+            "dynamic_attribute_reference:__import__",
+        ),
+        (
+            "import operator\noperator.attrgetter('fit')(model)(values)",
+            "dynamic_attribute_reference:attrgetter",
+        ),
+        (
+            "model.__dict__['fit'](values)",
+            "dynamic_attribute_reference:__dict__",
+        ),
+        (
+            "setattr(model, 'runner', model.fit)",
+            "dynamic_reference:setattr",
+        ),
+    ],
+)
+def test_role_isolation_ast_rejects_indirect_execution(
+    source: str,
+    expected: str,
+) -> None:
+    violations = _role_isolation_violations(ast.parse(source))
+    assert any(item.startswith(expected) for item in violations)
+
+
+def test_role_isolation_ast_accepts_plain_fit_free_scoring() -> None:
+    tree = ast.parse(
+        "def score(values):\n"
+        "    return sum(value * 2.0 for value in values)\n"
+    )
+    assert _role_isolation_violations(tree) == ()
+
+
+def test_role_isolation_ast_accepts_unrelated_import_alias() -> None:
+    tree = ast.parse("from math import sqrt as root\nvalue = root(4.0)\n")
+    assert _role_isolation_violations(tree) == ()
 
 
 def _substituted_aggregate(

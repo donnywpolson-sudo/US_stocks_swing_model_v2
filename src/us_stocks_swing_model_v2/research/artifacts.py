@@ -12,7 +12,9 @@ from .contracts import ResearchContractError, explicit_int, explicit_real, requi
 
 
 MODEL_KIND = "linear_distribution_v1"
-DIRECTION_SEMANTICS = "ABSOLUTE_NEXT_5_SESSION_RETURN"
+DIRECTION_SEMANTICS = (
+    "SIGNED_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_SPLIT_NORMALIZED_PRICE_RETURN"
+)
 PREDICTION_ROLE = "FROZEN_OUTER_PREDICTIONS_SYNTHETIC_MECHANICS_ONLY"
 
 
@@ -40,7 +42,7 @@ class ExecutorRegistration:
     neutral_band: float
     uncertainty_floor: float
     registration_id: str
-    schema_version: int = 1
+    schema_version: int = 2
     selection_metric: str = "INNER_WEIGHTED_MEAN_SQUARED_ERROR"
     tie_break: str = "LOWEST_ALPHA"
     model_kind: str = MODEL_KIND
@@ -67,8 +69,11 @@ class ExecutorRegistration:
         }
 
     def validate(self) -> None:
-        if self.schema_version != 1 or isinstance(self.schema_version, bool):
-            raise ResearchContractError("executor registration schema is invalid")
+        if type(self.schema_version) is not int or self.schema_version != 2:
+            raise ResearchContractError(
+                "executor registration requires schema version 2; "
+                "legacy schema-v1 registrations cannot be migrated or relabeled"
+            )
         if (
             not isinstance(self.feature_schema_id, str)
             or not self.feature_schema_id
@@ -94,7 +99,9 @@ class ExecutorRegistration:
             or self.real_history_authorized is not False
             or self.candidate_sealing_authorized is not False
         ):
-            raise ResearchContractError("executor registration loses its synthetic absolute-return boundary")
+            raise ResearchContractError(
+                "executor registration loses its synthetic signed-return boundary"
+            )
         if self.registration_id != _sha256(self.unsigned_dict()):
             raise ResearchContractError("executor registration ID differs from its content")
 
@@ -113,7 +120,7 @@ class ExecutorRegistration:
         checked_band = explicit_real(neutral_band, name="neutral_band")
         checked_floor = explicit_real(uncertainty_floor, name="uncertainty_floor")
         unsigned = {
-            "schema_version": 1,
+            "schema_version": 2,
             "feature_schema_id": feature_schema_id,
             "feature_names": list(names),
             "ridge_alphas": list(alphas),
@@ -191,10 +198,16 @@ class FoldFitAudit:
             raise ResearchContractError("outer fit/audit sample IDs overlap")
         if not self.inner_folds:
             raise ResearchContractError("fit audit requires inner folds")
+        seen_inner_audit_ids: set[str] = set()
         for expected_number, inner in enumerate(self.inner_folds):
             if inner.fold_number != expected_number:
                 raise ResearchContractError("inner fold audit ordering differs")
             inner.validate(set(fit))
+            if seen_inner_audit_ids & set(inner.audit_sample_ids):
+                raise ResearchContractError(
+                    "inner audit sample IDs overlap across folds"
+                )
+            seen_inner_audit_ids.update(inner.audit_sample_ids)
         if len(self.alpha_scores) != len(registration.ridge_alphas):
             raise ResearchContractError("alpha score census differs from registration")
         for (alpha, score), expected_alpha in zip(

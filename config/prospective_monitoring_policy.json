@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "1.0.0-balanced-non-authorizing",
+  "policy_version": "1.1.0-pending-before-warning-non-authorizing",
   "project": "US_stocks_swing_model_v2",
   "mechanics_only": true,
   "reference": {
@@ -30,8 +30,8 @@
   "state_precedence": [
     "MONITORING_INVALID",
     "MONITORING_PAUSED",
-    "MONITORING_WARNING",
     "MONITORING_PENDING",
+    "MONITORING_WARNING",
     "MONITORING_OK"
   ],
   "record_contract": {

@@ -19,7 +19,13 @@ from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
 from us_stocks_swing_model_v2.cli import build_historical_foundation as cli_module
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
-from us_stocks_swing_model_v2.exchange_calendar import publish_xnys_calendar_release
+from us_stocks_swing_model_v2.exchange_calendar import (
+    SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+    calendar_environment_hash,
+    calendar_policy_hash,
+    calendar_publication_binding_id,
+    publish_xnys_calendar_release,
+)
 from us_stocks_swing_model_v2.foundation_orchestrator import (
     AGGREGATE_COMPONENT_COUNT,
     AGGREGATE_DATASET,
@@ -46,15 +52,24 @@ def _inputs(root: Path):
     permit = hfdl_support._permit("stock-foundation-orchestrator")
     contract = HfdlPublishContract.synthetic_fixture(2, permit=permit)
     accepted = root / "accepted"
+    calendar_stage = root / "calendar-stage"
+    calendar_kwargs = {
+        "staging_root": calendar_stage,
+        "release_root": accepted,
+        "start": date(2022, 2, 25),
+        "end": date(2022, 3, 15),
+        "created_at": CREATED_AT,
+        "code_hash": "1" * 64,
+        "config_hash": calendar_policy_hash(),
+        "environment_hash": calendar_environment_hash(),
+    }
     calendar = publish_xnys_calendar_release(
-        staging_root=root / "calendar-stage",
-        release_root=accepted,
-        start=date(2022, 2, 25),
-        end=date(2022, 3, 15),
-        created_at=CREATED_AT,
-        code_hash="1" * 64,
-        config_hash="2" * 64,
-        environment_hash="3" * 64,
+        **calendar_kwargs,
+        publication_synthetic_permit=SyntheticOnlyPermit.create(
+            fixture_id=calendar_publication_binding_id(**calendar_kwargs),
+            scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+        ),
+        publication_allowed_root=root,
     )
     return migration, permit, contract, accepted, calendar
 

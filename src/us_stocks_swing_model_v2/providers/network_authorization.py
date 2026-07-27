@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import secrets
 import threading
-from typing import Mapping
+from typing import Callable, Mapping, TypeVar
 from urllib.parse import parse_qsl, urlparse
 from weakref import WeakKeyDictionary
 
@@ -23,12 +23,33 @@ from ..common import (
 from ..errors import ContractError, EvaluationAuthorizationError
 from ..governance import AuthorizationAuthority, SignedAuthorizationReceipt
 from ..locking import ExclusiveFileLock
-from .snapshots import NetworkAcquisitionRegistry
+from .snapshots import NetworkAcquisitionRegistry, normalize_response_headers
 
 
 NETWORK_ACQUISITION_AUTHORIZATION_SCOPE = "AUTHORIZE_NETWORK_ACQUISITION"
 MAX_NETWORK_AUTHORIZATION_LIFETIME = timedelta(minutes=10)
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+def _exact_query_parts(query: str) -> tuple[tuple[str, str, str], ...]:
+    raw_parts = query.split("&") if query else []
+    try:
+        parsed = parse_qsl(
+            query,
+            keep_blank_values=True,
+            strict_parsing=True,
+        )
+    except ValueError as exc:
+        raise ContractError("network authorization query is malformed") from exc
+    if len(parsed) != len(raw_parts):
+        raise ContractError("network authorization query is not exact")
+    keys = [key for key, _ in parsed]
+    if len(keys) != len(set(keys)):
+        raise ContractError("network authorization query keys must be unique")
+    return tuple(
+        (raw, key, value)
+        for raw, (key, value) in zip(raw_parts, parsed, strict=True)
+    )
 
 
 @dataclass(frozen=True)
@@ -43,6 +64,67 @@ class NetworkRequestPlan:
     network_registry_id: str
     plan_id: str
 
+    def _unsigned(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "initial_url": self.initial_url,
+            "method": self.method,
+            "timeout_seconds": self.timeout_seconds,
+            "max_response_bytes": self.max_response_bytes,
+            "max_pages": self.max_pages,
+            "pagination_parameter": self.pagination_parameter,
+            "network_registry_id": self.network_registry_id,
+        }
+
+    def validate(self, *, registry: NetworkAcquisitionRegistry) -> None:
+        if type(registry) is not NetworkAcquisitionRegistry:
+            raise ContractError("network authorization plan requires its pinned registry")
+        registry.validate()
+        if (
+            type(self.source) is not str
+            or type(self.initial_url) is not str
+            or self.method != "GET"
+            or type(self.timeout_seconds) is not int
+            or type(self.max_response_bytes) is not int
+            or type(self.max_pages) is not int
+            or type(self.pagination_parameter) is not str
+            or type(self.network_registry_id) is not str
+            or type(self.plan_id) is not str
+        ):
+            raise ContractError("network authorization plan fields have invalid types")
+        parsed = urlparse(self.initial_url)
+        origin_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if registry.allowed_origin_paths.get(self.source) != origin_path:
+            raise ContractError("network authorization plan is outside the pinned registry")
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ContractError("network authorization URL is invalid")
+        query_parts = _exact_query_parts(parsed.query)
+        if any(key == "page_token" for _, key, _ in query_parts):
+            raise ContractError(
+                "initial authorized URL cannot contain a page token"
+            )
+        if not 1 <= self.timeout_seconds <= 30:
+            raise ContractError("network authorization timeout must be in [1,30]")
+        if not 1 <= self.max_response_bytes <= 64 * 1024 * 1024:
+            raise ContractError("network authorization response limit is invalid")
+        if not 1 <= self.max_pages <= 100:
+            raise ContractError("network authorization page limit must be in [1,100]")
+        if self.pagination_parameter not in {"none", "page_token"}:
+            raise ContractError("network authorization pagination parameter is invalid")
+        if self.pagination_parameter == "none" and self.max_pages != 1:
+            raise ContractError("non-paginated authorization must allow exactly one page")
+        if self.network_registry_id != registry.registry_id:
+            raise ContractError("network authorization plan registry binding differs")
+        expected_plan_id = sha256_bytes(canonical_json_bytes(self._unsigned()))
+        if self.plan_id != expected_plan_id:
+            raise ContractError("network authorization plan ID differs from its exact fields")
+
     @classmethod
     def create(
         cls,
@@ -55,24 +137,17 @@ class NetworkRequestPlan:
         max_pages: int,
         pagination_parameter: str | None,
     ) -> "NetworkRequestPlan":
+        if type(registry) is not NetworkAcquisitionRegistry:
+            raise ContractError("network authorization plan requires its pinned registry")
         registry.validate()
-        parsed = urlparse(initial_url)
-        origin_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        if registry.allowed_origin_paths.get(source) != origin_path:
-            raise ContractError("network authorization plan is outside the pinned registry")
-        if parsed.scheme != "https" or parsed.fragment or parsed.username or parsed.password:
-            raise ContractError("network authorization URL is invalid")
-        if not 1 <= timeout_seconds <= 30:
-            raise ContractError("network authorization timeout must be in [1,30]")
-        if not 1 <= max_response_bytes <= 64 * 1024 * 1024:
-            raise ContractError("network authorization response limit is invalid")
-        if not 1 <= max_pages <= 100:
-            raise ContractError("network authorization page limit must be in [1,100]")
-        pagination = pagination_parameter or "none"
-        if pagination not in {"none", "page_token"}:
-            raise ContractError("network authorization pagination parameter is invalid")
-        if pagination == "none" and max_pages != 1:
-            raise ContractError("non-paginated authorization must allow exactly one page")
+        if pagination_parameter is None:
+            pagination = "none"
+        elif type(pagination_parameter) is str:
+            pagination = pagination_parameter
+        else:
+            raise ContractError(
+                "network authorization pagination parameter is invalid"
+            )
         unsigned = {
             "source": source,
             "initial_url": initial_url,
@@ -83,9 +158,17 @@ class NetworkRequestPlan:
             "pagination_parameter": pagination,
             "network_registry_id": registry.registry_id,
         }
-        return cls(**unsigned, plan_id=sha256_bytes(canonical_json_bytes(unsigned)))
+        plan = cls(**unsigned, plan_id=sha256_bytes(canonical_json_bytes(unsigned)))
+        plan.validate(registry=registry)
+        return plan
 
-    def bindings(self, *, nonce: str) -> dict[str, str]:
+    def bindings(
+        self,
+        *,
+        nonce: str,
+        registry: NetworkAcquisitionRegistry,
+    ) -> dict[str, str]:
+        self.validate(registry=registry)
         if not _NONCE.fullmatch(nonce):
             raise EvaluationAuthorizationError(
                 "network authorization nonce must be 256-bit base64url"
@@ -149,17 +232,27 @@ class NetworkAuthorizationSession:
             initial.path,
         ):
             raise EvaluationAuthorizationError("paginated request changed origin or path")
-        initial_query = dict(parse_qsl(initial.query, keep_blank_values=True))
-        current_query = dict(parse_qsl(current.query, keep_blank_values=True))
-        if initial_query.get("page_token") is not None:
-            raise EvaluationAuthorizationError(
-                "initial authorized URL cannot contain a page token"
-            )
-        if current_query.pop("page_token", None) != expected_page_token:
+        try:
+            initial_query = _exact_query_parts(initial.query)
+            current_query = _exact_query_parts(current.query)
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(str(exc)) from exc
+        page_tokens = [
+            value
+            for _, key, value in current_query
+            if key == "page_token"
+        ]
+        if page_tokens != [expected_page_token]:
             raise EvaluationAuthorizationError(
                 "paginated request token differs from verified response"
             )
-        if current_query != initial_query:
+        current_base_query = "&".join(
+            raw
+            for raw, key, _ in current_query
+            if key != "page_token"
+        )
+        initial_base_query = "&".join(raw for raw, _, _ in initial_query)
+        if current_base_query != initial_base_query:
             raise EvaluationAuthorizationError(
                 "paginated request changed signed query parameters"
             )
@@ -169,6 +262,51 @@ _ISSUED_SESSIONS: WeakKeyDictionary[
     NetworkAuthorizationSession, dict[str, object]
 ] = WeakKeyDictionary()
 _ISSUED_SESSIONS_LOCK = threading.Lock()
+_COMMIT_RESULT = TypeVar("_COMMIT_RESULT")
+
+
+@dataclass(frozen=True, init=False, eq=False)
+class AuthorizedNetworkRequestAttempt:
+    attempt_id: str
+    plan_id: str
+    receipt_id: str
+    source: str
+    requested_url: str
+    timeout_seconds: int
+    max_response_bytes: int
+    page_index: int
+    expires_at: str
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "network request attempts must be issued by authorization preflight"
+        )
+
+
+@dataclass(frozen=True, init=False, eq=False)
+class AuthorizedNetworkResponse:
+    response_id: str
+    attempt_id: str
+    source: str
+    requested_url: str
+    response_url: str
+    http_status: int
+    raw_sha256: str
+    headers_sha256: str
+    max_response_bytes: int
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "network response evidence must be issued by the guarded transport"
+        )
+
+
+_ISSUED_REQUEST_ATTEMPTS: WeakKeyDictionary[
+    AuthorizedNetworkRequestAttempt, dict[str, object]
+] = WeakKeyDictionary()
+_ISSUED_NETWORK_RESPONSES: WeakKeyDictionary[
+    AuthorizedNetworkResponse, dict[str, object]
+] = WeakKeyDictionary()
 
 
 def assert_authorized_network_request(
@@ -181,7 +319,7 @@ def assert_authorized_network_request(
     page_index: int,
     expected_page_token: str | None,
     clock: TrustedClock,
-) -> None:
+) -> AuthorizedNetworkRequestAttempt:
     """Consume one authorized request attempt before any transport I/O.
 
     Consumption is deliberately irreversible: a timeout, interruption, or
@@ -230,6 +368,17 @@ def assert_authorized_network_request(
             raise EvaluationAuthorizationError(
                 "network authorization page was reused or is out of sequence"
             )
+        registry = issued["registry"]
+        if type(registry) is not NetworkAcquisitionRegistry:
+            raise EvaluationAuthorizationError(
+                "network authorization session lacks its pinned registry"
+            )
+        try:
+            session.plan.validate(registry=registry)
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(
+                "network authorization session plan is invalid"
+            ) from exc
         session._assert_request(
             source=source,
             url=url,
@@ -239,15 +388,194 @@ def assert_authorized_network_request(
             expected_page_token=expected_page_token,
         )
         issued["next_page"] = page_index + 1
+        attempt_unsigned = {
+            "plan_id": session.plan.plan_id,
+            "receipt_id": session.receipt_id,
+            "source": source,
+            "requested_url": url,
+            "timeout_seconds": timeout_seconds,
+            "max_response_bytes": max_response_bytes,
+            "page_index": page_index,
+            "expires_at": session.expires_at,
+            "attempt_nonce": secrets.token_urlsafe(32),
+        }
+        attempt = object.__new__(AuthorizedNetworkRequestAttempt)
+        attempt_fields = {
+            key: value
+            for key, value in attempt_unsigned.items()
+            if key != "attempt_nonce"
+        }
+        attempt_fields["attempt_id"] = sha256_bytes(
+            canonical_json_bytes(attempt_unsigned)
+        )
+        for name, value in attempt_fields.items():
+            object.__setattr__(attempt, name, value)
+        _ISSUED_REQUEST_ATTEMPTS[attempt] = {
+            "attempt_id": attempt.attempt_id,
+            "bound": False,
+        }
+        return attempt
+
+
+def _bind_authorized_network_response(
+    attempt: AuthorizedNetworkRequestAttempt,
+    *,
+    requested_url: str,
+    response_url: str,
+    http_status: int,
+    raw: bytes,
+    headers: Mapping[str, str],
+) -> AuthorizedNetworkResponse:
+    """Bind one guarded transport result to one spent request attempt."""
+
+    if type(attempt) is not AuthorizedNetworkRequestAttempt:
+        raise EvaluationAuthorizationError(
+            "network response lacks an authorized request attempt"
+        )
+    with _ISSUED_SESSIONS_LOCK:
+        issued = _ISSUED_REQUEST_ATTEMPTS.get(attempt)
+        if (
+            issued is None
+            or issued.get("attempt_id") != attempt.attempt_id
+            or issued.get("bound") is not False
+        ):
+            raise EvaluationAuthorizationError(
+                "network request attempt was forged or already bound"
+            )
+        if (
+            requested_url != attempt.requested_url
+            or response_url != requested_url
+            or type(http_status) is not int
+            or not 100 <= http_status <= 599
+            or type(raw) is not bytes
+            or len(raw) > attempt.max_response_bytes
+        ):
+            raise EvaluationAuthorizationError(
+                "network response differs from its authorized request attempt"
+            )
+        normalized_headers = normalize_response_headers(headers)
+        unsigned = {
+            "attempt_id": attempt.attempt_id,
+            "source": attempt.source,
+            "requested_url": requested_url,
+            "response_url": response_url,
+            "http_status": http_status,
+            "raw_sha256": sha256_bytes(raw),
+            "headers_sha256": sha256_bytes(
+                canonical_json_bytes(normalized_headers)
+            ),
+            "max_response_bytes": attempt.max_response_bytes,
+        }
+        response = object.__new__(AuthorizedNetworkResponse)
+        response_fields = {
+            **unsigned,
+            "response_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        }
+        for name, value in response_fields.items():
+            object.__setattr__(response, name, value)
+        issued["bound"] = True
+        _ISSUED_NETWORK_RESPONSES[response] = {
+            "response_id": response.response_id,
+            "consumed": False,
+        }
+        return response
+
+
+def _validate_authorized_network_response_unlocked(
+    response: AuthorizedNetworkResponse,
+    *,
+    source: str,
+    requested_url: str,
+    response_url: str,
+    http_status: int,
+    raw: bytes,
+    headers: Mapping[str, str],
+    max_response_bytes: int,
+) -> dict[str, object]:
+    if type(response) is not AuthorizedNetworkResponse:
+        raise EvaluationAuthorizationError(
+            "network landing lacks transport-issued response evidence"
+        )
+    issued = _ISSUED_NETWORK_RESPONSES.get(response)
+    normalized_headers = normalize_response_headers(headers)
+    if (
+        issued is None
+        or issued.get("response_id") != response.response_id
+        or issued.get("consumed") is not False
+        or response.source != source
+        or response.requested_url != requested_url
+        or response.response_url != response_url
+        or response.http_status != http_status
+        or response.raw_sha256 != sha256_bytes(raw)
+        or response.headers_sha256
+        != sha256_bytes(canonical_json_bytes(normalized_headers))
+        or response.max_response_bytes != max_response_bytes
+    ):
+        raise EvaluationAuthorizationError(
+            "network response evidence was forged, replayed, or mismatched"
+        )
+    return issued
+
+
+def _validate_authorized_network_response(
+    response: AuthorizedNetworkResponse,
+    **expected: object,
+) -> None:
+    """Check one issued response without consuming it before landing validation."""
+
+    with _ISSUED_SESSIONS_LOCK:
+        _validate_authorized_network_response_unlocked(response, **expected)
+
+
+def _consume_authorized_network_response(
+    response: AuthorizedNetworkResponse,
+    *,
+    source: str,
+    requested_url: str,
+    response_url: str,
+    http_status: int,
+    raw: bytes,
+    headers: Mapping[str, str],
+    max_response_bytes: int,
+    commit: Callable[[], _COMMIT_RESULT],
+) -> _COMMIT_RESULT:
+    """Validate once, commit landing, then atomically mark the response spent."""
+
+    with _ISSUED_SESSIONS_LOCK:
+        issued = _validate_authorized_network_response_unlocked(
+            response,
+            source=source,
+            requested_url=requested_url,
+            response_url=response_url,
+            http_status=http_status,
+            raw=raw,
+            headers=headers,
+            max_response_bytes=max_response_bytes,
+        )
+        result = commit()
+        issued["consumed"] = True
+        return result
 
 
 class NetworkAuthorizationUseStore:
-    def __init__(self, root: Path, *, allowed_root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        allowed_root: Path,
+        registry: NetworkAcquisitionRegistry,
+    ):
         self.root = Path(root)
         self.allowed_root = Path(allowed_root)
+        self.registry = registry
         if not self.root.is_absolute() or not self.allowed_root.is_absolute():
             raise ContractError("network authorization use paths must be absolute")
         require_contained_path(self.root, self.allowed_root, must_exist=False)
+        if type(self.registry) is not NetworkAcquisitionRegistry:
+            raise ContractError(
+                "network authorization use store requires its pinned registry"
+            )
+        self.registry.validate()
 
     def authorize(
         self,
@@ -258,12 +586,22 @@ class NetworkAuthorizationUseStore:
         clock: TrustedClock,
     ) -> NetworkAuthorizationSession:
         trusted_clock = require_trusted_clock(clock)
+        if type(plan) is not NetworkRequestPlan:
+            raise EvaluationAuthorizationError(
+                "network execution requires an exact request plan"
+            )
+        try:
+            plan.validate(registry=self.registry)
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(
+                "network request plan is not registry-bound"
+            ) from exc
         if authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
             raise EvaluationAuthorizationError(
                 "network execution requires an external signing authority"
             )
         nonce = str(receipt.bindings.get("authorization_nonce", ""))
-        required = plan.bindings(nonce=nonce)
+        required = plan.bindings(nonce=nonce, registry=self.registry)
         issued = parse_utc_z(receipt.issued_at, "network_authorization.issued_at")
         expires = parse_utc_z(receipt.expires_at, "network_authorization.expires_at")
         if expires - issued > MAX_NETWORK_AUTHORIZATION_LIFETIME:
@@ -309,23 +647,36 @@ class NetworkAuthorizationUseStore:
         object.__setattr__(session, "nonce", nonce)
         object.__setattr__(session, "consumed_at", iso_z(observed))
         object.__setattr__(session, "expires_at", receipt.expires_at)
-        _ISSUED_SESSIONS[session] = {
-            "marker_path": marker,
-            "marker_sha256": sha256_bytes(marker_payload),
-            "next_page": 0,
-        }
+        with _ISSUED_SESSIONS_LOCK:
+            _ISSUED_SESSIONS[session] = {
+                "marker_path": marker,
+                "marker_sha256": sha256_bytes(marker_payload),
+                "next_page": 0,
+                "registry": self.registry,
+            }
         return session
 
 
 def network_authorization_request(
     plan: NetworkRequestPlan,
     *,
+    registry: NetworkAcquisitionRegistry,
     clock: TrustedClock,
     nonce: str | None = None,
 ) -> Mapping[str, object]:
     issued = require_trusted_clock(clock).now()
     chosen_nonce = nonce or secrets.token_urlsafe(32)
-    bindings = plan.bindings(nonce=chosen_nonce)
+    if type(plan) is not NetworkRequestPlan:
+        raise EvaluationAuthorizationError(
+            "network authorization request requires an exact request plan"
+        )
+    try:
+        plan.validate(registry=registry)
+    except ContractError as exc:
+        raise EvaluationAuthorizationError(
+            "network authorization request plan is not registry-bound"
+        ) from exc
+    bindings = plan.bindings(nonce=chosen_nonce, registry=registry)
     return {
         "schema_version": 1,
         "scope": NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,

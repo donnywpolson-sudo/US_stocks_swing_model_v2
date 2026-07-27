@@ -120,6 +120,9 @@ Content-addressed, non-authorizing `REBUILD_COMPLETE` and mechanical
 `HISTORICAL_RESEARCH_READY` receipts live under the ignored accepted-data
 vault. A receipt is current only when its repository and release bindings
 verify. Historical PIT and exact legacy-trial-census blockers remain in force.
+These are deliberately open release prerequisites, not repository-only defects;
+their assessment disposition is defined in
+[`docs/ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md`](docs/ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md).
 
 ## Pipeline in simple terms
 
@@ -213,7 +216,10 @@ The exact Python 3.11.9 runtime and numerical/data dependencies are pinned in
 `requirements.lock`, the Windows CPython 3.11 wheel hashes in
 `requirements.sha256.lock`, and the environment contract in
 `config/environment.lock.json`. `pyproject.toml` defines the project
-dependencies; there is no legacy `requirements.txt` authority.
+dependencies; there is no legacy `requirements.txt` authority. Runtime
+validation compares every distribution in the complete executable project
+closure, including transitive dependencies; unrelated globally installed tools
+are outside that closure. See `docs/DEPENDENCY_CLOSURE_POLICY.md`.
 
 ```powershell
 git diff --check
@@ -221,6 +227,7 @@ python -m pytest -q <targeted-test-path>
 python -m us_stocks_swing_model_v2.cli.hash_copy --config config/migration_allowlist.json
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only --nasdaq-only
+python -m us_stocks_swing_model_v2.cli.qualify_free_sources --nasdaq-only --emit-authorization-requests C:\absolute\new\request-directory
 python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
 python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
 ```
@@ -236,8 +243,10 @@ shared-secret receipts are rejected, and no authority is active while the
 checked registry is `NOT_CONFIGURED`. See
 `docs/EXTERNAL_AUTHORIZATION.md`. Network capture and offline detached-
 attestation verification are separate operations; an unattested capture is
-never qualified. Provider execution also consumes a separate externally signed
-request authorization before opening a connection. See
+never qualified. Free-source qualification `--plan-only` performs no filesystem
+writes; authorization-request files require the explicit
+`--emit-authorization-requests` mode. Provider execution also consumes a
+separate externally signed request authorization before opening a connection. See
 `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
 commands operate only on accepted local releases and make no provider or
 historical-research calls.
@@ -247,7 +256,10 @@ historical-research calls.
 - `REBUILD_COMPLETE`: architecture, deterministic rebuild, recovery, and
   adversarial acceptance tests pass; no alpha or execution claim follows.
 - `HISTORICAL_RESEARCH_READY`: the registered discovery harness is mechanically
-  ready; real-history execution still requires separate authorization.
+  complete for its non-authorizing scope; real-history execution still requires
+  separate authorization. The readiness contract deliberately has no generic
+  positive `ready` flag and cannot be read as candidate, live, or deployment
+  readiness.
 - `CANDIDATE_SEALED`: a separately authorized candidate is frozen.
 - `PROSPECTIVE_EVIDENCE_PENDING`, `PROSPECTIVE_PASS`, `FAIL`, or
   `INCONCLUSIVE`: genuinely new evidence state.
@@ -265,3 +277,6 @@ historical-research calls.
 - [`docs/AUDIT_TRACEABILITY.md`](docs/AUDIT_TRACEABILITY.md): mapping from
   release-blocking findings to code, synthetic tests, gates, and milestone
   evidence.
+- [`docs/LEDGER_RECOVERY_JOURNAL_LIFECYCLE.md`](docs/LEDGER_RECOVERY_JOURNAL_LIFECYCLE.md):
+  exact replay, rejected-journal quarantine, retry, and evidence-retention
+  semantics for append-only ledgers.

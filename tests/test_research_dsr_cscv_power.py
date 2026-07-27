@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from us_stocks_swing_model_v2.research import (
+    ResearchArrayBinding,
     ResearchContractError,
     deflated_sharpe_ratio,
     exhaustive_cscv_pbo,
@@ -11,15 +12,39 @@ from us_stocks_swing_model_v2.research import (
 )
 
 
+def _dsr_binding(
+    returns: np.ndarray,
+    trial_sharpes: np.ndarray,
+) -> tuple[ResearchArrayBinding, tuple[str, ...]]:
+    sample_ids = tuple(f"sample-{index}" for index in range(len(returns)))
+    binding = ResearchArrayBinding.create(
+        trial_id="1" * 64,
+        trial_family_id="synthetic-dsr-family",
+        trial_family_anchor_id="2" * 64,
+        census_anchor_id="3" * 64,
+        evaluator_closure_hash="4" * 64,
+        data_release_ids=("5" * 64,),
+        sample_ids=sample_ids,
+        arrays={
+            "selected_returns": returns,
+            "trial_sharpes": trial_sharpes,
+        },
+    )
+    return binding, sample_ids
+
+
 def test_deflated_sharpe_hand_computed_oracle_uses_raw_trial_census() -> None:
     returns = np.arange(5, dtype=np.float64)
     selected_sharpe = float(np.mean(returns) / np.std(returns, ddof=1))
     trial_sharpes = np.asarray([0.0, selected_sharpe], dtype=np.float64)
+    binding, sample_ids = _dsr_binding(returns, trial_sharpes)
     result = deflated_sharpe_ratio(
         returns,
         trial_sharpes,
         raw_trial_count=2,
         selected_trial_index=1,
+        sample_ids=sample_ids,
+        binding=binding,
     )
     assert result.selected_sharpe_per_period == pytest.approx(1.2649110640673518)
     assert result.selected_trial_index == 1
@@ -36,26 +61,84 @@ def test_deflated_sharpe_hand_computed_oracle_uses_raw_trial_census() -> None:
 def test_dsr_rejects_incomplete_mismatched_or_ambiguous_trial_census() -> None:
     returns = np.arange(5, dtype=np.float64)
     selected_sharpe = float(np.mean(returns) / np.std(returns, ddof=1))
+    incomplete = np.asarray([0.0, 1.0], dtype=np.float64)
+    incomplete_binding, sample_ids = _dsr_binding(returns, incomplete)
     with pytest.raises(ResearchContractError, match="raw_trial_count"):
         deflated_sharpe_ratio(
             returns,
-            np.asarray([0.0, 1.0], dtype=np.float64),
+            incomplete,
             raw_trial_count=3,
             selected_trial_index=1,
+            sample_ids=sample_ids,
+            binding=incomplete_binding,
         )
+    ambiguous = np.asarray(
+        [selected_sharpe, selected_sharpe],
+        dtype=np.float64,
+    )
+    ambiguous_binding, sample_ids = _dsr_binding(returns, ambiguous)
     with pytest.raises(ResearchContractError, match="unique deterministic"):
         deflated_sharpe_ratio(
             returns,
-            np.asarray([selected_sharpe, selected_sharpe], dtype=np.float64),
+            ambiguous,
             raw_trial_count=2,
             selected_trial_index=1,
+            sample_ids=sample_ids,
+            binding=ambiguous_binding,
         )
+    mismatched = np.asarray([0.0, 1.0], dtype=np.float64)
+    mismatched_binding, sample_ids = _dsr_binding(returns, mismatched)
     with pytest.raises(ResearchContractError, match="do not match"):
         deflated_sharpe_ratio(
             returns,
-            np.asarray([0.0, 1.0], dtype=np.float64),
+            mismatched,
             raw_trial_count=2,
             selected_trial_index=1,
+            sample_ids=sample_ids,
+            binding=mismatched_binding,
+        )
+
+
+def test_dsr_rejects_unbound_and_tampered_non_selected_trial_sharpes() -> None:
+    returns = np.arange(5, dtype=np.float64)
+    selected_sharpe = float(np.mean(returns) / np.std(returns, ddof=1))
+    trial_sharpes = np.asarray([0.0, selected_sharpe], dtype=np.float64)
+    binding, sample_ids = _dsr_binding(returns, trial_sharpes)
+
+    with pytest.raises(TypeError, match="sample_ids.*binding|binding.*sample_ids"):
+        deflated_sharpe_ratio(
+            returns,
+            trial_sharpes,
+            raw_trial_count=2,
+            selected_trial_index=1,
+        )
+
+    tampered = trial_sharpes.copy()
+    tampered[0] = -7.0
+    with pytest.raises(
+        ResearchContractError,
+        match="statistical arrays differ",
+    ):
+        deflated_sharpe_ratio(
+            returns,
+            tampered,
+            raw_trial_count=2,
+            selected_trial_index=1,
+            sample_ids=sample_ids,
+            binding=binding,
+        )
+
+    with pytest.raises(
+        ResearchContractError,
+        match="sample IDs differ",
+    ):
+        deflated_sharpe_ratio(
+            returns,
+            trial_sharpes,
+            raw_trial_count=2,
+            selected_trial_index=1,
+            sample_ids=tuple(reversed(sample_ids)),
+            binding=binding,
         )
 
 

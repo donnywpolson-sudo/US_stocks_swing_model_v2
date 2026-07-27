@@ -104,6 +104,7 @@ def _validate_request(request: OuterBuilderRequest) -> None:
     if not request.inner_folds:
         raise ResearchContractError("builder requires at least one inner fold")
     outer_positions = {sample_id: index for index, sample_id in enumerate(fit_ids)}
+    seen_inner_audit_ids: set[str] = set()
     for number, inner in enumerate(request.inner_folds):
         if not isinstance(inner, InnerBuilderFold):
             raise ResearchContractError("builder inner fold type differs")
@@ -123,6 +124,11 @@ def _validate_request(request: OuterBuilderRequest) -> None:
         )
         if set(inner_fit_ids) & set(inner_audit_ids):
             raise ResearchContractError("inner builder fit/audit IDs overlap")
+        if seen_inner_audit_ids & set(inner_audit_ids):
+            raise ResearchContractError(
+                "inner builder audit sample IDs overlap across folds"
+            )
+        seen_inner_audit_ids.update(inner_audit_ids)
         if not (set(inner_fit_ids) | set(inner_audit_ids)) <= set(fit_ids):
             raise ResearchContractError("inner builder IDs escape outer fit")
         for ids, x, y in (

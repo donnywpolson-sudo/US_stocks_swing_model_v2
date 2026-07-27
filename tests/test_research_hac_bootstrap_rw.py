@@ -3,16 +3,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import us_stocks_swing_model_v2.research as research_api
 from us_stocks_swing_model_v2.research import (
     ResearchContractError,
     apply_shared_indices,
     hac_t_statistic,
     newey_west_mean,
     romano_wolf_from_differentials,
-    romano_wolf_stepdown,
     stationary_bootstrap_index_kernel,
     stationary_bootstrap_index_rows,
     stationary_bootstrap_indices,
+)
+from us_stocks_swing_model_v2.research.multiple_testing import (
+    _romano_wolf_stepdown_from_null_statistics,
 )
 
 
@@ -106,26 +109,41 @@ def test_romano_wolf_plus_one_stepdown_oracle() -> None:
         ],
         dtype=np.float64,
     )
-    result = romano_wolf_stepdown(
+    result = _romano_wolf_stepdown_from_null_statistics(
         observed,
         null_bootstrap,
         hypothesis_ids=("A", "B", "C"),
         tail="greater",
+        null_centered=True,
         minimum_resamples=4,
     )
     np.testing.assert_array_equal(result.stepdown_order, np.asarray([0, 1, 2], dtype=np.int64))
     np.testing.assert_allclose(result.stage_p_values, np.asarray([0.4, 0.4, 0.6]))
     np.testing.assert_allclose(result.adjusted_p_values, np.asarray([0.4, 0.4, 0.6]))
-    assert result.null_centered is False
+    assert result.null_centered is True
 
 
-def test_romano_wolf_default_resample_floor_fails_closed() -> None:
-    with pytest.raises(ResearchContractError, match="too few"):
-        romano_wolf_stepdown(
+def test_romano_wolf_rejects_uncentered_null_and_is_not_publicly_exported() -> None:
+    assert not hasattr(research_api, "romano_wolf_stepdown")
+    with pytest.raises(ResearchContractError, match="null-centered"):
+        _romano_wolf_stepdown_from_null_statistics(
             np.asarray([1.0], dtype=np.float64),
             np.asarray([[0.0], [1.0]], dtype=np.float64),
             hypothesis_ids=("only",),
             tail="greater",
+            null_centered=False,
+            minimum_resamples=2,
+        )
+
+
+def test_romano_wolf_default_resample_floor_fails_closed() -> None:
+    with pytest.raises(ResearchContractError, match="too few"):
+        _romano_wolf_stepdown_from_null_statistics(
+            np.asarray([1.0], dtype=np.float64),
+            np.asarray([[0.0], [1.0]], dtype=np.float64),
+            hypothesis_ids=("only",),
+            tail="greater",
+            null_centered=True,
         )
 
 

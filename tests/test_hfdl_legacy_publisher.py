@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Mapping
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -25,6 +25,7 @@ from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
     HfdlPublishContract,
     SET_DATASET,
     SYNTHETIC_CONTRACT_SCOPE,
+    SYNTHETIC_PUBLICATION_SCOPE,
     publish_hfdl_legacy_discovery,
     verify_completed_migration_release,
     verify_hfdl_legacy_publication,
@@ -59,7 +60,26 @@ def _permit(fixture_id: str) -> SyntheticOnlyPermit:
     return SyntheticOnlyPermit.create(fixture_id=fixture_id, scope=SYNTHETIC_CONTRACT_SCOPE)
 
 
-def _write_native_pair(root: Path, *, filename_symbol: str, canonical_symbol: str) -> tuple[Path, Path]:
+def _publication_kwargs(
+    root: Path,
+    contract: HfdlPublishContract,
+) -> dict[str, object]:
+    return {
+        "publication_synthetic_permit": SyntheticOnlyPermit.create(
+            fixture_id=contract.contract_id,
+            scope=SYNTHETIC_PUBLICATION_SCOPE,
+        ),
+        "publication_allowed_root": root,
+    }
+
+
+def _write_native_pair(
+    root: Path,
+    *,
+    filename_symbol: str,
+    canonical_symbol: str,
+    sidecar_updates: Mapping[str, object] | None = None,
+) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
     parquet = root / f"{filename_symbol}.parquet"
     table = pa.Table.from_pydict(
@@ -79,24 +99,23 @@ def _write_native_pair(root: Path, *, filename_symbol: str, canonical_symbol: st
     )
     pq.write_table(table, parquet)
     sidecar = root / f"{filename_symbol}.parquet.provenance.json"
-    sidecar.write_bytes(
-        canonical_json_bytes(
-            {
-                "canonical_symbol": canonical_symbol,
-                "created_at_utc": CREATED_AT,
-                "row_count": 2,
-                "sha256": sha256_file(parquet),
-                "timeframe": "daily",
-                "validation_passed": True,
-                "version": "clean",
-                "source_limitations": [
-                    "Universe is a fixed snapshot.",
-                    "Pre-March 2022 and post-March 2022 feeds differ.",
-                    "Clean files are source-adjusted.",
-                ],
-            }
-        )
-    )
+    payload: dict[str, object] = {
+        "canonical_symbol": canonical_symbol,
+        "created_at_utc": CREATED_AT,
+        "row_count": 2,
+        "sha256": sha256_file(parquet),
+        "timeframe": "daily",
+        "validation_passed": True,
+        "version": "clean",
+        "source_limitations": [
+            "Universe is a fixed snapshot.",
+            "Pre-March 2022 and post-March 2022 feeds differ.",
+            "Clean files are source-adjusted.",
+        ],
+    }
+    if sidecar_updates is not None:
+        payload.update(sidecar_updates)
+    sidecar.write_bytes(canonical_json_bytes(payload))
     return parquet, sidecar
 
 
@@ -108,6 +127,7 @@ def _completed_migration_release(
     authorization_class: str = CONTROLLED_REBUILD_AUTHORIZATION_CLASS,
     authorization_registry_id: str = CONTROLLED_REBUILD_AUTHORIZATION_ID,
     sealed_non_derived_objects: bool = False,
+    sidecar_updates: Mapping[str, object] | None = None,
 ) -> Path:
     source = root / "fixture_source"
     entries: list[dict[str, object]] = []
@@ -117,6 +137,7 @@ def _completed_migration_release(
             source,
             filename_symbol=filename_symbol,
             canonical_symbol=canonical_symbol,
+            sidecar_updates=sidecar_updates,
         )
         members = (parquet,) if filename_symbol == omit_sidecar_for else (parquet, sidecar)
         for member in members:
@@ -227,6 +248,40 @@ def _completed_migration_release(
     return release
 
 
+def _poison_completed_migration_entry(
+    release: Path,
+    *,
+    field: str,
+    value: object,
+) -> None:
+    manifest_path = release / "migration_files.jsonl"
+    entries = [
+        json.loads(line)
+        for line in manifest_path.read_bytes().splitlines()
+    ]
+    entries[0][field] = value
+    manifest_bytes = b"".join(canonical_json_bytes(entry) for entry in entries)
+    manifest_path.write_bytes(manifest_bytes)
+    inventory_sha256 = sha256_bytes(manifest_bytes)
+    for path in (
+        release / "summary.json",
+        release / "checkpoint.json",
+        release / "completion_receipt.json",
+    ):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["inventory_sha256"] = inventory_sha256
+        path.write_bytes(canonical_json_bytes(payload))
+    family_path = (
+        release
+        / "family_receipts"
+        / f"{HFDL_MIGRATION_FAMILY}.json"
+    )
+    family = json.loads(family_path.read_text(encoding="utf-8"))
+    family["inventory_sha256"] = inventory_sha256
+    family["family_manifest_sha256"] = inventory_sha256
+    family_path.write_bytes(canonical_json_bytes(family))
+
+
 def _publish_fixture(
     tmp_path: Path,
     *,
@@ -243,8 +298,40 @@ def _publish_fixture(
         derived_work_root=work,
         created_at=CREATED_AT,
         contract=contract,
+        **_publication_kwargs(tmp_path, contract),
     )
     return accepted, work, permit, result
+
+
+def test_hfdl_publication_requires_explicit_synthetic_action_before_mutation(
+    hfdl_tmp: Path,
+) -> None:
+    release = _completed_migration_release(hfdl_tmp / "migration")
+    accepted = hfdl_tmp / "accepted"
+    work = hfdl_tmp / "work"
+    with pytest.raises(PermissionError, match="synthetic-only"):
+        publish_hfdl_legacy_discovery(
+            migration_release_directory=release,
+            accepted_release_root=accepted,
+            derived_work_root=work,
+            created_at=CREATED_AT,
+            contract=HfdlPublishContract.production(),
+        )
+    assert not accepted.exists()
+    assert not work.exists()
+
+    permit = _permit("hfdl-publication-guard")
+    contract = HfdlPublishContract.synthetic_fixture(2, permit=permit)
+    with pytest.raises(ContractError, match="synthetic-only permit"):
+        publish_hfdl_legacy_discovery(
+            migration_release_directory=release,
+            accepted_release_root=accepted,
+            derived_work_root=work,
+            created_at=CREATED_AT,
+            contract=contract,
+        )
+    assert not accepted.exists()
+    assert not work.exists()
 
 
 def test_publisher_splits_physical_epochs_binds_denominators_and_reruns_deterministically(
@@ -291,14 +378,171 @@ def test_publisher_splits_physical_epochs_binds_denominators_and_reruns_determin
         }
     assert all_epochs == {epoch: {epoch} for epoch in HFDL_EPOCHS}
 
+    rerun_contract = HfdlPublishContract.synthetic_fixture(2, permit=permit)
     rerun = publish_hfdl_legacy_discovery(
         migration_release_directory=_completed_migration_release(tmp_path / "migration"),
         accepted_release_root=accepted,
         derived_work_root=tmp_path / "derived",
         created_at=CREATED_AT,
-        contract=HfdlPublishContract.synthetic_fixture(2, permit=permit),
+        contract=rerun_contract,
+        **_publication_kwargs(tmp_path, rerun_contract),
     )
     assert rerun == result
+
+
+def test_publisher_uses_canonical_sidecar_validation_and_ignores_extensions(
+    hfdl_tmp: Path,
+) -> None:
+    tmp_path = hfdl_tmp
+    release = _completed_migration_release(
+        tmp_path / "migration",
+        pairs=(("AAA", "AAA"),),
+        sidecar_updates={
+            "vendor_extension": {
+                "row_count": "untrusted",
+                "validation_passed": False,
+            }
+        },
+    )
+    permit = _permit("hfdl-sidecar-extension")
+    contract = HfdlPublishContract.synthetic_fixture(1, permit=permit)
+    result = publish_hfdl_legacy_discovery(
+        migration_release_directory=release,
+        accepted_release_root=tmp_path / "accepted",
+        derived_work_root=tmp_path / "derived",
+        created_at=CREATED_AT,
+        contract=contract,
+        **_publication_kwargs(tmp_path, contract),
+    )
+    verify_hfdl_legacy_publication(
+        result.epoch_set_release_directory,
+        accepted_release_root=tmp_path / "accepted",
+        synthetic_permit=permit,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeframe", True),
+        ("version", 7),
+        ("validation_passed", 1),
+        (
+            "source_limitations",
+            ["fixed snapshot", "March 2022 split", False],
+        ),
+    ],
+)
+def test_publisher_rejects_sidecars_rejected_by_the_canonical_validator(
+    hfdl_tmp: Path,
+    field: str,
+    value: object,
+) -> None:
+    tmp_path = hfdl_tmp
+    release = _completed_migration_release(
+        tmp_path / f"migration-{field}",
+        pairs=(("AAA", "AAA"),),
+        sidecar_updates={field: value},
+    )
+    permit = _permit(f"hfdl-sidecar-invalid-{field}")
+    contract = HfdlPublishContract.synthetic_fixture(1, permit=permit)
+
+    with pytest.raises(ContractError):
+        publish_hfdl_legacy_discovery(
+            migration_release_directory=release,
+            accepted_release_root=tmp_path / "accepted",
+            derived_work_root=tmp_path / "derived",
+            created_at=CREATED_AT,
+            contract=contract,
+            **_publication_kwargs(tmp_path, contract),
+        )
+
+    assert not any(
+        path.name == "release_manifest.json"
+        for path in (tmp_path / "accepted").rglob("*")
+    )
+
+
+def test_failed_capsule_materialization_is_quarantined_and_never_reused(
+    hfdl_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tmp_path = hfdl_tmp
+    release = _completed_migration_release(
+        tmp_path / "migration",
+        pairs=(("AAA", "AAA"),),
+    )
+    accepted = tmp_path / "accepted"
+    work = tmp_path / "derived"
+    permit = _permit("hfdl-materialization-quarantine")
+    contract = HfdlPublishContract.synthetic_fixture(1, permit=permit)
+    original_writer = publisher_module.write_tagged_hfdl_legacy_epochs
+
+    def fail_after_partial_evidence(result, output_root):
+        output_root.mkdir(parents=True, exist_ok=True)
+        (output_root / "diagnostic.partial").write_bytes(b"retain-exact-bytes")
+        raise RuntimeError("synthetic partial capsule failure")
+
+    monkeypatch.setattr(
+        publisher_module,
+        "write_tagged_hfdl_legacy_epochs",
+        fail_after_partial_evidence,
+    )
+    with pytest.raises(RuntimeError, match="partial capsule failure"):
+        publish_hfdl_legacy_discovery(
+            migration_release_directory=release,
+            accepted_release_root=accepted,
+            derived_work_root=work,
+            created_at=CREATED_AT,
+            contract=contract,
+            **_publication_kwargs(tmp_path, contract),
+        )
+
+    receipts = list(
+        (work / "hfdl").glob(
+            "*/.quarantine/*/quarantine_receipt.json"
+        )
+    )
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+    assert receipts[0].read_bytes() == canonical_json_bytes(receipt)
+    assert receipt["reason"] == "MATERIALIZATION_FAILED"
+    assert receipt["retention"] == (
+        "INDEFINITE_UNTIL_EXPLICIT_OWNER_DISPOSITION"
+    )
+    assert receipt["direct_reuse_or_promotion"] == "PROHIBITED"
+    assert receipt["payload_manifest_sha256"] == sha256_bytes(
+        canonical_json_bytes(receipt["payload_manifest"])
+    )
+    payload = receipts[0].parent / "payload"
+    assert (payload / "split" / "diagnostic.partial").read_bytes() == (
+        b"retain-exact-bytes"
+    )
+    assert not list(receipts[0].parents[2].glob("pairs/.pending-*"))
+    receipt_bytes = receipts[0].read_bytes()
+
+    monkeypatch.setattr(
+        publisher_module,
+        "write_tagged_hfdl_legacy_epochs",
+        original_writer,
+    )
+    result = publish_hfdl_legacy_discovery(
+        migration_release_directory=release,
+        accepted_release_root=accepted,
+        derived_work_root=work,
+        created_at=CREATED_AT,
+        contract=contract,
+        **_publication_kwargs(tmp_path, contract),
+    )
+    verify_hfdl_legacy_publication(
+        result.epoch_set_release_directory,
+        accepted_release_root=accepted,
+        synthetic_permit=permit,
+    )
+    assert receipts[0].read_bytes() == receipt_bytes
+    assert (payload / "split" / "diagnostic.partial").read_bytes() == (
+        b"retain-exact-bytes"
+    )
 
 
 def test_publisher_resumes_after_capsule_crash_without_partial_accepted_release(
@@ -329,12 +573,16 @@ def test_publisher_resumes_after_capsule_crash_without_partial_accepted_release(
             derived_work_root=work,
             created_at=CREATED_AT,
             contract=contract,
+            **_publication_kwargs(tmp_path, contract),
         )
     assert not any(path.name == "release_manifest.json" for path in accepted.rglob("*"))
     checkpoints = list((work / "hfdl").glob("*/checkpoint.json"))
     assert len(checkpoints) == 1
     checkpoint = json.loads(checkpoints[0].read_text(encoding="utf-8"))
     assert len(checkpoint["completed_capsules"]) == 1
+    interrupted = checkpoints[0].parent / "pairs" / ".pending-interrupted"
+    (interrupted / "split").mkdir(parents=True)
+    (interrupted / "split" / "partial.bin").write_bytes(b"interrupted-evidence")
 
     monkeypatch.setattr(publisher_module, "_materialize_pair_capsule", original)
     result = publish_hfdl_legacy_discovery(
@@ -343,6 +591,7 @@ def test_publisher_resumes_after_capsule_crash_without_partial_accepted_release(
         derived_work_root=work,
         created_at=CREATED_AT,
         contract=contract,
+        **_publication_kwargs(tmp_path, contract),
     )
     verify_hfdl_legacy_publication(
         result.epoch_set_release_directory,
@@ -352,6 +601,23 @@ def test_publisher_resumes_after_capsule_crash_without_partial_accepted_release(
     checkpoint = json.loads(checkpoints[0].read_text(encoding="utf-8"))
     assert checkpoint["state"] == "RELEASES_COMPLETE"
     assert len(checkpoint["completed_capsules"]) == 2
+    quarantine_receipts = list(
+        checkpoints[0].parent.glob(
+            ".quarantine/*/quarantine_receipt.json"
+        )
+    )
+    assert len(quarantine_receipts) == 1
+    quarantine = json.loads(
+        quarantine_receipts[0].read_text(encoding="utf-8")
+    )
+    assert quarantine["reason"] == "INTERRUPTED_BEFORE_RETRY"
+    assert (
+        quarantine_receipts[0].parent
+        / "payload"
+        / "split"
+        / "partial.bin"
+    ).read_bytes() == b"interrupted-evidence"
+    assert not interrupted.exists()
 
 
 def test_completed_migration_verification_fails_closed_on_mutation_extra_and_hardlink(
@@ -378,6 +644,32 @@ def test_completed_migration_verification_fails_closed_on_mutation_extra_and_har
         pytest.skip("hardlinks are unavailable on this test filesystem")
     with pytest.raises((ContractError, IntegrityError), match="linked|independent|missing/extra"):
         verify_completed_migration_release(linked)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["migration_id", "source", "destination"],
+)
+@pytest.mark.parametrize(
+    "value",
+    [True, 7, None, ["coercible"], {"value": "coercible"}],
+)
+def test_completed_migration_rejects_non_string_identity_and_provenance(
+    hfdl_tmp: Path,
+    field: str,
+    value: object,
+) -> None:
+    release = _completed_migration_release(
+        hfdl_tmp / f"strict-{field}-{type(value).__name__}"
+    )
+    _poison_completed_migration_entry(
+        release,
+        field=field,
+        value=value,
+    )
+
+    with pytest.raises(IntegrityError, match="must be exact strings"):
+        verify_completed_migration_release(release)
 
 
 def test_completed_migration_consumes_sealed_objects_and_rejects_old_layouts(
@@ -464,6 +756,7 @@ def test_partial_two_epoch_publication_has_no_complete_set_and_resumes(
             derived_work_root=work,
             created_at=CREATED_AT,
             contract=contract,
+            **_publication_kwargs(hfdl_tmp, contract),
         )
     assert not (accepted / SET_DATASET).exists()
 
@@ -474,6 +767,7 @@ def test_partial_two_epoch_publication_has_no_complete_set_and_resumes(
         derived_work_root=work,
         created_at=CREATED_AT,
         contract=contract,
+        **_publication_kwargs(hfdl_tmp, contract),
     )
     verify_hfdl_legacy_publication(
         result.epoch_set_release_directory,
@@ -496,6 +790,7 @@ def test_pair_completeness_duplicate_symbols_and_authority_binding_fail_closed(
             derived_work_root=tmp_path / "work-missing",
             created_at=CREATED_AT,
             contract=contract,
+            **_publication_kwargs(tmp_path, contract),
         )
 
     duplicate = _completed_migration_release(
@@ -510,6 +805,7 @@ def test_pair_completeness_duplicate_symbols_and_authority_binding_fail_closed(
             derived_work_root=tmp_path / "work-duplicate",
             created_at=CREATED_AT,
             contract=contract,
+            **_publication_kwargs(tmp_path, contract),
         )
     assert not any(path.name == "release_manifest.json" for path in duplicate_accepted.rglob("*"))
 

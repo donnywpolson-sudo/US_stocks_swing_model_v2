@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,6 +29,7 @@ from ..providers.http import open_without_redirects
 from ..providers.network_authorization import (
     NetworkAuthorizationUseStore,
     NetworkRequestPlan,
+    _bind_authorized_network_response,
     assert_authorized_network_request,
     network_authorization_request,
 )
@@ -47,8 +49,26 @@ MAX_NASDAQ_RESPONSE_BYTES = 32 * 1024 * 1024
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description="Plan or run bounded free-source qualification")
-    value.add_argument("--plan-only", action="store_true", help="documentary flag; this is the default")
     mode = value.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="print a request plan without network or filesystem writes; this is the default",
+    )
+    mode.add_argument(
+        "--emit-authorization-requests",
+        dest="authorization_request_directory",
+        type=Path,
+        metavar="NEW_ABSOLUTE_DIRECTORY",
+        help="explicitly create a new directory containing authorization request packets",
+    )
+    mode.add_argument(
+        "--authorization-request-directory",
+        dest="authorization_request_directory",
+        type=Path,
+        metavar="NEW_ABSOLUTE_DIRECTORY",
+        help="deprecated alias for --emit-authorization-requests",
+    )
     mode.add_argument("--execute-network", action="store_true", help=f"also requires {AUTH_ENVIRONMENT_TOKEN}=YES")
     mode.add_argument(
         "--verify-nasdaq-snapshot",
@@ -82,7 +102,6 @@ def parser() -> argparse.ArgumentParser:
     )
     value.add_argument("--network-key-id")
     value.add_argument("--network-public-key-file", type=Path)
-    value.add_argument("--authorization-request-directory", type=Path)
     return value
 
 
@@ -91,8 +110,15 @@ def _parse_time(value: str) -> datetime:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    supplied_argv = list(sys.argv[1:] if argv is None else argv)
+    legacy_emission_alias = any(
+        item == "--authorization-request-directory"
+        or item.startswith("--authorization-request-directory=")
+        for item in supplied_argv
+    )
+    args = parser().parse_args(supplied_argv)
     verify_nasdaq = args.verify_nasdaq_snapshot is not None
+    emit_authorization_requests = args.authorization_request_directory is not None
     if verify_nasdaq and args.alpaca_only:
         raise NetworkGuardError("Nasdaq snapshot verification cannot select Alpaca")
     requested_at = datetime.now(timezone.utc)
@@ -132,14 +158,26 @@ def main(argv: list[str] | None = None) -> int:
             pagination_parameter=None,
         )
     authorization_requests = {
-        source: network_authorization_request(plan_item, clock=trusted_clock)
+        source: network_authorization_request(
+            plan_item,
+            registry=acquisition_registry,
+            clock=trusted_clock,
+        )
         for source, plan_item in sorted(request_plans.items())
     }
     plan: dict[str, object] = {
         "mode": (
             "verify_attested_nasdaq_snapshot"
             if verify_nasdaq
-            else ("network_capture" if args.execute_network else "plan_only")
+            else (
+                "network_capture"
+                if args.execute_network
+                else (
+                    "authorization_request_emission"
+                    if emit_authorization_requests
+                    else "plan_only"
+                )
+            )
         ),
         "alpaca": {
             "requests_without_credentials": [
@@ -162,8 +200,9 @@ def main(argv: list[str] | None = None) -> int:
             raise NetworkGuardError(
                 "network authorization inputs are accepted only with --execute-network"
             )
-        if args.authorization_request_directory is not None:
+        if emit_authorization_requests:
             destination = args.authorization_request_directory
+            assert destination is not None
             if not destination.is_absolute() or destination.exists():
                 raise NetworkGuardError(
                     "authorization request directory must be a new absolute path"
@@ -174,12 +213,14 @@ def main(argv: list[str] | None = None) -> int:
                     destination / f"{source}.json",
                     canonical_json_bytes(request_payload),
                 )
+            if legacy_emission_alias:
+                print(
+                    "WARNING: --authorization-request-directory is deprecated; "
+                    "use --emit-authorization-requests",
+                    file=sys.stderr,
+                )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
-    if args.authorization_request_directory is not None:
-        raise NetworkGuardError(
-            "authorization request output is available only in plan-only mode"
-        )
     if args.execute_network and os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(f"require {AUTH_ENVIRONMENT_TOKEN}=YES")
     if verify_nasdaq and any(network_authority_inputs):
@@ -252,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         use_store = NetworkAuthorizationUseStore(
             repo_root / "data" / "vault" / "qualification" / "network_authorization_uses",
             allowed_root=repo_root,
+            registry=acquisition_registry,
         )
         for source, plan_item in request_plans.items():
             network_sessions[source] = use_store.authorize(
@@ -362,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "www.nasdaqtrader.com":
             raise NetworkGuardError("Nasdaq URL is outside the frozen host")
-        assert_authorized_network_request(
+        request_attempt = assert_authorized_network_request(
             network_sessions["nasdaqtraded"],
             source="nasdaqtraded",
             url=url,
@@ -389,7 +431,16 @@ def main(argv: list[str] | None = None) -> int:
             raise NetworkGuardError("Nasdaq response redirected away from the exact approved URL")
         if len(raw) > MAX_NASDAQ_RESPONSE_BYTES:
             raise ValueError("Nasdaq response exceeded the bounded byte limit")
+        transport_evidence = _bind_authorized_network_response(
+            request_attempt,
+            requested_url=url,
+            response_url=response_url,
+            http_status=http_status,
+            raw=raw,
+            headers=headers,
+        )
         snapshot = store._land_network_response(
+            transport_evidence=transport_evidence,
             source="nasdaqtraded",
             requested_url=url,
             response_url=response_url,
