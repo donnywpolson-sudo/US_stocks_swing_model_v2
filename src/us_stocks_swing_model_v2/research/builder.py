@@ -104,6 +104,7 @@ def _validate_request(request: OuterBuilderRequest) -> None:
     if not request.inner_folds:
         raise ResearchContractError("builder requires at least one inner fold")
     outer_positions = {sample_id: index for index, sample_id in enumerate(fit_ids)}
+    seen_inner_audit_ids: set[str] = set()
     for number, inner in enumerate(request.inner_folds):
         if not isinstance(inner, InnerBuilderFold):
             raise ResearchContractError("builder inner fold type differs")
@@ -123,6 +124,11 @@ def _validate_request(request: OuterBuilderRequest) -> None:
         )
         if set(inner_fit_ids) & set(inner_audit_ids):
             raise ResearchContractError("inner builder fit/audit IDs overlap")
+        if seen_inner_audit_ids & set(inner_audit_ids):
+            raise ResearchContractError(
+                "inner builder audit sample IDs overlap across folds"
+            )
+        seen_inner_audit_ids.update(inner_audit_ids)
         if not (set(inner_fit_ids) | set(inner_audit_ids)) <= set(fit_ids):
             raise ResearchContractError("inner builder IDs escape outer fit")
         for ids, x, y in (
@@ -143,22 +149,38 @@ def _fit_fold_local_ridge(
     alpha: float,
     uncertainty_floor: float,
 ) -> _FittedRidge:
-    feature_mean = np.mean(features, axis=0, dtype=np.float64)
-    feature_scale = np.std(features, axis=0, dtype=np.float64)
-    feature_scale = np.where(feature_scale > 0.0, feature_scale, 1.0)
-    scaled = (features - feature_mean) / feature_scale
-    target_mean = float(np.mean(targets, dtype=np.float64))
-    centered_target = targets - target_mean
-    gram = scaled.T @ scaled
-    penalty = np.eye(features.shape[1], dtype=np.float64) * alpha
-    scaled_coefficients = np.linalg.solve(gram + penalty, scaled.T @ centered_target)
-    coefficients = scaled_coefficients / feature_scale
-    bias = target_mean - float(feature_mean @ coefficients)
-    residuals = targets - (features @ coefficients + bias)
-    uncertainty = max(
-        float(np.sqrt(np.mean(np.square(residuals), dtype=np.float64))),
-        uncertainty_floor,
-    )
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            feature_mean = np.mean(features, axis=0, dtype=np.float64)
+            feature_scale = np.std(features, axis=0, dtype=np.float64)
+            feature_scale = np.where(feature_scale > 0.0, feature_scale, 1.0)
+            scaled = (features - feature_mean) / feature_scale
+            target_mean = float(np.mean(targets, dtype=np.float64))
+            centered_target = targets - target_mean
+            gram = scaled.T @ scaled
+            penalty = np.eye(features.shape[1], dtype=np.float64) * alpha
+            rhs = scaled.T @ centered_target
+    except FloatingPointError as exc:
+        raise ResearchContractError(
+            "fold-local ridge preprocessing exceeded finite float64 bounds"
+        ) from exc
+    try:
+        scaled_coefficients = np.linalg.solve(gram + penalty, rhs)
+    except np.linalg.LinAlgError as exc:
+        raise ResearchContractError("fold-local ridge system is not solvable") from exc
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            coefficients = scaled_coefficients / feature_scale
+            bias = target_mean - float(feature_mean @ coefficients)
+            residuals = targets - (features @ coefficients + bias)
+            uncertainty = max(
+                float(np.sqrt(np.mean(np.square(residuals), dtype=np.float64))),
+                uncertainty_floor,
+            )
+    except FloatingPointError as exc:
+        raise ResearchContractError(
+            "fold-local ridge fit exceeded finite float64 bounds"
+        ) from exc
     if not all(math.isfinite(value) for value in (*coefficients.tolist(), bias, uncertainty)):
         raise ResearchContractError("fold-local ridge fit produced non-finite parameters")
     return _FittedRidge(
@@ -187,11 +209,22 @@ def build_frozen_outer_predictions(request: OuterBuilderRequest) -> FrozenPredic
                 alpha=alpha,
                 uncertainty_floor=request.registration.uncertainty_floor,
             )
-            predictions = inner.audit_features @ fitted.coefficients + fitted.bias
-            squared_error += float(
-                np.sum(np.square(inner.audit_targets - predictions), dtype=np.float64)
-            )
+            try:
+                with np.errstate(over="raise", invalid="raise"):
+                    predictions = inner.audit_features @ fitted.coefficients + fitted.bias
+                    squared_error += float(
+                        np.sum(
+                            np.square(inner.audit_targets - predictions),
+                            dtype=np.float64,
+                        )
+                    )
+            except FloatingPointError as exc:
+                raise ResearchContractError(
+                    "inner-fold score exceeded finite float64 bounds"
+                ) from exc
             sample_count += len(inner.audit_targets)
+        if not math.isfinite(squared_error):
+            raise ResearchContractError("inner-fold score is non-finite")
         scores.append((alpha, squared_error / sample_count))
     selected_alpha = min(scores, key=lambda item: (item[1], item[0]))[0]
     fitted = _fit_fold_local_ridge(
@@ -200,7 +233,15 @@ def build_frozen_outer_predictions(request: OuterBuilderRequest) -> FrozenPredic
         alpha=selected_alpha,
         uncertainty_floor=request.registration.uncertainty_floor,
     )
-    means = request.audit_features @ fitted.coefficients + fitted.bias
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            means = request.audit_features @ fitted.coefficients + fitted.bias
+    except FloatingPointError as exc:
+        raise ResearchContractError(
+            "outer-fold prediction exceeded finite float64 bounds"
+        ) from exc
+    if not np.all(np.isfinite(means)):
+        raise ResearchContractError("outer-fold prediction is non-finite")
     predictions: list[DistributionPrediction] = []
     for sample_id, mean_value in zip(request.audit_sample_ids, means, strict=True):
         mean = float(mean_value)
@@ -252,4 +293,3 @@ def build_frozen_outer_predictions(request: OuterBuilderRequest) -> FrozenPredic
         model=model,
         predictions=predictions,
     )
-

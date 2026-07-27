@@ -24,6 +24,17 @@ from .releases import ReleaseManifest, verify_accepted_release
 
 SYNTHETIC_SIGNATURE_ALGORITHM = "HMAC_SHA256_SYNTHETIC_ONLY"
 EXTERNAL_SIGNATURE_ALGORITHM = "RSASSA_PKCS1_V1_5_SHA256"
+PRODUCTION_AUTHORITY_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "config"
+    / "authorization_authorities.json"
+)
+PROHIBITED_TEST_AUTHORITY_KEY_IDS = frozenset(
+    {"RFC7515-TEST-FIXTURE-ONLY"}
+)
+PROHIBITED_TEST_AUTHORITY_KEY_SHA256 = frozenset(
+    {"a58c7fb8f3607028fb44a39b05c65d8caa876cdde4afc1012091aeb08efa5b82"}
+)
 _LOWER_HEX = re.compile(r"^[0-9a-f]+$")
 _BASE64URL_UINT = re.compile(r"^[A-Za-z0-9_-]+$")
 _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
@@ -32,11 +43,7 @@ _SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
 
 
 def _reviewed_external_authority_registry_path() -> Path:
-    return (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "authorization_authorities.json"
-    )
+    return PRODUCTION_AUTHORITY_REGISTRY_PATH
 
 
 def _require_reviewed_external_authority_registry(registry_path: Path) -> Path:
@@ -234,6 +241,19 @@ def _read_authority_registry(registry_path: Path) -> tuple[dict[str, Any], str]:
         or not isinstance(payload["authorities"], list)
     ):
         raise EvaluationAuthorizationError("external authority registry project/schema differs")
+    if path.resolve(strict=True) == PRODUCTION_AUTHORITY_REGISTRY_PATH.resolve(
+        strict=True
+    ) and any(
+        isinstance(row, dict)
+        and (
+            row.get("key_id") in PROHIBITED_TEST_AUTHORITY_KEY_IDS
+            or row.get("key_sha256") in PROHIBITED_TEST_AUTHORITY_KEY_SHA256
+        )
+        for row in payload["authorities"]
+    ):
+        raise EvaluationAuthorizationError(
+            "production authority registry contains prohibited test fixture material"
+        )
     return payload, sha256_bytes(canonical_json_bytes(payload))
 
 
@@ -414,8 +434,20 @@ class SignedAuthorizationReceipt:
         expires = parse_utc_z(self.expires_at, "authorization.expires_at")
         if issued >= expires:
             raise EvaluationAuthorizationError("authorization chronology/signature shape is invalid")
-        if not self.bindings or any(not str(key) or not str(value) for key, value in self.bindings.items()):
-            raise EvaluationAuthorizationError("authorization bindings cannot be empty")
+        if (
+            type(self.bindings) is not dict
+            or not self.bindings
+            or any(
+                type(key) is not str
+                or not key
+                or type(value) is not str
+                or not value
+                for key, value in self.bindings.items()
+            )
+        ):
+            raise EvaluationAuthorizationError(
+                "authorization bindings must be exact nonempty text"
+            )
         expected_id = sha256_bytes(canonical_json_bytes(self.unsigned_dict()))
         if self.receipt_id != expected_id:
             raise EvaluationAuthorizationError("authorization receipt ID is invalid")
@@ -499,20 +531,43 @@ class SignedAuthorizationReceipt:
             raise EvaluationAuthorizationError("authorization receipt fields differ")
         if type(payload["schema_version"]) is not int:
             raise EvaluationAuthorizationError("authorization schema_version must be an integer")
-        if not isinstance(payload["bindings"], dict):
-            raise EvaluationAuthorizationError("authorization bindings must be an object")
+        text_fields = (
+            "scope",
+            "subject_id",
+            "issued_at",
+            "expires_at",
+            "key_id",
+            "authority_registry_id",
+            "authorization_class",
+            "signature",
+            "receipt_id",
+        )
+        if any(type(payload[name]) is not str for name in text_fields):
+            raise EvaluationAuthorizationError(
+                "authorization receipt text fields must be exact strings"
+            )
+        if (
+            type(payload["bindings"]) is not dict
+            or any(
+                type(key) is not str or type(value) is not str
+                for key, value in payload["bindings"].items()
+            )
+        ):
+            raise EvaluationAuthorizationError(
+                "authorization bindings must contain exact string pairs"
+            )
         return cls(
-            schema_version=int(payload["schema_version"]),
-            scope=str(payload["scope"]),
-            subject_id=str(payload["subject_id"]),
-            bindings={str(key): str(value) for key, value in dict(payload["bindings"]).items()},
-            issued_at=str(payload["issued_at"]),
-            expires_at=str(payload["expires_at"]),
-            key_id=str(payload["key_id"]),
-            authority_registry_id=str(payload["authority_registry_id"]),
-            authorization_class=str(payload["authorization_class"]),
-            signature=str(payload["signature"]),
-            receipt_id=str(payload["receipt_id"]),
+            schema_version=payload["schema_version"],
+            scope=payload["scope"],
+            subject_id=payload["subject_id"],
+            bindings=dict(payload["bindings"]),
+            issued_at=payload["issued_at"],
+            expires_at=payload["expires_at"],
+            key_id=payload["key_id"],
+            authority_registry_id=payload["authority_registry_id"],
+            authorization_class=payload["authorization_class"],
+            signature=payload["signature"],
+            receipt_id=payload["receipt_id"],
         )
 
 

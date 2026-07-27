@@ -8,6 +8,7 @@ import pytest
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_file
 from us_stocks_swing_model_v2.errors import IntegrityError
 from us_stocks_swing_model_v2.legacy_guard import (
+    _porcelain_v1_z_record_count,
     capture_legacy_baseline,
     load_legacy_baseline,
     verify_legacy_baseline,
@@ -48,3 +49,39 @@ def test_checked_in_legacy_baseline_is_an_authenticated_historical_capture() -> 
     observed = load_legacy_baseline(config)
     assert observed["head"] == "beab97d89a527a04c3640ba3cc70c2f9493044cc"
     assert observed["status_count"] == 31
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (b"", 0),
+        (b" M tracked.txt\0?? untracked.txt\0", 2),
+        (b"R  renamed.txt\0original.txt\0?? untracked.txt\0", 2),
+        (b" C copied.txt\0original.txt\0", 1),
+    ],
+)
+def test_porcelain_status_count_uses_logical_records(
+    status: bytes,
+    expected: int,
+) -> None:
+    assert _porcelain_v1_z_record_count(status) == expected
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        b" M missing-terminal-nul",
+        b"bad\0",
+        b"R  renamed.txt\0",
+    ],
+)
+def test_porcelain_status_count_rejects_malformed_records(status: bytes) -> None:
+    with pytest.raises(IntegrityError, match="status"):
+        _porcelain_v1_z_record_count(status)
+
+
+def test_capture_counts_git_rename_as_one_logical_record(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _git(root, "mv", "tracked.txt", "renamed.txt")
+    observed = capture_legacy_baseline(root)
+    assert observed["status_count"] == 2

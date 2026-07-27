@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from ..common import parse_timestamp, reject_link, sha256_file
+from ..common import parse_utc_z, reject_link, require_sha256, sha256_file
 from ..errors import ContractError, IntegrityError
 from .parquet import deterministic_table, write_deterministic_parquet
 
@@ -18,6 +18,17 @@ from .parquet import deterministic_table, write_deterministic_parquet
 HFDL_BREAK = date(2022, 3, 4)
 HFDL_HISTORICAL_AVAILABILITY = "UNKNOWN_NOT_AS_RECEIVED"
 HFDL_POINT_IN_TIME_STATE = "HISTORICAL_PROXY"
+HFDL_SIDECAR_EXTENSION_POLICY = "ALLOW_UNTRUSTED_IGNORED_EXTENSION_FIELDS"
+HFDL_SIDECAR_REQUIRED_FIELDS = (
+    "canonical_symbol",
+    "created_at_utc",
+    "row_count",
+    "sha256",
+    "timeframe",
+    "validation_passed",
+    "version",
+    "source_limitations",
+)
 HFDL_COLUMNS = ("ticker", "per", "date", "time", "open", "high", "low", "close", "vol", "openint")
 HFDL_NATIVE_SCHEMA = pa.schema(
     [
@@ -78,6 +89,65 @@ class HfdlValidationResult:
         }
 
 
+def load_validated_hfdl_sidecar(sidecar_path: Path) -> dict[str, object]:
+    """Load the one canonical HFDL sidecar contract.
+
+    Undeclared fields are retained only as untrusted compatibility input: they
+    are ignored and never returned, propagated, or treated as evidence.
+    """
+
+    sidecar_file = Path(sidecar_path)
+    reject_link(sidecar_file)
+    if not sidecar_file.is_file() or sidecar_file.stat().st_nlink != 1:
+        raise ContractError(
+            f"HFDL input must be an independent plain file: {sidecar_file}"
+        )
+    try:
+        raw = json.loads(sidecar_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractError("HFDL sidecar is invalid JSON") from exc
+    required = set(HFDL_SIDECAR_REQUIRED_FIELDS)
+    if not isinstance(raw, dict) or not required <= set(raw):
+        raise ContractError("HFDL sidecar lacks required evidence fields")
+    sidecar = {field: raw[field] for field in HFDL_SIDECAR_REQUIRED_FIELDS}
+    if (
+        type(sidecar["canonical_symbol"]) is not str
+        or not sidecar["canonical_symbol"].strip()
+        or type(sidecar["created_at_utc"]) is not str
+        or type(sidecar["row_count"]) is not int
+        or sidecar["row_count"] < 1
+        or type(sidecar["sha256"]) is not str
+        or type(sidecar["timeframe"]) is not str
+        or type(sidecar["validation_passed"]) is not bool
+        or type(sidecar["version"]) is not str
+        or type(sidecar["source_limitations"]) is not list
+        or not sidecar["source_limitations"]
+        or any(
+            type(item) is not str or not item
+            for item in sidecar["source_limitations"]
+        )
+    ):
+        raise ContractError("HFDL sidecar evidence types are invalid")
+    require_sha256(sidecar["sha256"], "hfdl_sidecar.sha256")
+    if (
+        sidecar["timeframe"] != "daily"
+        or sidecar["version"] != "clean"
+        or sidecar["validation_passed"] is not True
+    ):
+        raise ContractError("HFDL payload is not a passed daily-clean legacy input")
+    limitations = " ".join(
+        item.lower() for item in sidecar["source_limitations"]
+    )
+    if not all(
+        token in limitations for token in ("fixed", "march 2022", "source-adjusted")
+    ):
+        raise ContractError(
+            "HFDL sidecar does not preserve required source limitations"
+        )
+    parse_utc_z(sidecar["created_at_utc"], "created_at_utc")
+    return sidecar
+
+
 def validate_and_tag_hfdl(parquet_path: Path, sidecar_path: Path) -> HfdlValidationResult:
     parquet_file = Path(parquet_path)
     sidecar_file = Path(sidecar_path)
@@ -85,52 +155,47 @@ def validate_and_tag_hfdl(parquet_path: Path, sidecar_path: Path) -> HfdlValidat
         reject_link(candidate)
         if not candidate.is_file() or candidate.stat().st_nlink != 1:
             raise ContractError(f"HFDL input must be an independent plain file: {candidate}")
-    try:
-        sidecar = json.loads(sidecar_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ContractError("HFDL sidecar is invalid JSON") from exc
+    sidecar = load_validated_hfdl_sidecar(sidecar_file)
     parquet_hash = sha256_file(parquet_file)
-    required = {
-        "canonical_symbol",
-        "created_at_utc",
-        "row_count",
-        "sha256",
-        "timeframe",
-        "validation_passed",
-        "version",
-        "source_limitations",
-    }
-    if not required <= sidecar.keys():
-        raise ContractError(f"HFDL sidecar lacks fields: {sorted(required-sidecar.keys())}")
     if sidecar["sha256"] != parquet_hash:
         raise IntegrityError("HFDL sidecar hash differs from Parquet")
-    if sidecar["timeframe"] != "daily" or sidecar["version"] != "clean" or sidecar["validation_passed"] is not True:
-        raise ContractError("HFDL payload is not a passed daily-clean legacy input")
-    limitations = " ".join(str(item).lower() for item in sidecar["source_limitations"])
-    if not all(token in limitations for token in ("fixed", "march 2022", "source-adjusted")):
-        raise ContractError("HFDL sidecar does not preserve required source limitations")
     # This is when the legacy file/sidecar was produced or retrieved. It is not
     # an as-received observation time for any historical session.
-    source_retrieved_at = parse_timestamp(sidecar["created_at_utc"], "created_at_utc")
+    source_retrieved_at = parse_utc_z(
+        sidecar["created_at_utc"],
+        "created_at_utc",
+    )
     table = pq.read_table(parquet_file)
     if tuple(table.column_names) != HFDL_COLUMNS or table.schema.remove_metadata() != HFDL_NATIVE_SCHEMA:
         raise ContractError("HFDL Parquet schema differs from the exact native contract")
     rows = table.to_pylist()
     if len(rows) != sidecar["row_count"]:
         raise IntegrityError("HFDL row count differs from sidecar")
-    symbol = str(sidecar["canonical_symbol"]).upper()
+    raw_symbol = sidecar["canonical_symbol"]
+    if raw_symbol != raw_symbol.strip().upper():
+        raise ContractError(
+            "HFDL canonical symbol must be exact uppercase wire text"
+        )
+    symbol = raw_symbol
     output: list[dict[str, object]] = []
     seen: set[date] = set()
     previous: date | None = None
     epoch_counts = {"hfdl_pitrading_consolidated": 0, "hfdl_iex_only": 0}
     for row in rows:
-        if str(row["ticker"]).upper() != symbol or str(row["per"]).upper() != "D":
+        if (
+            type(row["ticker"]) is not str
+            or row["ticker"] != symbol
+            or type(row["per"]) is not str
+            or row["per"] != "D"
+            or type(row["date"]) is not str
+            or type(row["time"]) is not str
+        ):
             raise ContractError("HFDL row identity/timeframe differs from sidecar")
         try:
-            session = datetime.strptime(str(row["date"]), "%Y%m%d").date()
+            session = datetime.strptime(row["date"], "%Y%m%d").date()
         except ValueError as exc:
             raise ContractError("HFDL row date must use native YYYYMMDD format") from exc
-        if str(row["time"]) != "000000":
+        if row["time"] != "000000":
             raise ContractError("daily HFDL row time must use native 000000 format")
         if session in seen or previous is not None and session <= previous:
             raise ContractError("HFDL sessions must be unique and strictly increasing")

@@ -95,8 +95,25 @@ class ReleaseManifest:
     def validate(self) -> None:
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise ContractError("unsupported release manifest schema")
-        if not all(IDENTIFIER.fullmatch(value) for value in (self.project, self.dataset, self.source_epoch, self.role)):
+        identifier_values = (
+            self.project,
+            self.dataset,
+            self.source_epoch,
+            self.role,
+        )
+        if any(type(value) is not str for value in identifier_values) or not all(
+            IDENTIFIER.fullmatch(value) for value in identifier_values
+        ):
             raise ContractError("project, dataset, and source_epoch must be safe identifiers")
+        if (
+            type(self.quality_state) is not str
+            or type(self.created_at) is not str
+            or any(
+                value is not None and type(value) is not str
+                for value in (self.event_start, self.event_end)
+            )
+        ):
+            raise ContractError("release manifest text fields require exact strings")
         if self.role not in {
             "legacy_discovery_only",
             "qualification_evidence_only",
@@ -128,8 +145,21 @@ class ReleaseManifest:
                 raise ContractError("event bounds must use the same date/timestamp representation")
             if parsed_start[1] > parsed_end[1]:
                 raise ContractError("event_start must not follow event_end")
-        if list(self.upstream_release_ids) != sorted(set(self.upstream_release_ids)):
+        if (
+            type(self.upstream_release_ids) is not tuple
+            or any(type(value) is not str for value in self.upstream_release_ids)
+            or list(self.upstream_release_ids)
+            != sorted(set(self.upstream_release_ids))
+        ):
             raise ContractError("upstream release IDs must be sorted and unique")
+        if type(self.files) is not tuple or any(
+            type(entry) is not ReleaseFile for entry in self.files
+        ):
+            raise ContractError("release files must use the exact immutable file census")
+        if self.quality_state == "PASS" and not self.files:
+            raise ContractError(
+                "PASS releases require a nonempty immutable payload census"
+            )
         paths = [entry.path for entry in self.files]
         if paths != sorted(set(paths)):
             raise ContractError("release file paths must be sorted and unique")
@@ -157,24 +187,62 @@ class ReleaseManifest:
             raise ContractError("release manifest integer fields require exact JSON integers")
         if not isinstance(payload["files"], list) or not isinstance(payload["upstream_release_ids"], list):
             raise ContractError("release manifest collections require exact JSON arrays")
+        text_fields = (
+            "project",
+            "dataset",
+            "source_epoch",
+            "role",
+            "quality_state",
+            "created_at",
+            "schema_fingerprint",
+            "code_hash",
+            "config_hash",
+            "environment_hash",
+            "release_id",
+        )
+        if any(type(payload[name]) is not str for name in text_fields):
+            raise ContractError("release manifest text fields require exact JSON strings")
+        if any(
+            payload[name] is not None and type(payload[name]) is not str
+            for name in ("event_start", "event_end")
+        ):
+            raise ContractError(
+                "release manifest event bounds require exact JSON strings or null"
+            )
+        if any(type(value) is not str for value in payload["upstream_release_ids"]):
+            raise ContractError(
+                "release manifest upstream IDs require exact JSON strings"
+            )
+        file_fields = set(ReleaseFile.__dataclass_fields__)
+        for entry in payload["files"]:
+            if (
+                type(entry) is not dict
+                or set(entry) != file_fields
+                or type(entry["path"]) is not str
+                or type(entry["size"]) is not int
+                or type(entry["sha256"]) is not str
+            ):
+                raise ContractError(
+                    "release manifest file entries require exact JSON field types"
+                )
         manifest = cls(
-            schema_version=int(payload["schema_version"]),
-            project=str(payload["project"]),
-            dataset=str(payload["dataset"]),
-            source_epoch=str(payload["source_epoch"]),
-            role=str(payload["role"]),
-            quality_state=str(payload["quality_state"]),
-            created_at=str(payload["created_at"]),
-            row_count=int(payload["row_count"]),
+            schema_version=payload["schema_version"],
+            project=payload["project"],
+            dataset=payload["dataset"],
+            source_epoch=payload["source_epoch"],
+            role=payload["role"],
+            quality_state=payload["quality_state"],
+            created_at=payload["created_at"],
+            row_count=payload["row_count"],
             event_start=payload.get("event_start"),
             event_end=payload.get("event_end"),
             upstream_release_ids=tuple(payload.get("upstream_release_ids", [])),
-            schema_fingerprint=str(payload["schema_fingerprint"]),
-            code_hash=str(payload["code_hash"]),
-            config_hash=str(payload["config_hash"]),
-            environment_hash=str(payload["environment_hash"]),
+            schema_fingerprint=payload["schema_fingerprint"],
+            code_hash=payload["code_hash"],
+            config_hash=payload["config_hash"],
+            environment_hash=payload["environment_hash"],
             files=tuple(ReleaseFile(**entry) for entry in payload["files"]),
-            release_id=str(payload["release_id"]),
+            release_id=payload["release_id"],
         )
         manifest.validate()
         return manifest
@@ -201,9 +269,17 @@ def build_manifest(
 ) -> ReleaseManifest:
     root = Path(staging_root).resolve(strict=True)
     reject_link(root)
+    normalized_paths = [
+        safe_relative_path(raw_path)
+        for raw_path in relative_paths
+    ]
+    normalized_text = [path.as_posix() for path in normalized_paths]
+    if len(normalized_text) != len(set(normalized_text)):
+        raise ContractError(
+            "manifest relative paths must be unique after normalization"
+        )
     entries: list[ReleaseFile] = []
-    for raw_path in sorted(set(relative_paths)):
-        relative = safe_relative_path(raw_path)
+    for relative in sorted(normalized_paths, key=lambda path: path.as_posix()):
         candidate = root.joinpath(*relative.parts)
         reject_link(candidate)
         if not candidate.is_file():
@@ -270,8 +346,10 @@ def verify_release(release_dir: Path, expected: ReleaseManifest | None = None) -
     root = Path(release_dir)
     reject_link(root)
     manifest_path = root / MANIFEST_NAME
-    if not manifest_path.is_file():
-        raise IntegrityError(f"release manifest missing: {manifest_path}")
+    if not manifest_path.is_file() or manifest_path.stat().st_nlink != 1:
+        raise IntegrityError(
+            f"release manifest is missing or not an independent file: {manifest_path}"
+        )
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -368,16 +446,23 @@ class AtomicReleasePublisher:
                 return destination
             dataset_root.mkdir(parents=True, exist_ok=True)
             self._authenticate(dataset_root, must_exist=True)
+            stage = Path(staging_root).resolve(strict=True)
+            require_contained_path(stage, stage)
+            sources: list[tuple[ReleaseFile, Path, Path]] = []
+            for entry in manifest.files:
+                relative = safe_relative_path(entry.path)
+                source = require_contained_path(
+                    stage.joinpath(*relative.parts),
+                    stage,
+                )
+                sources.append((entry, Path(*relative.parts), source))
             pending = dataset_root / f".pending-{manifest.release_id[:12]}-{uuid.uuid4().hex[:8]}"
             self._authenticate(pending, must_exist=False)
             pending.mkdir()
             self._authenticate(pending, must_exist=True)
             try:
-                stage = Path(staging_root).resolve(strict=True)
-                for entry in manifest.files:
-                    relative = safe_relative_path(entry.path)
-                    source = stage.joinpath(*relative.parts)
-                    reject_link(source)
+                for entry, relative, source in sources:
+                    source = require_contained_path(source, stage)
                     if source.stat().st_size != entry.size or sha256_file(source) != entry.sha256:
                         raise IntegrityError(f"staging payload changed: {entry.path}")
                     if not source.is_file() or source.stat().st_nlink != 1:

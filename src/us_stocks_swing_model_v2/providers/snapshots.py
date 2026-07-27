@@ -7,7 +7,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Mapping
 from urllib.parse import urlparse
 
 from ..common import (
@@ -27,6 +28,9 @@ from ..capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from ..clock import TrustedClock, require_trusted_clock
 from ..governance import AuthorizationAuthority
 from ..locking import ExclusiveFileLock
+
+if TYPE_CHECKING:
+    from .network_authorization import AuthorizedNetworkResponse
 
 
 SAFE_SOURCE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -65,6 +69,31 @@ ALLOWED_RESPONSE_HEADERS = frozenset(
 NETWORK_ACQUISITION_ATTESTATION_SCOPE = "ATTEST_NETWORK_ACQUISITION"
 
 
+def _validate_snapshot_url(value: object) -> str:
+    if type(value) is not str:
+        raise ContractError("snapshot URL must be an exact string")
+    if value != value.strip() or any(
+        ord(character) < 0x20 or ord(character) == 0x7F
+        for character in value
+    ):
+        raise ContractError("snapshot URL contains whitespace or control characters")
+    try:
+        parsed = urlparse(value)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ContractError("snapshot URL is malformed") from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ContractError("snapshot URL must be a credential-free HTTPS URL without a fragment")
+    return value
+
+
 def normalize_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
     normalized: dict[str, str] = {}
     for key, value in headers.items():
@@ -77,6 +106,64 @@ def normalize_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
             raise ContractError("response headers contain duplicates or control characters")
         normalized[lowered] = value
     return dict(sorted(normalized.items()))
+
+
+def _normalized_network_registry_policy(
+    payload: object,
+) -> tuple[dict[str, str], dict[str, tuple[int, ...]]]:
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "project",
+        "status",
+        "allowed_sources",
+    }:
+        raise ContractError("network acquisition registry fields differ")
+    if (
+        type(payload["schema_version"]) is not int
+        or payload["schema_version"] != 1
+        or payload["project"] != "US_stocks_swing_model_v2"
+        or payload["status"] != "ACTIVE"
+        or not isinstance(payload["allowed_sources"], dict)
+    ):
+        raise ContractError("network acquisition registry is not active for this project")
+    allowed: dict[str, str] = {}
+    statuses: dict[str, tuple[int, ...]] = {}
+    for source, policy in payload["allowed_sources"].items():
+        if not isinstance(source, str) or not SAFE_SOURCE.fullmatch(source):
+            raise ContractError("network acquisition registry source is invalid")
+        if not isinstance(policy, dict) or set(policy) != {
+            "origin_path",
+            "accepted_http_statuses",
+        }:
+            raise ContractError("network acquisition registry source policy is invalid")
+        origin_path = policy["origin_path"]
+        parsed = urlparse(origin_path) if isinstance(origin_path, str) else None
+        if (
+            parsed is None
+            or parsed.scheme != "https"
+            or not parsed.netloc
+            or not parsed.path
+            or parsed.query
+        ):
+            raise ContractError("network acquisition registry origin/path is invalid")
+        accepted_statuses = policy["accepted_http_statuses"]
+        if (
+            not isinstance(accepted_statuses, list)
+            or not accepted_statuses
+            or any(
+                type(status) is not int or not 200 <= status <= 299
+                for status in accepted_statuses
+            )
+            or accepted_statuses != sorted(set(accepted_statuses))
+        ):
+            raise ContractError(
+                "network acquisition accepted HTTP statuses are invalid"
+            )
+        allowed[source] = origin_path
+        statuses[source] = tuple(accepted_statuses)
+    if not allowed:
+        raise ContractError("network acquisition registry has no allowed sources")
+    return dict(sorted(allowed.items())), dict(sorted(statuses.items()))
 
 
 @dataclass(frozen=True, init=False)
@@ -106,67 +193,20 @@ class NetworkAcquisitionRegistry:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ContractError("network acquisition registry is unreadable") from exc
-        if not isinstance(payload, dict) or set(payload) != {
-            "schema_version",
-            "project",
-            "status",
-            "allowed_sources",
-        }:
-            raise ContractError("network acquisition registry fields differ")
-        if (
-            type(payload["schema_version"]) is not int
-            or payload["schema_version"] != 1
-            or payload["project"] != "US_stocks_swing_model_v2"
-            or payload["status"] != "ACTIVE"
-            or not isinstance(payload["allowed_sources"], dict)
-        ):
-            raise ContractError("network acquisition registry is not active for this project")
-        allowed: dict[str, str] = {}
-        statuses: dict[str, tuple[int, ...]] = {}
-        for source, policy in payload["allowed_sources"].items():
-            if not isinstance(source, str) or not SAFE_SOURCE.fullmatch(source):
-                raise ContractError("network acquisition registry source is invalid")
-            if not isinstance(policy, dict) or set(policy) != {
-                "origin_path",
-                "accepted_http_statuses",
-            }:
-                raise ContractError("network acquisition registry source policy is invalid")
-            origin_path = policy["origin_path"]
-            parsed = urlparse(origin_path) if isinstance(origin_path, str) else None
-            if (
-                parsed is None
-                or parsed.scheme != "https"
-                or not parsed.netloc
-                or not parsed.path
-                or parsed.query
-            ):
-                raise ContractError("network acquisition registry origin/path is invalid")
-            accepted_statuses = policy["accepted_http_statuses"]
-            if (
-                not isinstance(accepted_statuses, list)
-                or not accepted_statuses
-                or any(
-                    type(status) is not int or not 200 <= status <= 299
-                    for status in accepted_statuses
-                )
-                or accepted_statuses != sorted(set(accepted_statuses))
-            ):
-                raise ContractError(
-                    "network acquisition accepted HTTP statuses are invalid"
-                )
-            allowed[source] = origin_path
-            statuses[source] = tuple(accepted_statuses)
-        if not allowed:
-            raise ContractError("network acquisition registry has no allowed sources")
+        allowed, statuses = _normalized_network_registry_policy(payload)
         registry = object.__new__(cls)
         object.__setattr__(registry, "registry_id", sha256_bytes(canonical_json_bytes(payload)))
         object.__setattr__(registry, "registry_path", str(path))
         object.__setattr__(registry, "registry_root", str(resolved_root))
-        object.__setattr__(registry, "allowed_origin_paths", dict(sorted(allowed.items())))
+        object.__setattr__(
+            registry,
+            "allowed_origin_paths",
+            MappingProxyType(allowed),
+        )
         object.__setattr__(
             registry,
             "accepted_http_statuses",
-            dict(sorted(statuses.items())),
+            MappingProxyType(statuses),
         )
         registry.validate()
         return registry
@@ -184,6 +224,16 @@ class NetworkAcquisitionRegistry:
             raise ContractError("network acquisition registry changed or disappeared") from exc
         if sha256_bytes(canonical_json_bytes(payload)) != self.registry_id:
             raise ContractError("network acquisition registry changed after loading")
+        allowed, statuses = _normalized_network_registry_policy(payload)
+        if (
+            type(self.allowed_origin_paths) is not MappingProxyType
+            or type(self.accepted_http_statuses) is not MappingProxyType
+            or dict(self.allowed_origin_paths) != allowed
+            or dict(self.accepted_http_statuses) != statuses
+        ):
+            raise ContractError(
+                "network acquisition operative policy differs from authenticated bytes"
+            )
         require_sha256(self.registry_id, "network_acquisition.registry_id")
 
     def _issue_response_capability(
@@ -456,14 +506,24 @@ class LandedSnapshot:
 
     @property
     def trust_eligible(self) -> bool:
-        return (
-            self.acquisition_mode == "NETWORK_AS_RECEIVED"
-            and self.time_authority == "PRODUCTION_SYSTEM_UTC"
-            and self.synthetic_permit_id is None
-            and self.acquisition_attestation is not None
-            and self.attestation_authority is not None
-            and self.attestation_observed_at is not None
-        )
+        if (
+            self.acquisition_mode != "NETWORK_AS_RECEIVED"
+            or self.time_authority != "PRODUCTION_SYSTEM_UTC"
+            or self.synthetic_permit_id is not None
+            or self.acquisition_attestation is None
+            or self.attestation_authority is None
+            or self.attestation_observed_at is None
+        ):
+            return False
+        try:
+            self.acquisition_attestation.validate(
+                snapshot=self,
+                authority=self.attestation_authority,
+                observed_at=self.attestation_observed_at,
+            )
+        except (ContractError, EvaluationAuthorizationError, IntegrityError):
+            return False
+        return True
 
     @property
     def raw_path(self) -> Path:
@@ -566,6 +626,7 @@ class AsReceivedSnapshotStore:
     def _land_network_response(
         self,
         *,
+        transport_evidence: AuthorizedNetworkResponse,
         source: str,
         requested_url: str,
         response_url: str,
@@ -577,6 +638,24 @@ class AsReceivedSnapshotStore:
     ) -> LandedSnapshot:
         if self.acquisition_registry is None:
             raise ContractError("network landing requires a loader-pinned acquisition registry")
+        from .network_authorization import (
+            _consume_authorized_network_response,
+            _validate_authorized_network_response,
+        )
+
+        response_contract = {
+            "source": source,
+            "requested_url": requested_url,
+            "response_url": response_url,
+            "http_status": http_status,
+            "raw": raw,
+            "headers": headers,
+            "max_response_bytes": max_bytes,
+        }
+        _validate_authorized_network_response(
+            transport_evidence,
+            **response_contract,
+        )
         capability = self.acquisition_registry._issue_response_capability(
             source=source,
             requested_url=requested_url,
@@ -600,18 +679,23 @@ class AsReceivedSnapshotStore:
             != sha256_bytes(canonical_json_bytes(normalize_response_headers(headers)))
         ):
             raise ContractError("network response redirected or differs from its acquisition capability")
-        return self._land(
-            source=source,
-            url=requested_url,
-            http_status=http_status,
-            raw=raw,
-            headers=headers,
-            retrieved_at=trusted_clock.now(),
-            acquisition_mode="NETWORK_AS_RECEIVED",
-            acquisition_capability_id=capability.capability_id,
-            time_authority=trusted_clock.mode,
-            synthetic_permit_id=None,
-            max_bytes=max_bytes,
+        retrieved_at = trusted_clock.now()
+        return _consume_authorized_network_response(
+            transport_evidence,
+            **response_contract,
+            commit=lambda: self._land(
+                source=source,
+                url=requested_url,
+                http_status=http_status,
+                raw=raw,
+                headers=headers,
+                retrieved_at=retrieved_at,
+                acquisition_mode="NETWORK_AS_RECEIVED",
+                acquisition_capability_id=capability.capability_id,
+                time_authority=trusted_clock.mode,
+                synthetic_permit_id=None,
+                max_bytes=max_bytes,
+            ),
         )
 
     def _land(
@@ -631,17 +715,21 @@ class AsReceivedSnapshotStore:
     ) -> LandedSnapshot:
         if not SAFE_SOURCE.fullmatch(source):
             raise ContractError("snapshot source must be a safe identifier")
+        validated_url = _validate_snapshot_url(url)
         if isinstance(http_status, bool) or not isinstance(http_status, int) or not 100 <= http_status <= 599:
             raise ContractError("snapshot HTTP status must be an integer in [100,599]")
         retrieved = require_aware_utc(retrieved_at, "retrieved_at")
-        if not 1 <= len(raw) <= max_bytes <= MAX_SNAPSHOT_BYTES:
+        if (
+            type(max_bytes) is not int
+            or not 1 <= len(raw) <= max_bytes <= MAX_SNAPSHOT_BYTES
+        ):
             raise ContractError("snapshot response is empty, oversized, or has an invalid byte bound")
         normalized_headers = normalize_response_headers(headers)
         raw_hash = sha256_bytes(raw)
         unsigned = {
             "schema_version": 1,
             "source": source,
-            "url": url,
+            "url": validated_url,
             "http_status": http_status,
             "retrieved_at": iso_z(retrieved),
             "raw_sha256": raw_hash,
@@ -785,8 +873,16 @@ def _load_snapshot(
         raise IntegrityError("snapshot schema_version must be integer one")
     if type(receipt["http_status"]) is not int or type(receipt["raw_bytes"]) is not int:
         raise IntegrityError("snapshot numeric receipt fields must be exact integers")
+    if (
+        not 100 <= receipt["http_status"] <= 599
+        or not 1 <= receipt["raw_bytes"] <= MAX_SNAPSHOT_BYTES
+    ):
+        raise IntegrityError(
+            "snapshot HTTP status or raw byte count is outside bounds"
+        )
     try:
         normalized_headers = normalize_response_headers(headers)
+        snapshot_url = _validate_snapshot_url(receipt["url"])
         require_sha256(receipt["raw_sha256"], "snapshot.raw_sha256")
         require_sha256(receipt["snapshot_id"], "snapshot.snapshot_id")
         require_sha256(receipt["acquisition_capability_id"], "snapshot.acquisition_capability_id")
@@ -834,8 +930,8 @@ def _load_snapshot(
         try:
             capability = acquisition_registry._issue_response_capability(
                 source=str(receipt["source"]),
-                requested_url=str(receipt["url"]),
-                response_url=str(receipt["url"]),
+                requested_url=snapshot_url,
+                response_url=snapshot_url,
                 http_status=int(receipt["http_status"]),
                 raw=raw,
                 headers=headers,
@@ -873,7 +969,7 @@ def _load_snapshot(
         allowed_root=allowed_root,
         snapshot_id=expected,
         source=str(receipt["source"]),
-        url=str(receipt["url"]),
+        url=snapshot_url,
         http_status=int(receipt["http_status"]),
         retrieved_at=retrieved_at,
         raw_sha256=raw_hash,

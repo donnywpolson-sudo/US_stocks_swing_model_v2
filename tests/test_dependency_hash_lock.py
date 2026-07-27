@@ -5,9 +5,13 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
 from us_stocks_swing_model_v2.common import sha256_file
+from us_stocks_swing_model_v2.environment import validate_environment_lock
+from us_stocks_swing_model_v2.errors import ContractError
+import us_stocks_swing_model_v2.environment as environment_module
 
 
 REPO = Path(__file__).parents[1]
@@ -78,3 +82,45 @@ def test_windows_cp311_binary_closure_is_exact_and_hash_locked() -> None:
     for requirement in direct:
         name, version = requirement.split("==", 1)
         assert locked[canonicalize_name(name)][0] == version
+
+
+def test_runtime_validation_checks_every_transitive_locked_distribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _plain_pins(REPO / "requirements.lock")
+    observed: list[str] = []
+
+    def installed_version(distribution: str) -> str:
+        normalized = canonicalize_name(distribution)
+        observed.append(normalized)
+        return expected[normalized]
+
+    monkeypatch.setattr(
+        environment_module.importlib.metadata,
+        "version",
+        installed_version,
+    )
+    validate_environment_lock(REPO / "config" / "environment.lock.json")
+    assert set(observed) == set(expected)
+    assert len(observed) == len(expected) == 22
+
+
+def test_runtime_validation_rejects_transitive_version_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _plain_pins(REPO / "requirements.lock")
+
+    def installed_version(distribution: str) -> str:
+        normalized = canonicalize_name(distribution)
+        return "0.0.0-drift" if normalized == "six" else expected[normalized]
+
+    monkeypatch.setattr(
+        environment_module.importlib.metadata,
+        "version",
+        installed_version,
+    )
+    with pytest.raises(
+        ContractError,
+        match="package runtime differs from lock: six",
+    ):
+        validate_environment_lock(REPO / "config" / "environment.lock.json")

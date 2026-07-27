@@ -26,6 +26,15 @@ class DailyBar:
     delisted: bool = False
 
     def validate(self) -> None:
+        if (
+            type(self.asset_id) is not str
+            or not self.asset_id
+            or self.asset_id != self.asset_id.strip()
+            or type(self.session) is not date
+        ):
+            raise ContractError(
+                "bar asset_id and session must be canonical text and an exact date"
+            )
         require_aware_utc(self.available_at, "available_at")
         for name, value in (("open", self.open), ("close", self.close)):
             if value is not None and (
@@ -53,6 +62,10 @@ def load_daily_bar_release(
         or manifest.quality_state != "PASS"
     ):
         raise ContractError("outcome bar release has the wrong project/dataset/role")
+    if {entry.path for entry in manifest.files} != {"daily_bars.json"}:
+        raise ContractError(
+            "daily-bar release payload census must equal {daily_bars.json}"
+        )
     try:
         payload = json.loads((directory / "daily_bars.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -75,15 +88,28 @@ def load_daily_bar_release(
                 raise ContractError("daily-bar prices must be numeric or null")
         if type(raw["halted"]) is not bool or type(raw["delisted"]) is not bool:
             raise ContractError("daily-bar flags must be boolean")
-        bar = DailyBar(
-            asset_id=str(raw["asset_id"]),
-            session=date.fromisoformat(str(raw["session"])),
-            open=(float(raw["open"]) if raw["open"] is not None else None),
-            close=(float(raw["close"]) if raw["close"] is not None else None),
-            available_at=parse_timestamp(str(raw["available_at"]), "bar.available_at"),
-            halted=raw["halted"],
-            delisted=raw["delisted"],
-        )
+        if any(
+            type(raw[name]) is not str
+            for name in ("asset_id", "session", "available_at")
+        ):
+            raise ContractError(
+                "daily-bar identity/time fields require exact JSON strings"
+            )
+        try:
+            bar = DailyBar(
+                asset_id=raw["asset_id"],
+                session=date.fromisoformat(raw["session"]),
+                open=(float(raw["open"]) if raw["open"] is not None else None),
+                close=(float(raw["close"]) if raw["close"] is not None else None),
+                available_at=parse_timestamp(
+                    raw["available_at"],
+                    "bar.available_at",
+                ),
+                halted=raw["halted"],
+                delisted=raw["delisted"],
+            )
+        except ValueError as exc:
+            raise ContractError("daily-bar session is not a real ISO date") from exc
         bar.validate()
         bars.append(bar)
     identities = [(bar.asset_id, bar.session) for bar in bars]
@@ -107,7 +133,14 @@ def build_outcome(
     revision_number: int = 1,
     prior_revision_id: str | None = None,
 ) -> OutcomeRow:
-    as_of = require_aware_utc(action_view_as_of, "action_view_as_of")
+    # Persisted schema compatibility retains the historical field name
+    # action_view_as_of, but the value is deliberately the unified knowledge
+    # cutoff for every input used by this outcome construction. Corporate
+    # actions and price bars must both have been available by this instant.
+    evidence_view_as_of = require_aware_utc(
+        action_view_as_of,
+        "action_view_as_of",
+    )
     if calendar.trust_eligible != actions.trust_eligible:
         raise ContractError("calendar and corporate-action evidence trust modes differ")
     if not source_epoch:
@@ -129,11 +162,34 @@ def build_outcome(
             bar_release_id=bar_release_id,
             action_release_id=actions.release_id,
             source_epoch=source_epoch,
-            as_of=as_of,
+            as_of=evidence_view_as_of,
             revision_number=revision_number,
             prior_revision_id=prior_revision_id,
         )
     entry_session, exit_session = horizon
+    if not actions.covers_effective_interval(
+        asset_id,
+        entry_session,
+        exit_session,
+        evidence_view_as_of,
+    ):
+        return _unresolved(
+            prediction_id,
+            eligibility_census_id,
+            asset_id,
+            decision_session,
+            entry_session,
+            exit_session,
+            OutcomeStatus.MISSING_SOURCE,
+            "complete corporate-action coverage is unavailable",
+            calendar,
+            bar_release_id,
+            actions.release_id,
+            source_epoch,
+            evidence_view_as_of,
+            revision_number,
+            prior_revision_id,
+        )
     interval = calendar.interval(entry_session, exit_session)
     interval_set = set(interval)
     for mapping_session, bar in bars.items():
@@ -143,11 +199,23 @@ def build_outcome(
         if bar.asset_id != asset_id or mapping_session not in interval_set:
             raise ContractError("bar identity/session does not match outcome request")
     available_bars = [bars.get(session) for session in interval]
+    if any(
+        bar is not None
+        and evidence_view_as_of
+        < require_aware_utc(
+            bar.available_at,
+            "outcome_bar.available_at",
+        )
+        for bar in available_bars
+    ):
+        raise ContractError(
+            "unified outcome evidence view cannot predate outcome-bar availability"
+        )
     if any(bar and bar.delisted for bar in available_bars):
         return _unresolved(
             prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,
             OutcomeStatus.DELISTED, "asset delisted during outcome interval", calendar,
-            bar_release_id, actions.release_id, source_epoch, as_of,
+            bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
             revision_number, prior_revision_id,
         )
     entry_bar = bars.get(entry_session)
@@ -156,22 +224,22 @@ def build_outcome(
         return _unresolved(
             prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,
             OutcomeStatus.HALTED, "required execution price unavailable due to halt", calendar,
-            bar_release_id, actions.release_id, source_epoch, as_of,
+            bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
             revision_number, prior_revision_id,
         )
     if entry_bar is None or exit_bar is None or entry_bar.open is None or exit_bar.close is None:
         return _unresolved(
             prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,
             OutcomeStatus.MISSING_SOURCE, "required entry-open or exit-close source bar is missing",
-            calendar, bar_release_id, actions.release_id, source_epoch, as_of,
+            calendar, bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
             revision_number, prior_revision_id,
         )
-    if as_of < max(
-        require_aware_utc(entry_bar.available_at, "entry_available_at"),
-        require_aware_utc(exit_bar.available_at, "exit_available_at"),
-    ):
-        raise ContractError("action view cannot predate required outcome-bar availability")
-    relevant_actions = actions.effective_between(asset_id, entry_session, exit_session, as_of)
+    relevant_actions = actions.effective_between(
+        asset_id,
+        entry_session,
+        exit_session,
+        evidence_view_as_of,
+    )
     unsupported = [
         action for action in relevant_actions
         if action.action_type not in {ActionType.SPLIT, ActionType.DIVIDEND}
@@ -180,8 +248,8 @@ def build_outcome(
         return _unresolved(
             prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,
             OutcomeStatus.ACTION_UNRESOLVED,
-            "non-split corporate action prevents a comparable price-return outcome",
-            calendar, bar_release_id, actions.release_id, source_epoch, as_of,
+            "unsupported corporate-action type prevents a comparable price-return outcome",
+            calendar, bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
             revision_number, prior_revision_id,
         )
     split_multiple = math.prod(
@@ -204,7 +272,7 @@ def build_outcome(
         bar_release_id=bar_release_id,
         action_release_id=actions.release_id,
         source_epoch=source_epoch,
-        as_of=as_of,
+        as_of=evidence_view_as_of,
         revision_number=revision_number,
         prior_revision_id=prior_revision_id,
     )

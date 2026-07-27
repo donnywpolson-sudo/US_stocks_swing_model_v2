@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.2.0-robustness-monitoring",
+  "contract_version": "1.3.0-scoped-mechanical-status",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -48,7 +48,7 @@
   "readiness": {
     "target_state": "HISTORICAL_RESEARCH_READY",
     "current_state": "HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY",
-    "ready": true,
+    "mechanical_assessment_status": "PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY",
     "readiness_is_execution_authority": false,
     "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
     "candidate_eligibility": "BLOCKED_PENDING_PROSPECTIVE_PIT",
@@ -528,7 +528,7 @@
     "implementation_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
     "evidence_role": "SYNTHETIC_MECHANICS_ONLY",
     "model_kind": "linear_distribution_v1",
-    "target_semantics": "ABSOLUTE_NEXT_5_SESSION_RETURN",
+    "target_semantics": "SIGNED_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_SPLIT_NORMALIZED_PRICE_RETURN",
     "fold_local_scaling": true,
     "ridge_fit": true,
     "hyperparameter_selection": "INNER_WEIGHTED_MEAN_SQUARED_ERROR_ONLY",

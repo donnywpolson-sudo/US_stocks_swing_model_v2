@@ -18,6 +18,7 @@ import subprocess
 from typing import Any, Mapping
 
 from .capabilities import SyntheticOnlyPermit
+from .clock import TrustedClock, require_trusted_clock
 from .canonical.hfdl_legacy_publisher import (
     HFDL_EPOCHS,
     SYNTHETIC_CONTRACT_SCOPE,
@@ -50,6 +51,7 @@ from .foundation_orchestrator import (
     _contract_id as foundation_contract_id,
     _implementation_hash as foundation_implementation_hash,
 )
+from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
 from .historical_foundation import OUTPUT_KINDS, load_hfdl_historical_foundation
 from .releases import (
     AtomicReleasePublisher,
@@ -58,6 +60,7 @@ from .releases import (
     verify_accepted_release,
 )
 from .research.builder import OuterBuilderRequest
+from .research.artifacts import DIRECTION_SEMANTICS
 from .research.executor import (
     EXECUTOR_ENTRYPOINT,
     EXECUTOR_MECHANICS_VERSION,
@@ -76,6 +79,9 @@ RECEIPT_QUALITY = "QUALIFICATION_EVIDENCE"
 REBUILD_MILESTONE = "REBUILD_COMPLETE"
 HISTORICAL_READY_MILESTONE = "HISTORICAL_RESEARCH_READY"
 MINIMUM_LEGACY_EXPOSURE_FLOOR = 62
+MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE = (
+    "AUTHORIZE_MECHANICAL_READINESS_PUBLICATION"
+)
 
 _PIT_BLOCKERS = (
     "historical_membership",
@@ -189,6 +195,19 @@ _FOREIGN_IMPORT_PREFIXES = (
     "futures_intraday_model",
     "futures_intraday_model_v2",
 )
+
+
+def _contains_foreign_project_path_literal(value: str) -> bool:
+    components = tuple(
+        component
+        for component in value.replace("/", "\\").lower().split("\\")
+        if component
+    )
+    return len(components) >= 2 and any(
+        component == prefix.lower()
+        for component in components
+        for prefix in _FOREIGN_IMPORT_PREFIXES
+    )
 
 
 @dataclass(frozen=True)
@@ -322,16 +341,77 @@ def _import_names(tree: ast.AST) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _fit_call_count(tree: ast.AST) -> int:
-    return sum(
-        1
+_DYNAMIC_EXECUTION_NAMES = {
+    "__builtins__",
+    "__import__",
+    "attrgetter",
+    "compile",
+    "dir",
+    "eval",
+    "exec",
+    "getattr",
+    "globals",
+    "import_module",
+    "locals",
+    "methodcaller",
+    "setattr",
+    "vars",
+}
+
+
+def _role_isolation_violations(tree: ast.AST) -> tuple[str, ...]:
+    """Reject constructs that can hide imports, fitting, or dynamic execution."""
+
+    violations: set[str] = set()
+    sensitive_import_aliases = {
+        alias.asname or alias.name: alias.name
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and (
-            (isinstance(node.func, ast.Attribute) and node.func.attr == "fit")
-            or (isinstance(node.func, ast.Name) and node.func.id == "fit")
-        )
-    )
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name in _DYNAMIC_EXECUTION_NAMES
+    }
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.Name):
+            if node.id == "fit":
+                violations.add(f"fit_reference:{line}")
+            if node.id in _DYNAMIC_EXECUTION_NAMES:
+                violations.add(f"dynamic_reference:{node.id}:{line}")
+            if node.id in sensitive_import_aliases:
+                violations.add(
+                    "dynamic_import_alias_reference:"
+                    f"{sensitive_import_aliases[node.id]}:{line}"
+                )
+        elif isinstance(node, ast.Attribute):
+            if node.attr == "fit":
+                violations.add(f"fit_reference:{line}")
+            if node.attr == "__dict__":
+                violations.add(f"dynamic_attribute_reference:__dict__:{line}")
+            if node.attr == "import_module":
+                violations.add(f"dynamic_import_reference:{line}")
+            if node.attr in {
+                "__import__",
+                "attrgetter",
+                "compile",
+                "dir",
+                "eval",
+                "exec",
+                "getattr",
+                "methodcaller",
+                "setattr",
+            }:
+                violations.add(f"dynamic_attribute_reference:{node.attr}:{line}")
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in {"__import__", "fit", "import_module"}
+        ):
+            violations.add(f"sensitive_dynamic_name:{node.value}:{line}")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name in _DYNAMIC_EXECUTION_NAMES:
+                    violations.add(f"dynamic_import_alias:{alias.name}:{line}")
+    return tuple(sorted(violations))
 
 
 def _source_tree_ast() -> tuple[dict[str, str], dict[str, ast.AST]]:
@@ -364,11 +444,7 @@ def build_mechanical_isolation_attestation() -> dict[str, Any]:
                 foreign.append(f"{relative}:{module}")
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                normalized = node.value.replace("/", "\\").lower()
-                if any(
-                    f"\\{prefix.lower()}" in normalized
-                    for prefix in _FOREIGN_IMPORT_PREFIXES
-                ):
+                if _contains_foreign_project_path_literal(node.value):
                     foreign_literals.append(f"{relative}:{node.lineno}")
     evaluator_relative = "src/us_stocks_swing_model_v2/research/evaluator.py"
     inference_relative = "src/us_stocks_swing_model_v2/inference.py"
@@ -376,6 +452,8 @@ def build_mechanical_isolation_attestation() -> dict[str, Any]:
     inference_tree = trees[inference_relative]
     evaluator_imports = _import_names(evaluator_tree)
     inference_imports = _import_names(inference_tree)
+    evaluator_violations = _role_isolation_violations(evaluator_tree)
+    inference_violations = _role_isolation_violations(inference_tree)
     evaluator_forbidden = sorted(
         value for value in evaluator_imports if "builder" in value or value.startswith("sklearn")
     )
@@ -394,8 +472,8 @@ def build_mechanical_isolation_attestation() -> dict[str, Any]:
         or foreign_literals
         or evaluator_forbidden
         or inference_forbidden
-        or _fit_call_count(evaluator_tree) != 0
-        or _fit_call_count(inference_tree) != 0
+        or evaluator_violations
+        or inference_violations
         or registered_entrypoint is not execute_synthetic_nested_wfa
         or "audit_targets" in builder_fields
         or "outer_audit_targets" in builder_fields
@@ -405,6 +483,8 @@ def build_mechanical_isolation_attestation() -> dict[str, Any]:
         "schema_version": 1,
         "project": PROJECT,
         "attestation_scope": "STATIC_SYNTHETIC_MECHANICS_ROLE_ISOLATION",
+        "analysis_policy_version": "FAIL_CLOSED_ROLE_ISOLATION_AST_V2",
+        "analysis_boundary": "STATIC_SOURCE_AST_ONLY_NOT_RUNTIME_PROOF",
         "source_python_file_count": len(hashes),
         "source_tree_sha256": sha256_bytes(canonical_json_bytes(hashes)),
         "executor_entrypoint": EXECUTOR_ENTRYPOINT,
@@ -413,8 +493,10 @@ def build_mechanical_isolation_attestation() -> dict[str, Any]:
         "foreign_project_path_literals": [],
         "evaluator_fit_calls": 0,
         "evaluator_forbidden_imports": [],
+        "evaluator_forbidden_constructs": [],
         "inference_fit_calls": 0,
         "inference_forbidden_imports": [],
+        "inference_forbidden_constructs": [],
         "builder_request_fields": list(builder_fields),
         "builder_outer_audit_targets_present": False,
         "independent_human_judgment_claimed": False,
@@ -455,7 +537,7 @@ def _load_registered_contract() -> tuple[dict[str, Any], dict[str, Any]]:
         "implementation_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
         "evidence_role": "SYNTHETIC_MECHANICS_ONLY",
         "model_kind": "linear_distribution_v1",
-        "target_semantics": "ABSOLUTE_NEXT_5_SESSION_RETURN",
+        "target_semantics": DIRECTION_SEMANTICS,
         "fold_local_scaling": True,
         "ridge_fit": True,
         "hyperparameter_selection": "INNER_WEIGHTED_MEAN_SQUARED_ERROR_ONLY",
@@ -470,11 +552,29 @@ def _load_registered_contract() -> tuple[dict[str, Any], dict[str, Any]]:
     }
     if canonical_json_bytes(registered) != canonical_json_bytes(expected_registered):
         raise IntegrityError("registered synthetic executor contract differs")
+    expected_readiness_fields = {
+        "target_state",
+        "current_state",
+        "mechanical_assessment_status",
+        "readiness_is_execution_authority",
+        "historical_evidence_scope",
+        "candidate_eligibility",
+        "alpha_claim",
+        "live_readiness",
+        "document_or_config_creation_marks_ready",
+        "legacy_trial_census_required",
+        "synthetic_and_adversarial_contract_tests_required",
+        "pit_blockers",
+    }
     if (
         type(contract.get("schema_version")) is not int
         or contract.get("schema_version") != 1
         or contract.get("project") != PROJECT
+        or set(readiness) != expected_readiness_fields
         or readiness.get("target_state") != HISTORICAL_READY_MILESTONE
+        or readiness.get("mechanical_assessment_status")
+        != "PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY"
+        or readiness.get("readiness_is_execution_authority") is not False
         or readiness.get("historical_evidence_scope") != READINESS_STATE
         or readiness.get("candidate_eligibility") != "BLOCKED_PENDING_PROSPECTIVE_PIT"
         or readiness.get("alpha_claim") is not False
@@ -971,6 +1071,40 @@ def _receipt(
     return {**unsigned, "receipt_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
+def mechanical_readiness_authorization_bindings(
+    *,
+    assessment: MechanicalReadinessAssessment,
+    accepted_release_root: Path,
+    readiness_work_root: Path,
+    created_at: str,
+) -> dict[str, str]:
+    """Bind one exact two-receipt publication before any output mutation."""
+
+    parse_utc_z(created_at, "mechanical_readiness.created_at")
+    accepted_root = Path(accepted_release_root)
+    work_root = Path(readiness_work_root)
+    if not accepted_root.is_absolute() or not work_root.is_absolute():
+        raise ContractError("readiness authorization roots must be absolute")
+    foundation_release_id = assessment.foundation.get("release_id")
+    if type(foundation_release_id) is not str:
+        raise IntegrityError("readiness assessment foundation release ID is invalid")
+    require_sha256(foundation_release_id, "mechanical_readiness.foundation_release_id")
+    require_sha256(assessment.assessment_id, "mechanical_readiness.assessment_id")
+    return {
+        "accepted_release_root": str(accepted_root.resolve(strict=True)),
+        "assessment_id": assessment.assessment_id,
+        "created_at": created_at,
+        "foundation_release_id": foundation_release_id,
+        "historical_ready_dataset": HISTORICAL_READY_DATASET,
+        "historical_ready_filename": "historical_research_ready.json",
+        "project": PROJECT,
+        "publication_count": "2",
+        "readiness_work_root": str(work_root.resolve(strict=False)),
+        "rebuild_dataset": REBUILD_DATASET,
+        "rebuild_filename": "rebuild_complete.json",
+    }
+
+
 def _write_exact(path: Path, payload: bytes) -> None:
     if path.exists():
         if _plain_file(path, label="readiness stage receipt") != payload:
@@ -1030,6 +1164,9 @@ def publish_stock_mechanical_readiness(
     accepted_release_root: Path,
     readiness_work_root: Path,
     created_at: str,
+    authorization: SignedAuthorizationReceipt | None = None,
+    authorization_authority: AuthorizationAuthority | None = None,
+    clock: TrustedClock | None = None,
     synthetic_permit: SyntheticOnlyPermit | None = None,
 ) -> MechanicalReadinessPublication:
     """Publish two evidence receipts; never grant or perform research authority."""
@@ -1042,12 +1179,53 @@ def publish_stock_mechanical_readiness(
     if synthetic_permit is None:
         expected_work_parent = (_repo_root() / "data").resolve(strict=True)
         require_contained_path(work_root, expected_work_parent, must_exist=False)
-        work_root.parent.mkdir(parents=True, exist_ok=True)
     assessment = assess_stock_mechanical_readiness(
         foundation_release_directory=Path(foundation_release_directory),
         accepted_release_root=accepted_root,
         synthetic_permit=synthetic_permit,
     )
+    if synthetic_permit is None:
+        if authorization is None or authorization_authority is None or clock is None:
+            raise PermissionError(
+                "mechanical-readiness publication requires an exact external authorization "
+                "receipt, authority, and trusted production clock"
+            )
+        if (
+            type(authorization) is not SignedAuthorizationReceipt
+            or type(authorization_authority) is not AuthorizationAuthority
+        ):
+            raise PermissionError(
+                "mechanical-readiness publication requires exact authorization objects"
+            )
+        if authorization_authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
+            raise PermissionError(
+                "mechanical-readiness publication requires external user authority"
+            )
+        trusted_clock = require_trusted_clock(clock)
+        if trusted_clock.mode != "PRODUCTION_SYSTEM_UTC":
+            raise PermissionError(
+                "mechanical-readiness publication requires the production system UTC clock"
+            )
+        authorization.validate(
+            authority=authorization_authority,
+            expected_scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
+            expected_subject_id=assessment.assessment_id,
+            required_bindings=mechanical_readiness_authorization_bindings(
+                assessment=assessment,
+                accepted_release_root=accepted_root,
+                readiness_work_root=work_root,
+                created_at=created_at,
+            ),
+            clock=trusted_clock,
+        )
+        work_root.parent.mkdir(parents=True, exist_ok=True)
+    elif any(
+        value is not None
+        for value in (authorization, authorization_authority, clock)
+    ):
+        raise PermissionError(
+            "synthetic mechanical-readiness publication cannot mix external authority inputs"
+        )
     build_id = sha256_bytes(
         canonical_json_bytes(
             {

@@ -54,7 +54,6 @@ from .hac import HACMeanResult, hac_t_statistic, newey_west_mean
 from .multiple_testing import (
     RomanoWolfResult,
     romano_wolf_from_differentials,
-    romano_wolf_stepdown,
 )
 from .power import PowerPlan, training_only_mde
 from .robustness import (
@@ -161,7 +160,6 @@ __all__ = [
     "purge_and_post_embargo_indices",
     "require_synthetic_permit",
     "romano_wolf_from_differentials",
-    "romano_wolf_stepdown",
     "stationary_bootstrap_index_kernel",
     "stationary_bootstrap_index_rows",
     "stationary_bootstrap_indices",

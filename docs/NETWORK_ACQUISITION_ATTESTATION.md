@@ -24,18 +24,30 @@ The receipt also binds its scope, signature time, key ID, authority-registry
 ID, and authority class. Its required scope is
 `ATTEST_NETWORK_ACQUISITION`.
 
+The checked-in `config/nasdaq_qualification_receipt.json` predates the current
+trust closure and is preserved historical negative evidence. Its
+`NOT_ACTIVE` state and stale code/registry hashes are intentional: changing
+them in place would falsify the acquisition event. It grants no current
+capability. Requalification requires a new bounded response and a new detached
+receipt; see `ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md`.
+
 ## Three-stage workflow
 
 ### 1. Pre-request authorization
 
-Plan-only mode emits one exact request packet per selected source:
+Plan-only mode is filesystem-read-only: it prints the proposed requests but
+does not create directories or files. Request-packet creation is a separate,
+explicit mode:
 
 ```powershell
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
-  --plan-only `
   --nasdaq-only `
-  --authorization-request-directory C:\absolute\new\request-directory
+  --emit-authorization-requests C:\absolute\new\request-directory
 ```
+
+The prior `--authorization-request-directory` spelling remains temporarily
+available as a deprecated alias for the explicit emission mode. It cannot be
+combined with `--plan-only`.
 
 After the public authority is active, prepare the exact canonical signing
 bytes:
@@ -70,6 +82,13 @@ python -m us_stocks_swing_model_v2.cli.assemble_network_authorization `
 The receipt is atomically consumed before the first request. It cannot be
 replayed; a failed or interrupted acquisition requires a freshly signed
 receipt.
+
+The guarded transport binds the exact HTTP result even when the response body
+has zero bytes, preserving what the authorized request actually returned.
+Zero-byte content is not valid source evidence: snapshot landing rejects it as
+empty before provider parsing, publication, qualification, or trust promotion.
+Transport binding therefore records the failure without misclassifying it as
+an authorization mismatch.
 
 ### 2. Bounded capture
 

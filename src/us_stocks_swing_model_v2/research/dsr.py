@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 import numpy as np
 from scipy.special import ndtr, ndtri
 
-from .contracts import ResearchContractError, finite_float64
+from .contracts import (
+    ResearchArrayBinding,
+    ResearchContractError,
+    finite_float64,
+)
 
 
 _EULER_MASCHERONI = 0.5772156649015329
@@ -36,6 +41,8 @@ def deflated_sharpe_ratio(
     *,
     raw_trial_count: int,
     selected_trial_index: int,
+    sample_ids: Iterable[str],
+    binding: ResearchArrayBinding,
     selection_rule: str = "MAX_SHARPE",
 ) -> DeflatedSharpeResult:
     """Compute DSR using per-period Sharpe and the raw registered trial count.
@@ -43,11 +50,32 @@ def deflated_sharpe_ratio(
     The Sharpe values must not be annualized.  Kurtosis is non-excess.  The
     complete raw trial census is used as a conservative upper bound on the
     number of independent trials; no data-derived effective-count reduction is
-    performed here.
+    performed here. Both the selected returns and every trial Sharpe must be
+    authenticated by one complete ``ResearchArrayBinding``.
     """
 
-    values = finite_float64(returns, name="returns", ndim=1)
-    census = finite_float64(trial_sharpes, name="trial_sharpes", ndim=1)
+    values = finite_float64(returns, name="returns", ndim=1).copy()
+    census = finite_float64(
+        trial_sharpes,
+        name="trial_sharpes",
+        ndim=1,
+    ).copy()
+    if type(binding) is not ResearchArrayBinding:
+        raise ResearchContractError(
+            "DSR requires an exact ResearchArrayBinding"
+        )
+    materialized_sample_ids = tuple(sample_ids)
+    if len(materialized_sample_ids) != len(values):
+        raise ResearchContractError(
+            "DSR sample IDs must exactly cover selected returns"
+        )
+    binding.validate_inputs(
+        sample_ids=materialized_sample_ids,
+        arrays={
+            "selected_returns": values,
+            "trial_sharpes": census,
+        },
+    )
     if isinstance(raw_trial_count, bool) or not isinstance(raw_trial_count, int):
         raise ResearchContractError("raw_trial_count must be an integer")
     if raw_trial_count != len(census) or raw_trial_count < 2:

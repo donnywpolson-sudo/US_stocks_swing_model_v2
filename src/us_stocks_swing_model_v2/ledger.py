@@ -4,13 +4,15 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from .common import (
+    _fsync_directory,
     assert_exact_tree,
     atomic_write,
+    atomic_write_new,
     canonical_json_bytes,
     iso_z,
     parse_utc_z,
@@ -27,10 +29,31 @@ from .schemas import OutcomeRow, OutcomeStatus, UnderlyingPrediction, assert_und
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .corporate_actions import BitemporalActionLedger
 from .exchange_calendar import load_xnys_calendar_release
-from .outcomes import build_outcome, load_daily_bar_release
+from .governance import AuthorizationAuthority
+from .outcomes import DailyBar, build_outcome, load_daily_bar_release
 
 
 LOCAL_ANCHOR_DURABILITY = "LOCAL_TAMPER_EVIDENT_NOT_EXTERNAL_WORM"
+
+
+def _outcome_interval_bars(
+    *,
+    calendar: Any,
+    decision_session: date,
+    asset_id: str,
+    all_bars: Iterable[DailyBar],
+) -> dict[date, DailyBar]:
+    """Select only the five-session evidence the outcome builder accepts."""
+
+    horizon = calendar.outcome_sessions(decision_session)
+    if horizon is None:
+        return {}
+    allowed_sessions = set(calendar.interval(*horizon))
+    return {
+        bar.session: bar
+        for bar in all_bars
+        if bar.asset_id == asset_id and bar.session in allowed_sessions
+    }
 
 
 class HashChainLedger:
@@ -42,12 +65,83 @@ class HashChainLedger:
         record_type: str,
         *,
         clock: TrustedClock | None = None,
+        unique_key: str | None = None,
+        payload_validator: Callable[[Mapping[str, Any]], None] | None = None,
     ):
         if not record_type:
             raise ContractError("record_type is required")
+        if unique_key is not None and (
+            type(unique_key) is not str
+            or not unique_key
+            or unique_key != unique_key.strip()
+        ):
+            raise ContractError("ledger unique key must be canonical nonempty text")
+        if payload_validator is not None and not callable(payload_validator):
+            raise ContractError("ledger payload validator must be callable")
         self.path = Path(path)
         self.record_type = record_type
         self._clock = require_trusted_clock(clock)
+        self._unique_key = unique_key
+        self._payload_validator = payload_validator
+        self._synthetic_verifier_permit_ids = frozenset(
+            ()
+            if self._clock.synthetic_permit_id is None
+            else (self._clock.synthetic_permit_id,)
+        )
+
+    def with_clock(self, clock: TrustedClock) -> "HashChainLedger":
+        """Rebind an existing synthetic ledger and retain its verified permit census."""
+
+        self.read_verified()
+        rebound = HashChainLedger(
+            self.path,
+            self.record_type,
+            clock=clock,
+            unique_key=self._unique_key,
+            payload_validator=self._payload_validator,
+        )
+        if rebound._clock.mode != self._clock.mode:
+            raise IntegrityError("ledger clock rebinding cannot change authority mode")
+        permit_ids = frozenset(
+            set(self._synthetic_verifier_permit_ids)
+            | set(rebound._synthetic_verifier_permit_ids)
+        )
+        self._synthetic_verifier_permit_ids = permit_ids
+        rebound._synthetic_verifier_permit_ids = permit_ids
+        return rebound
+
+    def authorize_synthetic_history(
+        self,
+        permit_ids: tuple[str, ...],
+        *,
+        permit: SyntheticOnlyPermit,
+    ) -> None:
+        """Authorize an exact synthetic fixture history; never production evidence."""
+
+        require_synthetic_permit(
+            permit,
+            scope="SYNTHETIC_LEDGER_HISTORY_PERMITS",
+        )
+        if self._clock.trust_eligible:
+            raise ContractError(
+                "production ledgers cannot authorize synthetic history permits"
+            )
+        if (
+            type(permit_ids) is not tuple
+            or not permit_ids
+            or permit_ids != tuple(sorted(set(permit_ids)))
+            or self._clock.synthetic_permit_id not in permit_ids
+        ):
+            raise ContractError(
+                "synthetic ledger history permits must be an exact sorted census "
+                "including the verifier clock"
+            )
+        for index, permit_id in enumerate(permit_ids):
+            require_sha256(
+                permit_id,
+                f"ledger.synthetic_history_permit_ids[{index}]",
+            )
+        self._synthetic_verifier_permit_ids = frozenset(permit_ids)
 
     @property
     def _lock_path(self) -> Path:
@@ -61,10 +155,52 @@ class HashChainLedger:
         self._verify_plain_paths()
         if self._journal_path.exists():
             with ExclusiveFileLock(self._lock_path, allowed_root=self.path.parent):
-                self._recover_locked()
+                # Establish that the committed base is sound before treating
+                # the journal, rather than the ledger itself, as rejected
+                # recovery evidence. An exact already-committed journal tail
+                # remains recovery evidence until it is revalidated below.
+                history = self._read_verified_raw(
+                    validate_payload_contracts=False
+                )
+                self._validate_committed_payloads(
+                    self._committed_base_before_journal(history)
+                )
+                try:
+                    self._recover_locked()
+                except IntegrityError:
+                    self._quarantine_rejected_journal()
+                    raise
         return self._read_verified_raw()
 
-    def _read_verified_raw(self) -> list[dict[str, Any]]:
+    def _quarantine_rejected_journal(self) -> Path:
+        """Preserve invalid recovery bytes once, then unblock public reads."""
+
+        raw = self._journal_path.read_bytes()
+        digest = sha256_bytes(raw)
+        rejected = self.path.with_name(
+            f".{self.path.name}.rejected-journal-{digest}.json"
+        )
+        reject_link(rejected)
+        if rejected.exists():
+            if not rejected.is_file() or rejected.stat().st_nlink != 1:
+                raise IntegrityError(
+                    "rejected ledger journal destination is not an independent plain file"
+                )
+            if rejected.read_bytes() != raw:
+                raise IntegrityError(
+                    "rejected ledger journal conflicts with preserved evidence"
+                )
+        else:
+            atomic_write_new(rejected, raw)
+        self._journal_path.unlink()
+        _fsync_directory(self._journal_path.parent)
+        return rejected
+
+    def _read_verified_raw(
+        self,
+        *,
+        validate_payload_contracts: bool = True,
+    ) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
         self._verify_plain_paths()
@@ -111,6 +247,12 @@ class HashChainLedger:
                         )
                     except ContractError as exc:
                         raise IntegrityError(str(exc)) from exc
+                    if envelope["synthetic_clock_permit_id"] not in (
+                        self._synthetic_verifier_permit_ids
+                    ):
+                        raise IntegrityError(
+                            "synthetic ledger record permit is not authorized by this verifier"
+                        )
                 unsigned = {
                     "sequence": sequence,
                     "previous_hash": previous,
@@ -125,7 +267,47 @@ class HashChainLedger:
                     raise IntegrityError(f"ledger record hash mismatch at sequence {sequence}")
                 previous = expected
                 records.append(envelope)
+        if validate_payload_contracts:
+            self._validate_committed_payloads(records)
         return records
+
+    def _committed_base_before_journal(
+        self,
+        history: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Exclude only an exact journal tail from committed-base preflight."""
+
+        try:
+            pending = json.loads(self._journal_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return history
+        if not isinstance(pending, dict):
+            return history
+        if "batch_schema_version" in pending:
+            envelopes = pending.get("envelopes")
+            if not isinstance(envelopes, list) or not envelopes:
+                return history
+            first = envelopes[0]
+            if not isinstance(first, dict):
+                return history
+            start = first.get("sequence")
+            if (
+                type(start) is int
+                and start >= 0
+                and len(history) == start + len(envelopes)
+                and history[start:] == envelopes
+            ):
+                return history[:start]
+            return history
+        sequence = pending.get("sequence")
+        if (
+            type(sequence) is int
+            and sequence >= 0
+            and len(history) == sequence + 1
+            and history[-1:] == [pending]
+        ):
+            return history[:-1]
+        return history
 
     def append(
         self,
@@ -136,8 +318,14 @@ class HashChainLedger:
         expected_record_count: int | None = None,
         expected_head_hash: str | None = None,
     ) -> dict[str, Any]:
-        if payload_validator:
-            payload_validator(payload)
+        effective_unique_key, effective_payload_validator = (
+            self._resolve_append_contract(
+                unique_key=unique_key,
+                payload_validator=payload_validator,
+            )
+        )
+        if effective_payload_validator:
+            effective_payload_validator(payload)
         self._verify_plain_paths()
         parsed_recorded = require_aware_utc(self._clock.now(), "ledger.clock")
         with ExclusiveFileLock(self._lock_path, allowed_root=self.path.parent):
@@ -150,12 +338,17 @@ class HashChainLedger:
                 raise IntegrityError("ledger head changed after preflight")
             if history and parsed_recorded < parse_utc_z(history[-1]["recorded_at"], "previous.recorded_at"):
                 raise ContractError("ledger recorded_at must be monotone")
-            if unique_key:
-                value = payload.get(unique_key)
+            if effective_unique_key:
+                value = payload.get(effective_unique_key)
                 if value is None:
-                    raise ContractError(f"unique key missing: {unique_key}")
-                if any(entry["payload"].get(unique_key) == value for entry in history):
-                    raise IntegrityError(f"duplicate append-only key {unique_key}={value}")
+                    raise ContractError(f"unique key missing: {effective_unique_key}")
+                if any(
+                    entry["payload"].get(effective_unique_key) == value
+                    for entry in history
+                ):
+                    raise IntegrityError(
+                        f"duplicate append-only key {effective_unique_key}={value}"
+                    )
             sequence = len(history)
             previous = history[-1]["record_hash"] if history else "0" * 64
             unsigned = {
@@ -181,17 +374,31 @@ class HashChainLedger:
         self,
         payloads: Iterable[Mapping[str, Any]],
         *,
-        unique_key: str,
-        payload_validator: Callable[[Mapping[str, Any]], None],
+        unique_key: str | None = None,
+        payload_validator: Callable[[Mapping[str, Any]], None] | None = None,
         expected_record_count: int,
         expected_head_hash: str,
     ) -> tuple[dict[str, Any], ...]:
+        effective_unique_key, effective_payload_validator = (
+            self._resolve_append_contract(
+                unique_key=unique_key,
+                payload_validator=payload_validator,
+            )
+        )
+        if effective_unique_key is None or effective_payload_validator is None:
+            raise ContractError(
+                "atomic ledger batches require construction-bound validation "
+                "and uniqueness contracts"
+            )
         materialized = tuple(dict(payload) for payload in payloads)
         if not materialized:
             raise ContractError("atomic ledger batch cannot be empty")
         for payload in materialized:
-            payload_validator(payload)
-        values = [payload.get(unique_key) for payload in materialized]
+            effective_payload_validator(payload)
+        values = [
+            payload.get(effective_unique_key)
+            for payload in materialized
+        ]
         if any(value is None for value in values) or len(set(values)) != len(values):
             raise ContractError("atomic ledger batch unique keys are missing or duplicated")
         self._verify_plain_paths()
@@ -203,7 +410,7 @@ class HashChainLedger:
             if len(history) != expected_record_count or actual_head != expected_head_hash:
                 raise IntegrityError("ledger changed after atomic batch preflight")
             if any(
-                row["payload"].get(unique_key) in set(values)
+                row["payload"].get(effective_unique_key) in set(values)
                 for row in history
             ):
                 raise IntegrityError("atomic ledger batch duplicates an existing key")
@@ -254,7 +461,7 @@ class HashChainLedger:
             raise IntegrityError("ledger recovery journal is invalid") from exc
         if not isinstance(pending, dict):
             raise IntegrityError("ledger recovery journal must be a JSON object")
-        history = self._read_verified_raw()
+        history = self._read_verified_raw(validate_payload_contracts=False)
         if isinstance(pending, dict) and "batch_schema_version" in pending:
             if set(pending) != {"batch_schema_version", "record_type", "envelopes"}:
                 raise IntegrityError("ledger batch recovery journal fields differ")
@@ -266,39 +473,41 @@ class HashChainLedger:
                 or not envelopes
             ):
                 raise IntegrityError("ledger batch recovery journal is invalid")
+            if not isinstance(envelopes[0], dict):
+                raise IntegrityError("ledger batch envelope is invalid")
             start = envelopes[0].get("sequence")
             if isinstance(start, bool) or not isinstance(start, int):
                 raise IntegrityError("ledger batch recovery sequence is invalid")
-            if len(history) == start + len(envelopes) and history[start:] == envelopes:
+            already_committed = (
+                len(history) == start + len(envelopes)
+                and history[start:] == envelopes
+            )
+            if not already_committed and len(history) != start:
+                raise IntegrityError("ledger batch recovery conflicts with committed history")
+            base_history = history[:start] if already_committed else history
+            self._validate_committed_payloads(base_history)
+            previous = base_history[-1]["record_hash"] if base_history else "0" * 64
+            for offset, envelope in enumerate(envelopes):
+                self._validate_recovery_envelope(
+                    envelope,
+                    expected_sequence=start + offset,
+                    expected_previous=previous,
+                    previous_recorded_at=(
+                        base_history[-1]["recorded_at"]
+                        if offset == 0 and base_history
+                        else envelopes[offset - 1]["recorded_at"]
+                        if offset
+                        else None
+                    ),
+                )
+                previous = envelope["record_hash"]
+            self._validate_recovery_payloads(
+                envelopes,
+                existing_history=base_history,
+            )
+            if already_committed:
                 self._journal_path.unlink()
                 return
-            if len(history) != start:
-                raise IntegrityError("ledger batch recovery conflicts with committed history")
-            previous = history[-1]["record_hash"] if history else "0" * 64
-            for offset, envelope in enumerate(envelopes):
-                if not isinstance(envelope, dict):
-                    raise IntegrityError("ledger batch envelope is invalid")
-                unsigned = {
-                    key: envelope.get(key)
-                    for key in (
-                        "sequence",
-                        "previous_hash",
-                        "record_type",
-                        "recorded_at",
-                        "time_authority",
-                        "synthetic_clock_permit_id",
-                        "payload",
-                    )
-                }
-                if (
-                    envelope.get("sequence") != start + offset
-                    or envelope.get("previous_hash") != previous
-                    or envelope.get("record_type") != self.record_type
-                    or envelope.get("record_hash")
-                    != sha256_bytes(canonical_json_bytes(unsigned))
-                ):
-                    raise IntegrityError("ledger batch recovery chain is invalid")
-                previous = envelope["record_hash"]
             existing = self.path.read_bytes() if self.path.exists() else b""
             atomic_write(
                 self.path,
@@ -308,32 +517,222 @@ class HashChainLedger:
             self._journal_path.unlink()
             return
         sequence = pending.get("sequence")
-        if sequence == len(history) - 1 and history and history[-1] == pending:
+        already_committed = (
+            sequence == len(history) - 1
+            and bool(history)
+            and history[-1] == pending
+        )
+        base_history = history[:-1] if already_committed else history
+        self._validate_committed_payloads(base_history)
+        if already_committed:
+            self._validate_recovery_envelope(
+                pending,
+                expected_sequence=len(base_history),
+                expected_previous=(
+                    base_history[-1]["record_hash"]
+                    if base_history
+                    else "0" * 64
+                ),
+                previous_recorded_at=(
+                    base_history[-1]["recorded_at"] if base_history else None
+                ),
+            )
+            self._validate_recovery_payloads(
+                (pending,),
+                existing_history=base_history,
+            )
             self._journal_path.unlink()
             return
         if sequence != len(history):
             raise IntegrityError("ledger recovery journal conflicts with committed history")
         previous = history[-1]["record_hash"] if history else "0" * 64
-        if pending.get("previous_hash") != previous or pending.get("record_type") != self.record_type:
-            raise IntegrityError("ledger recovery journal chain is invalid")
-        unsigned = {
-            key: pending.get(key)
-            for key in (
-                "sequence",
-                "previous_hash",
-                "record_type",
-                "recorded_at",
-                "time_authority",
-                "synthetic_clock_permit_id",
-                "payload",
-            )
-        }
-        if pending.get("record_hash") != sha256_bytes(canonical_json_bytes(unsigned)):
-            raise IntegrityError("ledger recovery journal hash is invalid")
+        self._validate_recovery_envelope(
+            pending,
+            expected_sequence=len(history),
+            expected_previous=previous,
+            previous_recorded_at=history[-1]["recorded_at"] if history else None,
+        )
+        self._validate_recovery_payloads(
+            (pending,),
+            existing_history=history,
+        )
         existing = self.path.read_bytes() if self.path.exists() else b""
         atomic_write(self.path, existing + canonical_json_bytes(pending))
         self._read_verified_raw()
         self._journal_path.unlink()
+
+    def _validate_recovery_envelope(
+        self,
+        envelope: object,
+        *,
+        expected_sequence: int,
+        expected_previous: str,
+        previous_recorded_at: str | None,
+    ) -> None:
+        fields = {
+            "sequence",
+            "previous_hash",
+            "record_type",
+            "recorded_at",
+            "time_authority",
+            "synthetic_clock_permit_id",
+            "payload",
+            "record_hash",
+        }
+        if not isinstance(envelope, dict) or set(envelope) != fields:
+            raise IntegrityError("ledger recovery envelope fields differ")
+        if not isinstance(envelope["payload"], dict):
+            raise IntegrityError("ledger recovery payload must be a JSON object")
+        if (
+            envelope["sequence"] != expected_sequence
+            or isinstance(envelope["sequence"], bool)
+            or envelope["previous_hash"] != expected_previous
+            or envelope["record_type"] != self.record_type
+        ):
+            raise IntegrityError("ledger recovery journal chain is invalid")
+        try:
+            recorded = parse_utc_z(envelope["recorded_at"], "ledger.recorded_at")
+        except (ContractError, TypeError) as exc:
+            raise IntegrityError("ledger recovery timestamp is invalid") from exc
+        if previous_recorded_at is not None and recorded < parse_utc_z(
+            previous_recorded_at, "previous.recorded_at"
+        ):
+            raise IntegrityError("ledger recovery timestamp is nonmonotone")
+        if envelope["time_authority"] != self._clock.mode:
+            raise IntegrityError("ledger recovery time authority differs")
+        if self._clock.mode == "PRODUCTION_SYSTEM_UTC":
+            if envelope["synthetic_clock_permit_id"] is not None:
+                raise IntegrityError("production recovery carries synthetic time")
+        elif not isinstance(envelope["synthetic_clock_permit_id"], str):
+            raise IntegrityError("synthetic recovery lacks its fixed-time permit")
+        else:
+            try:
+                require_sha256(
+                    envelope["synthetic_clock_permit_id"],
+                    "ledger.synthetic_clock_permit_id",
+                )
+            except ContractError as exc:
+                raise IntegrityError(str(exc)) from exc
+            if (
+                envelope["synthetic_clock_permit_id"]
+                not in self._synthetic_verifier_permit_ids
+            ):
+                raise IntegrityError(
+                    "synthetic recovery permit is not authorized by this verifier"
+                )
+        unsigned = {key: envelope[key] for key in fields if key != "record_hash"}
+        if envelope["record_hash"] != sha256_bytes(canonical_json_bytes(unsigned)):
+            raise IntegrityError("ledger recovery journal hash is invalid")
+
+    def _resolve_append_contract(
+        self,
+        *,
+        unique_key: str | None,
+        payload_validator: Callable[[Mapping[str, Any]], None] | None,
+    ) -> tuple[
+        str | None,
+        Callable[[Mapping[str, Any]], None] | None,
+    ]:
+        if unique_key is not None and unique_key != self._unique_key:
+            raise ContractError(
+                "ledger uniqueness contract must be bound at construction"
+            )
+        if (
+            payload_validator is not None
+            and payload_validator is not self._payload_validator
+        ):
+            raise ContractError(
+                "ledger payload validator must be bound at construction"
+            )
+        return self._unique_key, self._payload_validator
+
+    def _validate_recovery_payloads(
+        self,
+        envelopes: Iterable[Mapping[str, Any]],
+        *,
+        existing_history: Iterable[Mapping[str, Any]],
+    ) -> None:
+        self._validate_payload_contracts(
+            envelopes,
+            existing_history=existing_history,
+            context="ledger recovery",
+        )
+
+    def _validate_committed_payloads(
+        self,
+        envelopes: Iterable[Mapping[str, Any]],
+    ) -> None:
+        self._validate_payload_contracts(
+            envelopes,
+            existing_history=(),
+            context="committed ledger",
+        )
+
+    def _validate_payload_contracts(
+        self,
+        envelopes: Iterable[Mapping[str, Any]],
+        *,
+        existing_history: Iterable[Mapping[str, Any]],
+        context: str,
+    ) -> None:
+        seen_hashable: set[object] = set()
+        seen_unhashable: list[object] = []
+
+        def remember_unique_value(value: object) -> bool:
+            try:
+                if value in seen_hashable:
+                    return False
+                seen_hashable.add(value)
+            except TypeError:
+                if any(existing == value for existing in seen_unhashable):
+                    return False
+                seen_unhashable.append(value)
+            return True
+
+        if self._unique_key is not None:
+            for row in existing_history:
+                value = row["payload"].get(self._unique_key)
+                if value is None:
+                    raise IntegrityError(
+                        f"{context} unique key is missing: {self._unique_key}"
+                    )
+                if not remember_unique_value(value):
+                    raise IntegrityError(
+                        f"{context} duplicates append-only key "
+                        f"{self._unique_key}={value}"
+                    )
+        for envelope in envelopes:
+            payload = envelope["payload"]
+            if self._payload_validator is not None:
+                try:
+                    self._payload_validator(payload)
+                except ContractError as exc:
+                    if context == "committed ledger":
+                        raise
+                    raise IntegrityError(
+                        f"{context} payload fails its record-type validator"
+                    ) from exc
+                except (
+                    IntegrityError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
+                    raise IntegrityError(
+                        f"{context} payload fails its record-type validator"
+                    ) from exc
+            if self._unique_key is None:
+                continue
+            value = payload.get(self._unique_key)
+            if value is None:
+                raise IntegrityError(
+                    f"{context} unique key is missing: {self._unique_key}"
+                )
+            if not remember_unique_value(value):
+                raise IntegrityError(
+                    f"{context} duplicates append-only key "
+                    f"{self._unique_key}={value}"
+                )
 
     def _verify_plain_paths(self) -> None:
         for candidate in (self.path, self._journal_path):
@@ -509,6 +908,12 @@ class LedgerAnchorStore:
                 )
             except ContractError as exc:
                 raise IntegrityError(str(exc)) from exc
+            if receipt.synthetic_clock_permit_id not in (
+                self.ledger._synthetic_verifier_permit_ids
+            ):
+                raise IntegrityError(
+                    "synthetic anchor permit is not authorized by this verifier"
+                )
         if receipt.anchor_id != sha256_bytes(canonical_json_bytes(receipt.unsigned_dict())):
             raise IntegrityError("ledger anchor ID differs from its receipt")
         if not allow_pending and path.name != receipt.anchor_id:
@@ -545,7 +950,13 @@ class PredictionLedger:
     ):
         trusted_clock = require_trusted_clock(clock)
         self._clock = trusted_clock
-        self._ledger = HashChainLedger(path, "underlying_prediction_v1", clock=trusted_clock)
+        self._ledger = HashChainLedger(
+            path,
+            "underlying_prediction_v1",
+            clock=trusted_clock,
+            unique_key="prediction_id",
+            payload_validator=_validate_prediction_payload,
+        )
         self._anchors = LedgerAnchorStore(anchor_root, self._ledger, clock=trusted_clock)
 
     def append(
@@ -612,6 +1023,13 @@ class PredictionLedger:
         previous_anchor: Path | None = None,
     ) -> Mapping[str, object]:
         census.validate()
+        if (
+            census.evidence_state == "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+            or census.synthetic_permit_id
+        ):
+            raise ContractError(
+                "production prediction commit rejects synthetic-only eligibility census"
+            )
         require_sha256(bundle_id, "prediction_commit.bundle_id")
         require_sha256(feature_release_id, "prediction_commit.feature_release_id")
         rows = tuple(predictions)
@@ -709,10 +1127,22 @@ class OutcomeLedger:
         path: Path,
         prediction_ledger: PredictionLedger,
         *,
+        anchor_root: Path,
         clock: TrustedClock | None = None,
     ):
         self._clock = require_trusted_clock(clock)
-        self._ledger = HashChainLedger(path, "underlying_outcome_v1", clock=self._clock)
+        self._ledger = HashChainLedger(
+            path,
+            "underlying_outcome_v1",
+            clock=self._clock,
+            unique_key="revision_id",
+            payload_validator=_validate_outcome_payload,
+        )
+        self._anchors = LedgerAnchorStore(
+            anchor_root,
+            self._ledger,
+            clock=self._clock,
+        )
         self._predictions = prediction_ledger
 
     def append(
@@ -731,6 +1161,7 @@ class OutcomeLedger:
         *,
         prediction_anchor: Path,
         synthetic_permit: SyntheticOnlyPermit,
+        previous_anchor: Path | None = None,
     ) -> dict[str, Any]:
         require_synthetic_permit(
             synthetic_permit,
@@ -738,7 +1169,11 @@ class OutcomeLedger:
         )
         if self._clock.trust_eligible:
             raise ContractError("production outcome ledgers reject caller-constructed rows")
-        return self._append_verified(outcome, prediction_anchor=prediction_anchor)
+        return self._append_verified(
+            outcome,
+            prediction_anchor=prediction_anchor,
+            previous_anchor=previous_anchor,
+        )
 
     def mature_from_releases(
         self,
@@ -749,6 +1184,8 @@ class OutcomeLedger:
         calendar_release_directory: Path,
         bar_release_directory: Path,
         action_release_directory: Path,
+        coverage_authorization_authority: AuthorizationAuthority | None = None,
+        previous_anchor: Path | None = None,
     ) -> dict[str, Any]:
         predictions = {
             row["payload"]["prediction_id"]: UnderlyingPrediction.from_dict(row["payload"])
@@ -768,21 +1205,29 @@ class OutcomeLedger:
         actions = BitemporalActionLedger(
             verified_release_directory=action_release_directory,
             accepted_release_root=accepted_release_root,
+            coverage_authorization_authority=coverage_authorization_authority,
+            clock=self._clock,
         )
+        if actions.trust_eligible is not True:
+            raise ContractError(
+                "outcome maturation requires a trust-eligible corporate-action ledger"
+            )
         if (
             calendar.release_id != prediction.calendar_release_id
             or actions.release_id != prediction.action_release_id
             or bar_manifest.source_epoch != prediction.source_epoch
         ):
             raise ContractError("outcome release identities differ from the committed prediction")
-        bars = {
-            bar.session: bar
-            for bar in all_bars
-            if bar.asset_id == prediction.asset_id
-        }
+        bars = _outcome_interval_bars(
+            calendar=calendar,
+            decision_session=prediction.decision_session,
+            asset_id=prediction.asset_id,
+            all_bars=all_bars,
+        )
+        prior_history = self._verify_prior_history(previous_anchor)
         prior_rows = [
             OutcomeRow.from_dict(row["payload"])
-            for row in self._ledger.read_verified()
+            for row in prior_history
             if row["payload"].get("prediction_id") == prediction.prediction_id
         ]
         prior = prior_rows[-1] if prior_rows else None
@@ -800,14 +1245,34 @@ class OutcomeLedger:
             revision_number=1 if prior is None else prior.revision_number + 1,
             prior_revision_id=None if prior is None else prior.revision_id,
         )
-        receipt = self._append_verified(outcome, prediction_anchor=prediction_anchor)
+        receipt = self._append_verified(
+            outcome,
+            prediction_anchor=prediction_anchor,
+            previous_anchor=previous_anchor,
+        )
         return {**receipt, "outcome_revision_id": outcome.revision_id}
+
+    def _verify_prior_history(
+        self,
+        previous_anchor: Path | None,
+    ) -> list[dict[str, Any]]:
+        history = self._ledger.read_verified()
+        if history:
+            if previous_anchor is None:
+                raise IntegrityError(
+                    "outcome append requires the retained prior local anchor"
+                )
+            self._anchors.verify(previous_anchor, history)
+        elif previous_anchor is not None:
+            raise IntegrityError("empty outcome ledger cannot use a prior anchor")
+        return history
 
     def _append_verified(
         self,
         outcome: OutcomeRow,
         *,
         prediction_anchor: Path,
+        previous_anchor: Path | None,
     ) -> dict[str, Any]:
         outcome.validate()
         recorded = require_aware_utc(self._clock.now(), "outcome.clock")
@@ -841,7 +1306,7 @@ class OutcomeLedger:
         if actual_identity != expected_identity:
             raise ContractError("outcome identity/calendar/source epoch differs from its prediction")
 
-        before = self._ledger.read_verified()
+        before = self._verify_prior_history(previous_anchor)
         prior_rows = [
             OutcomeRow.from_dict(row["payload"])
             for row in before
@@ -880,16 +1345,24 @@ class OutcomeLedger:
             if immutable_identity != prior_identity:
                 raise ContractError("outcome lifecycle identity cannot change")
         expected_head = before[-1]["record_hash"] if before else "0" * 64
-        return self._ledger.append(
+        envelope = self._ledger.append(
             outcome.as_dict(),
             unique_key="revision_id",
             payload_validator=_validate_outcome_payload,
             expected_record_count=len(before),
             expected_head_hash=expected_head,
         )
-
-    def verify(self) -> list[dict[str, Any]]:
         history = self._ledger.read_verified()
+        anchor = self._anchors.create(
+            history,
+            previous_anchor=previous_anchor,
+            prior_record_count=len(before),
+        )
+        return {"envelope": envelope, "anchor_path": str(anchor)}
+
+    def verify(self, anchor_receipt: Path) -> list[dict[str, Any]]:
+        history = self._ledger.read_verified()
+        self._anchors.verify(anchor_receipt, history)
         for row in history:
             _validate_outcome_payload(row["payload"])
         return history
@@ -899,11 +1372,12 @@ class OutcomeLedger:
         census: EligibilityCensus,
         *,
         prediction_anchor: Path,
+        outcome_anchor: Path,
     ) -> tuple[OutcomeRow, ...]:
         predictions = self._predictions.verify_expected_census(prediction_anchor, census)
         expected_prediction_ids = {str(payload["prediction_id"]) for payload in predictions}
         latest: dict[str, OutcomeRow] = {}
-        for envelope in self.verify():
+        for envelope in self.verify(outcome_anchor):
             row = OutcomeRow.from_dict(envelope["payload"])
             if row.eligibility_census_id != census.census_id:
                 continue

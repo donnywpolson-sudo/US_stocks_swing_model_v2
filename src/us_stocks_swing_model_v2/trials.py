@@ -29,11 +29,15 @@ REAL_EVIDENCE_CLASSES = {"REGISTERED_HISTORICAL_DISCOVERY", "PROSPECTIVE_FINAL"}
 EVALUATION_SCOPES = {"OUTER_SCREEN", "FINAL_HOLDOUT"}
 HOLDOUT_STATES = {"LOCKED", "UNLOCKED_ONCE", "CLOSED"}
 EVALUATION_STATES = {
-    "PASS",
-    "FAIL",
-    "INCONCLUSIVE",
-    "INCONCLUSIVE_ROBUSTNESS",
     "INVALID",
+    "INCONCLUSIVE_PIT_IDENTITY",
+    "FAIL_NO_EDGE",
+    "FAIL_NOT_ECONOMIC",
+    "FAIL_MULTIPLICITY_OR_CONTROL",
+    "INCONCLUSIVE_DATA_OR_POWER",
+    "INCONCLUSIVE_EFFECT",
+    "INCONCLUSIVE_ROBUSTNESS",
+    "PASS_HISTORICAL_DISCOVERY_SCREEN",
 }
 
 
@@ -175,7 +179,7 @@ class HoldoutStateReceipt:
             require_sha256(self.trial_id, "holdout.trial_id")
         except ContractError as exc:
             raise EvaluationAuthorizationError(str(exc)) from exc
-        valid_shape = (
+        valid_shape = type(self.unlock_count) is int and (
             (self.state == "LOCKED" and self.unlock_count == 0 and self.previous_receipt_id is None)
             or (
                 self.state in {"UNLOCKED_ONCE", "CLOSED"}
@@ -348,21 +352,24 @@ class TrialRegistry:
             registry_path,
             "registered_trial_v1",
             clock=self._clock,
+            unique_key="trial_id",
         )
         self.evaluations = HashChainLedger(
             evaluations_path,
             "evaluation_result_v1",
             clock=self._clock,
+            unique_key="permit_id",
         )
         self.permits = HashChainLedger(
             evaluations_path.with_name(f"{evaluations_path.stem}.permits.jsonl"),
             "trial_permit_v1",
             clock=self._clock,
+            unique_key="permit_id",
         )
         self.expected_project = expected_project
 
     def with_clock(self, clock: TrustedClock) -> "TrialRegistry":
-        return TrialRegistry(
+        rebound = TrialRegistry(
             self.registry.path,
             self.evaluations.path,
             accepted_release_root=self.accepted_release_root,
@@ -371,6 +378,10 @@ class TrialRegistry:
             expected_project=self.expected_project,
             clock=clock,
         )
+        rebound.registry = self.registry.with_clock(clock)
+        rebound.evaluations = self.evaluations.with_clock(clock)
+        rebound.permits = self.permits.with_clock(clock)
+        return rebound
 
     def register(self, spec: TrialSpec, *, verified_release_directories: Iterable[Path]) -> str:
         spec.validate()
@@ -524,8 +535,16 @@ class TrialRegistry:
             if row["payload"].get("trial_id") == trial_id
             and row["payload"].get("evaluation_scope") == "OUTER_SCREEN"
         ]
-        if len(results) != 1 or results[0].get("state") != "PASS" or results[0].get("evaluation_closed") is not True:
-            raise EvaluationAuthorizationError("final holdout requires one closed PASS outer evaluation")
+        if (
+            len(results) != 1
+            or results[0].get("state")
+            != "PASS_HISTORICAL_DISCOVERY_SCREEN"
+            or results[0].get("evaluation_closed") is not True
+        ):
+            raise EvaluationAuthorizationError(
+                "final holdout requires one closed "
+                "PASS_HISTORICAL_DISCOVERY_SCREEN outer evaluation"
+            )
 
     def verify_issued_permit(self, permit: TrialPermit) -> Mapping[str, Any]:
         permit.validate()

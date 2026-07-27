@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
@@ -12,13 +13,20 @@ import pyarrow.parquet as pq
 import pytest
 
 import test_hfdl_legacy_publisher as hfdl_support
+from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.canonical.hfdl import HFDL_TAGGED_SCHEMA
 from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
     HfdlPublishContract,
     publish_hfdl_legacy_discovery,
 )
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
-from us_stocks_swing_model_v2.exchange_calendar import publish_xnys_calendar_release
+from us_stocks_swing_model_v2.exchange_calendar import (
+    SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+    calendar_environment_hash,
+    calendar_policy_hash,
+    calendar_publication_binding_id,
+    publish_xnys_calendar_release,
+)
 from us_stocks_swing_model_v2.historical_foundation import (
     ACTION_STATE,
     BRIDGE_SET_DATASET,
@@ -27,10 +35,12 @@ from us_stocks_swing_model_v2.historical_foundation import (
     OUTPUT_KINDS,
     SECURITY_TYPE_STATE,
     _derive_symbol_tables,
+    _source_index,
     load_hfdl_historical_foundation,
     publish_hfdl_historical_foundation,
 )
-from us_stocks_swing_model_v2.releases import verify_accepted_release
+from us_stocks_swing_model_v2.common import canonical_json_bytes
+from us_stocks_swing_model_v2.releases import ReleaseFile, verify_accepted_release
 
 
 CREATED_AT = "2026-07-15T00:00:00Z"
@@ -49,22 +59,32 @@ def _accepted_inputs(root: Path):
     migration = hfdl_support._completed_migration_release(root / "migration")
     permit = hfdl_support._permit("hfdl-foundation-bridge")
     accepted = root / "accepted"
+    contract = HfdlPublishContract.synthetic_fixture(2, permit=permit)
     hfdl = publish_hfdl_legacy_discovery(
         migration_release_directory=migration,
         accepted_release_root=accepted,
         derived_work_root=root / "hfdl-work",
         created_at=CREATED_AT,
-        contract=HfdlPublishContract.synthetic_fixture(2, permit=permit),
+        contract=contract,
+        **hfdl_support._publication_kwargs(root, contract),
     )
+    calendar_kwargs = {
+        "staging_root": root / "calendar-stage",
+        "release_root": accepted,
+        "start": date(2022, 2, 25),
+        "end": date(2022, 3, 15),
+        "created_at": CREATED_AT,
+        "code_hash": "1" * 64,
+        "config_hash": calendar_policy_hash(),
+        "environment_hash": calendar_environment_hash(),
+    }
     calendar = publish_xnys_calendar_release(
-        staging_root=root / "calendar-stage",
-        release_root=accepted,
-        start=date(2022, 2, 25),
-        end=date(2022, 3, 15),
-        created_at=CREATED_AT,
-        code_hash="1" * 64,
-        config_hash="2" * 64,
-        environment_hash="3" * 64,
+        **calendar_kwargs,
+        publication_synthetic_permit=SyntheticOnlyPermit.create(
+            fixture_id=calendar_publication_binding_id(**calendar_kwargs),
+            scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+        ),
+        publication_allowed_root=root,
     )
     return accepted, hfdl, calendar, permit
 
@@ -80,6 +100,36 @@ def _publish(root: Path):
         hfdl_synthetic_permit=permit,
     )
     return accepted, hfdl, calendar, permit, result
+
+
+def test_source_index_reconciles_every_declaration_to_parquet(
+    bridge_tmp: Path,
+) -> None:
+    _accepted, hfdl, _calendar, _permit = _accepted_inputs(bridge_tmp)
+    source = hfdl.epoch_release_directories[HFDL_EPOCHS[0]]
+    assert _source_index(source)
+    original_rows = [
+        json.loads(line)
+        for line in (source / "symbol_index.jsonl").read_bytes().splitlines()
+    ]
+    original = original_rows[0]
+    poisons = {
+        "sha256": "0" * 64 if original["sha256"] != "0" * 64 else "1" * 64,
+        "size": original["size"] + 1,
+        "row_count": original["row_count"] + 1,
+        "session_start": "2022-03-02",
+        "session_end": "2022-03-05",
+    }
+    for field, value in poisons.items():
+        poisoned = bridge_tmp / f"poison-{field}"
+        shutil.copytree(source, poisoned)
+        rows = [dict(row) for row in original_rows]
+        rows[0][field] = value
+        (poisoned / "symbol_index.jsonl").write_bytes(
+            b"".join(canonical_json_bytes(row) for row in rows)
+        )
+        with pytest.raises(IntegrityError, match="source index"):
+            _source_index(poisoned)
 
 
 def test_bridge_publishes_six_unpooled_legacy_releases_with_exact_censuses(
@@ -152,6 +202,85 @@ def test_bridge_publishes_six_unpooled_legacy_releases_with_exact_censuses(
     assert rerun == result
 
 
+@pytest.mark.parametrize(
+    ("target", "field"),
+    [
+        ("set", "code_hash"),
+        ("set", "environment_hash"),
+        ("physical", "code_hash"),
+        ("physical", "environment_hash"),
+    ],
+)
+def test_bridge_loader_reconstructs_code_and_environment_closure(
+    bridge_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    field: str,
+) -> None:
+    accepted, _hfdl, _calendar, permit, result = _publish(bridge_tmp)
+    import us_stocks_swing_model_v2.historical_foundation as bridge_module
+
+    original = bridge_module.verify_accepted_release
+
+    def poisoned_manifest(directory: Path, *, accepted_root: Path):
+        manifest = original(directory, accepted_root=accepted_root)
+        is_set = Path(directory) == result.bridge_set_release_directory
+        is_physical = manifest.dataset in {
+            dataset
+            for epoch_datasets in bridge_module.BRIDGE_DATASETS.values()
+            for dataset in epoch_datasets.values()
+        }
+        if (target == "set" and is_set) or (target == "physical" and is_physical):
+            current = getattr(manifest, field)
+            replacement = "0" * 64 if current != "0" * 64 else "1" * 64
+            return replace(manifest, **{field: replacement})
+        return manifest
+
+    monkeypatch.setattr(
+        bridge_module,
+        "verify_accepted_release",
+        poisoned_manifest,
+    )
+    with pytest.raises(IntegrityError):
+        load_hfdl_historical_foundation(
+            result.bridge_set_release_directory,
+            accepted_release_root=accepted,
+            hfdl_synthetic_permit=permit,
+        )
+
+
+def test_bridge_loader_requires_exact_singleton_set_payload_census(
+    bridge_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    accepted, _hfdl, _calendar, permit, result = _publish(bridge_tmp)
+    import us_stocks_swing_model_v2.historical_foundation as bridge_module
+
+    original = bridge_module.verify_accepted_release
+
+    def extra_set_payload(directory: Path, *, accepted_root: Path):
+        manifest = original(directory, accepted_root=accepted_root)
+        if Path(directory) == result.bridge_set_release_directory:
+            return replace(
+                manifest,
+                files=manifest.files
+                + (ReleaseFile("extra.json", 0, "0" * 64),),
+            )
+        return manifest
+
+    monkeypatch.setattr(
+        bridge_module,
+        "verify_accepted_release",
+        extra_set_payload,
+    )
+    with pytest.raises(IntegrityError, match="payload census"):
+        load_hfdl_historical_foundation(
+            result.bridge_set_release_directory,
+            accepted_release_root=accepted,
+            hfdl_synthetic_permit=permit,
+        )
+
+
 def _tagged_source(*, future_close: float = 13.0, epoch: str = "hfdl_iex_only") -> pa.Table:
     retrieved = datetime(2026, 7, 15, tzinfo=timezone.utc)
     rows = [
@@ -216,6 +345,43 @@ def _calendar_rows():
         for session in sessions
     }
     return sessions, rows
+
+
+def _poison_tagged_source(
+    *,
+    field: str,
+    value: object,
+) -> pa.Table:
+    rows = _tagged_source().to_pylist()
+    rows[0][field] = value
+    return pa.Table.from_pylist(rows, schema=HFDL_TAGGED_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("open", 0.0),
+        ("close", float("nan")),
+        ("high", 9.5),
+        ("low", 10.25),
+        ("volume", -1),
+    ],
+)
+def test_feature_derivation_rejects_invalid_canonical_numeric_values(
+    field: str,
+    value: object,
+) -> None:
+    sessions, calendar_rows = _calendar_rows()
+    with pytest.raises(IntegrityError, match="OHLCV values"):
+        _derive_symbol_tables(
+            source_series_id="a" * 64,
+            symbol="ABC",
+            source=_poison_tagged_source(field=field, value=value),
+            epoch="hfdl_iex_only",
+            calendar_sessions=sessions,
+            calendar_rows=calendar_rows,
+            calendar_release_id="b" * 64,
+        )
 
 
 def test_future_missing_action_membership_and_cross_epoch_poisons_fail_closed() -> None:
@@ -340,5 +506,9 @@ def test_readiness_records_real_discovery_foundation_without_pit_claim() -> None
     assert anchors["historical_foundation_real_release_status"] == (
         "BUILT_NON_ACTIVE_LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
     )
-    assert contract["readiness"]["ready"] is True
+    assert "ready" not in contract["readiness"]
+    assert (
+        contract["readiness"]["mechanical_assessment_status"]
+        == "PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY"
+    )
     assert contract["readiness"]["candidate_eligibility"] == "BLOCKED_PENDING_PROSPECTIVE_PIT"

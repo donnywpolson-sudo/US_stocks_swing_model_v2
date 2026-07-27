@@ -1,6 +1,6 @@
 # Stocks and ETFs historical discovery harness
 
-Version: `1.1.0-mechanics`
+Version: `1.2.0-mechanics`
 Project: `US_stocks_swing_model_v2`
 Status: deterministic synthetic mechanics executor implemented and adversarially
 tested; full readiness remains blocked by the accepted real-data chain and exact
@@ -37,6 +37,22 @@ non-alpha release chain are ready, while
 `candidate_eligibility=BLOCKED_PENDING_PROSPECTIVE_PIT`, and all alpha/live claims
 remain false. Prospective daily as-received identity and membership evidence is
 required to remove this evidence ceiling.
+
+### Frozen target semantics and compatibility
+
+The synthetic mechanical executor's direction target is the signed simple
+split-normalized price return from the next session's open through the fifth
+outcome session's close. Positive and negative values retain their economic
+direction; the up/down/neutral probabilities are evaluated against the same
+signed target and neutral band. The canonical identifier is
+`SIGNED_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_SPLIT_NORMALIZED_PRICE_RETURN`.
+
+Executor registration schema v2 freezes that meaning. Schema-v1 registrations
+used the contradictory `ABSOLUTE_NEXT_5_SESSION_RETURN` label and are rejected
+even if their bytes and content hash are internally consistent. They are not
+migrated or relabeled because doing so would assign a new meaning to already
+frozen evidence. Any future reuse requires a newly created schema-v2
+registration and counts as a distinct trial.
 
 ## 1. Research basis
 
@@ -454,7 +470,11 @@ Mechanical `HISTORICAL_RESEARCH_READY` is now bound to a clean committed
 code/config/test closure by a verified non-authorizing readiness receipt. It
 does not pretend the legacy-trial census is exact: that census remains an
 indeterminate conservative floor and continues to block the trusted historical
-gate. The mechanical milestone authorizes no real-history execution.
+gate. The mechanical milestone authorizes no real-history execution. Its
+contract exposes an explicit
+`PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY` mechanical assessment status, not
+a generic positive `ready` Boolean that could be mistaken for production
+deployability.
 
 While PIT truth remains unresolved, the historical evidence scope remains
 `LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED`, candidate eligibility remains

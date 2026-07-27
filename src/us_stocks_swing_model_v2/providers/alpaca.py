@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import math
+from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.error import HTTPError
@@ -17,7 +18,9 @@ from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
 from .http import open_without_redirects
 from .network_authorization import (
+    AuthorizedNetworkResponse,
     NetworkAuthorizationSession,
+    _bind_authorized_network_response,
     assert_authorized_network_request,
 )
 from .snapshots import (
@@ -32,6 +35,7 @@ ALPACA_BARS_ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
 AUTH_ENVIRONMENT_TOKEN = "FREE_SOURCE_QUALIFICATION_APPROVED"
 MAX_QUALIFICATION_PAGES = 100
 MAX_ALPACA_RESPONSE_BYTES = 64 * 1024 * 1024
+MAX_TRUSTED_REQUEST_AGE_MINUTES = 15
 NEW_YORK = ZoneInfo("America/New_York")
 
 
@@ -43,6 +47,7 @@ class HttpResponseEvidence:
     raw_bytes: bytes
     headers: dict[str, str]
     retrieved_at: datetime
+    transport_evidence: AuthorizedNetworkResponse | None = None
 
     @property
     def sha256(self) -> str:
@@ -148,6 +153,32 @@ class AlpacaBarsRequest:
             params["page_token"] = self.page_token
         return params
 
+    def validate_against_trusted_time(
+        self,
+        policy: AlpacaBarsPolicy,
+        observed_at: datetime,
+    ) -> None:
+        policy.validate()
+        requested_at = require_aware_utc(self.requested_at, "requested_at")
+        trusted_at = require_aware_utc(observed_at, "trusted_request_time")
+        if requested_at > trusted_at:
+            raise ContractError(
+                "Alpaca requested_at cannot be later than trusted request time"
+            )
+        if trusted_at - requested_at > timedelta(
+            minutes=MAX_TRUSTED_REQUEST_AGE_MINUTES
+        ):
+            raise ContractError(
+                "Alpaca requested_at is stale relative to trusted request time"
+            )
+        end = require_aware_utc(self.end, "end")
+        if end > trusted_at - timedelta(
+            minutes=policy.minimum_end_lag_minutes
+        ):
+            raise ContractError(
+                "Alpaca qualification end is too recent for trusted request time"
+            )
+
     def url(self, policy: AlpacaBarsPolicy) -> str:
         return f"{policy.endpoint}?{urlencode(self.parameters(policy))}"
 
@@ -171,9 +202,13 @@ def guarded_fetch_json(
         )
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
-    url = request.url(policy)
     trusted_clock = require_trusted_clock(clock)
-    assert_authorized_network_request(
+    request.validate_against_trusted_time(
+        policy,
+        trusted_clock.now(),
+    )
+    url = request.url(policy)
+    request_attempt = assert_authorized_network_request(
         authorization_session,
         source=f"alpaca_{policy.feed}_qualification",
         url=url,
@@ -224,6 +259,14 @@ def guarded_fetch_json(
         raw_bytes=payload_bytes,
         headers=headers,
         retrieved_at=trusted_clock.now(),
+        transport_evidence=_bind_authorized_network_response(
+            request_attempt,
+            requested_url=url,
+            response_url=response_url,
+            http_status=status,
+            raw=payload_bytes,
+            headers=headers,
+        ),
     )
     return evidence
 
@@ -260,6 +303,7 @@ def guarded_fetch_landed_pages(
         )
         source = f"alpaca_{policy.feed}_qualification"
         snapshot = snapshot_store._land_network_response(
+            transport_evidence=evidence.transport_evidence,
             source=source,
             requested_url=evidence.url,
             response_url=evidence.response_url,
@@ -370,6 +414,7 @@ def qualify_landed_pages(
                 if local.timetz().replace(tzinfo=None) != datetime.min.time():
                     reasons.append(f"page_{index}_{symbol}_daily_timestamp_not_new_york_midnight")
                     break
+                timestamps[symbol].append(timestamp)
                 observed_sessions[symbol].append(local.date())
                 bar_count += 1
         token = payload.get("next_page_token")
@@ -450,28 +495,31 @@ def _valid_bar(
         if not isinstance(row["t"], str):
             return None
         timestamp = datetime.fromisoformat(row["t"].replace("Z", "+00:00")).astimezone(timezone.utc)
-        open_, high, low, close, volume = (
-            _explicit_json_number(row[name]) for name in ("o", "h", "l", "c", "v")
+        open_, high, low, close = (
+            _explicit_json_number(row[name]) for name in ("o", "h", "l", "c")
         )
     except (TypeError, ValueError):
+        return None
+    volume = row["v"]
+    if type(volume) is not int or volume < 0:
         return None
     if not request.start <= timestamp < request.end:
         return None
     if prior_timestamps and timestamp <= prior_timestamps[-1]:
         return None
-    if not all(math.isfinite(value) for value in (open_, high, low, close, volume)):
+    if not all(math.isfinite(value) for value in (open_, high, low, close)):
         return None
-    if min(open_, high, low, close) <= 0 or volume < 0 or high < max(open_, close, low) or low > min(open_, close, high):
+    if min(open_, high, low, close) <= 0 or high < max(open_, close, low) or low > min(open_, close, high):
         return None
-    for optional in ("n", "vw"):
-        if optional in row:
-            try:
-                value = _explicit_json_number(row[optional])
-            except (TypeError, ValueError):
-                return None
-            if not math.isfinite(value) or value < 0:
-                return None
-    prior_timestamps.append(timestamp)
+    if "n" in row and (type(row["n"]) is not int or row["n"] < 0):
+        return None
+    if "vw" in row:
+        try:
+            value = _explicit_json_number(row["vw"])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value) or value < 0:
+            return None
     return timestamp
 
 

@@ -92,7 +92,15 @@ def evaluate_frozen_predictions(
         [value.expected_five_session_return for value in artifact.predictions],
         dtype=np.float64,
     )
-    mse = float(np.mean(np.square(targets - means), dtype=np.float64))
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            mse = float(np.mean(np.square(targets - means), dtype=np.float64))
+    except FloatingPointError as exc:
+        raise ResearchContractError(
+            "evaluation MSE exceeded finite float64 bounds"
+        ) from exc
+    if not math.isfinite(mse):
+        raise ResearchContractError("evaluation MSE is non-finite")
     losses: list[float] = []
     band = artifact.registration.neutral_band
     for target, prediction in zip(targets, artifact.predictions, strict=True):
@@ -126,4 +134,3 @@ def evaluate_frozen_predictions(
     )
     evaluation.validate()
     return evaluation
-

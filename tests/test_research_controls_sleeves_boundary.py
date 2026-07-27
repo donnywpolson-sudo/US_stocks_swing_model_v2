@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from us_stocks_swing_model_v2.research import (
     NegativeControlOutcome,
@@ -243,29 +245,418 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         )
 
 
-def test_research_package_has_no_io_fit_network_or_alpha_transition() -> None:
+ALLOWED_IMPORT_ROOTS = {
+    "__future__",
+    "collections",
+    "dataclasses",
+    "enum",
+    "hashlib",
+    "itertools",
+    "json",
+    "math",
+    "numbers",
+    "numpy",
+    "re",
+    "scipy",
+    "typing",
+}
+FORBIDDEN_DYNAMIC_NAMES = {
+    "__import__",
+    "compile",
+    "eval",
+    "exec",
+    "getattr",
+}
+FORBIDDEN_IO_CALL_NAMES = {
+    "open",
+    "read_bytes",
+    "read_csv",
+    "read_parquet",
+    "read_text",
+    "request",
+    "urlopen",
+    "write_bytes",
+    "write_csv",
+    "write_parquet",
+    "write_text",
+}
+FORBIDDEN_IMPORT_ROOTS = {
+    "aiohttp",
+    "http",
+    "io",
+    "os",
+    "pathlib",
+    "requests",
+    "socket",
+    "urllib",
+}
+NUMPY_IO_CALL_NAMES = {
+    "DataSource",
+    "fromfile",
+    "fromregex",
+    "genfromtxt",
+    "load",
+    "loadtxt",
+    "memmap",
+    "open_memmap",
+    "save",
+    "savetxt",
+    "savez",
+    "savez_compressed",
+    "tofile",
+}
+AUTHORIZATION_FIELDS = {
+    "alpha_evidence",
+    "candidate_eligible",
+    "real_history_authorized",
+    "candidate_sealing_authorized",
+}
+FORBIDDEN_TRANSITION_MARKERS = {"historical_pass", "alpha_pass"}
+ALLOWED_BOUNDED_GETATTR = {
+    ("contracts.py", "self", "name"),
+    ("sleeves.py", "metrics", "name"),
+}
+
+
+def _target_names(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, ast.Attribute):
+        return (node.attr,)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return tuple(
+            name for item in node.elts for name in _target_names(item)
+        )
+    return ()
+
+
+def _research_capability_violations(
+    source: str,
+    *,
+    relative: str,
+) -> tuple[str, ...]:
+    tree = ast.parse(source, filename=relative)
+    parent_by_node = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+    relative_parts = tuple(Path(relative).with_suffix("").parts)
+    current_package = list(relative_parts[:-1])
+    package_depth = len(current_package) + 1
+
+    def relative_import_path(node: ast.ImportFrom) -> str:
+        if node.level == 0:
+            return node.module or ""
+        if node.level > package_depth:
+            return ""
+        keep = len(current_package) - (node.level - 1)
+        if keep < 0:
+            return ""
+        parts = ["research", *current_package[:keep]]
+        if node.module:
+            parts.extend(node.module.split("."))
+        return ".".join(parts)
+
+    import_bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".", maxsplit=1)[0]
+                imported = (
+                    alias.name
+                    if alias.asname
+                    else alias.name.split(".", maxsplit=1)[0]
+                )
+                import_bindings[local] = imported
+        elif isinstance(node, ast.ImportFrom):
+            module = relative_import_path(node)
+            for alias in node.names:
+                if alias.name != "*" and module:
+                    import_bindings[alias.asname or alias.name] = (
+                        f"{module}.{alias.name}"
+                    )
+
+    def resolved_import_path(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return import_bindings.get(node.id, "")
+        if isinstance(node, ast.Attribute):
+            base = resolved_import_path(node.value)
+            return f"{base}.{node.attr}" if base else ""
+        return ""
+
+    def is_numpy_io_capability(node: ast.AST) -> bool:
+        resolved = resolved_import_path(node)
+        return (
+            resolved.startswith("numpy.")
+            and resolved.rsplit(".", maxsplit=1)[-1] in NUMPY_IO_CALL_NAMES
+        )
+
+    violations: set[str] = set()
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                resolved = relative_import_path(node)
+                if not resolved:
+                    violations.add(
+                        f"{relative}:{line}:relative-import-escape:"
+                        f"{'.' * node.level}{node.module or ''}"
+                    )
+                modules = ()
+            else:
+                modules = (node.module or "",)
+        else:
+            modules = ()
+        for module in modules:
+            root = module.split(".", maxsplit=1)[0]
+            if root in FORBIDDEN_IMPORT_ROOTS or root not in ALLOWED_IMPORT_ROOTS:
+                violations.add(f"{relative}:{line}:import:{module}")
+
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                call_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                call_name = node.func.attr
+            else:
+                call_name = ""
+            bounded_getattr = (
+                call_name == "getattr"
+                and len(node.args) == 2
+                and not node.keywords
+                and isinstance(node.args[0], ast.Name)
+                and isinstance(node.args[1], ast.Name)
+                and (
+                    relative,
+                    node.args[0].id,
+                    node.args[1].id,
+                )
+                in ALLOWED_BOUNDED_GETATTR
+            )
+            forbidden_dynamic = (
+                isinstance(node.func, ast.Name)
+                and call_name in FORBIDDEN_DYNAMIC_NAMES
+                and not bounded_getattr
+            )
+            if (
+                call_name == "fit"
+                or call_name in FORBIDDEN_IO_CALL_NAMES
+                or is_numpy_io_capability(node.func)
+                or forbidden_dynamic
+            ):
+                violations.add(f"{relative}:{line}:call:{call_name}")
+            for keyword in node.keywords:
+                if (
+                    keyword.arg in AUTHORIZATION_FIELDS
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                ):
+                    violations.add(
+                        f"{relative}:{line}:authorization:{keyword.arg}"
+                    )
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr == "fit"
+                or node.attr in FORBIDDEN_IO_CALL_NAMES
+                or is_numpy_io_capability(node)
+            ):
+                violations.add(f"{relative}:{line}:reference:{node.attr}")
+        elif isinstance(node, ast.Name):
+            parent = parent_by_node.get(node)
+            parent_is_allowed_call = (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+                and node.id == "getattr"
+                and len(parent.args) == 2
+                and not parent.keywords
+                and isinstance(parent.args[0], ast.Name)
+                and isinstance(parent.args[1], ast.Name)
+                and (
+                    relative,
+                    parent.args[0].id,
+                    parent.args[1].id,
+                )
+                in ALLOWED_BOUNDED_GETATTR
+            )
+            if (
+                (
+                    node.id in FORBIDDEN_DYNAMIC_NAMES | {"open"}
+                    or is_numpy_io_capability(node)
+                )
+                and not parent_is_allowed_call
+            ):
+                violations.add(f"{relative}:{line}:reference:{node.id}")
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = (
+                node.targets if isinstance(node, ast.Assign) else (node.target,)
+            )
+            value = node.value
+            if isinstance(value, ast.Constant) and value.value is True:
+                for target in targets:
+                    for name in _target_names(target):
+                        if name in AUTHORIZATION_FIELDS:
+                            violations.add(
+                                f"{relative}:{line}:authorization:{name}"
+                            )
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value in AUTHORIZATION_FIELDS
+                    and isinstance(value, ast.Constant)
+                    and value.value is True
+                ):
+                    violations.add(
+                        f"{relative}:{line}:authorization:{key.value}"
+                    )
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.casefold() in FORBIDDEN_TRANSITION_MARKERS
+        ):
+            violations.add(
+                f"{relative}:{line}:transition:{node.value.casefold()}"
+            )
+    return tuple(sorted(violations))
+
+
+def _scan_research_package(package: Path) -> tuple[str, ...]:
+    violations: list[str] = []
+    for path in sorted(package.rglob("*.py")):
+        violations.extend(
+            _research_capability_violations(
+                path.read_text(encoding="utf-8"),
+                relative=path.relative_to(package).as_posix(),
+            )
+        )
+    return tuple(violations)
+
+
+def test_research_package_has_no_io_estimator_network_or_alpha_transition() -> None:
     package = (
         Path(__file__).parents[1]
         / "src"
         / "us_stocks_swing_model_v2"
         / "research"
     )
-    source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(package.glob("*.py"))
-    ).lower()
-    forbidden = (
-        "requests.",
-        "urllib",
-        "http://",
-        "https://",
-        ".fit(",
-        "read_csv(",
-        "read_parquet(",
-        "real_history_authorized=true",
-        "candidate_sealing_authorized=true",
-        "historical_pass",
-        "alpha_pass",
+    assert _scan_research_package(package) == ()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import requests as transport",
+        "from pathlib import Path as P",
+        "reader = frame.read_parquet\nreader('x')",
+        "model . fit (values)",
+        "loader = getattr(module, 'reader')",
+        "exec('open(path)')",
+        "state = {'real_history_authorized': True}",
+        "Candidate(candidate_sealing_authorized=True)",
+        "result = {'alpha_evidence': True}",
+        "candidate_eligible = True",
+        "state = 'alpha_pass'",
+    ],
+)
+def test_research_capability_ast_rejects_aliases_and_format_variants(
+    source: str,
+) -> None:
+    assert _research_capability_violations(
+        source,
+        relative="fixture.py",
     )
-    for token in forbidden:
-        assert token not in source
+
+
+@pytest.mark.parametrize(
+    ("source", "relative"),
+    [
+        ("from ..providers import alpaca\n", "builder.py"),
+        ("from ...providers import alpaca\n", "nested/escape.py"),
+    ],
+)
+def test_research_capability_ast_rejects_relative_import_escape(
+    source: str,
+    relative: str,
+) -> None:
+    violations = _research_capability_violations(
+        source,
+        relative=relative,
+    )
+    assert any(":relative-import-escape:" in item for item in violations)
+
+
+@pytest.mark.parametrize(
+    ("source", "relative"),
+    [
+        ("from .contracts import finite_float64\n", "builder.py"),
+        ("from ..contracts import finite_float64\n", "nested/helper.py"),
+    ],
+)
+def test_research_capability_ast_allows_package_relative_imports(
+    source: str,
+    relative: str,
+) -> None:
+    assert _research_capability_violations(
+        source,
+        relative=relative,
+    ) == ()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import numpy as np\nvalues = np.load('history.npy')",
+        "import numpy as numbers\nnumbers.save('history.npy', values)",
+        "from numpy import memmap as mapped\nvalues = mapped('history.bin')",
+        "from numpy import fromfile\nvalues = fromfile('history.bin')",
+        "import numpy.lib.format as fmt\nvalues = fmt.open_memmap('history.npy')",
+    ],
+)
+def test_research_capability_ast_rejects_resolved_numpy_io(
+    source: str,
+) -> None:
+    assert _research_capability_violations(
+        source,
+        relative="fixture.py",
+    )
+
+
+def test_research_capability_ast_allows_pure_numpy_computation() -> None:
+    source = (
+        "import numpy as np\n"
+        "values = np.asarray([1.0, 2.0])\n"
+        "centered = values - np.mean(values)\n"
+    )
+    assert _research_capability_violations(
+        source,
+        relative="fixture.py",
+    ) == ()
+
+
+def test_research_capability_scan_recurses_into_subpackages(tmp_path: Path) -> None:
+    package = tmp_path / "research"
+    nested = package / "nested"
+    nested.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (nested / "escape.py").write_text(
+        "import urllib.request\n",
+        encoding="utf-8",
+    )
+    assert any("nested/escape.py" in item for item in _scan_research_package(package))
+
+
+def test_bounded_getattr_exemption_is_exact_call_node_only() -> None:
+    allowed = "value = getattr(self, name)\n"
+    assert _research_capability_violations(
+        allowed,
+        relative="contracts.py",
+    ) == ()
+
+    mixed = "value = getattr(self, name)\nalias = getattr\n"
+    violations = _research_capability_violations(
+        mixed,
+        relative="contracts.py",
+    )
+    assert "contracts.py:2:reference:getattr" in violations

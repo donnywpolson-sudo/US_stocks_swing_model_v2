@@ -21,6 +21,7 @@ from .common import (
 from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError, IntegrityError
 from .gates import GateReceipt, GateState
+from .monitoring_policy import frozen_monitoring_policy_hash
 from .governance import (
     AuthorizationAuthority,
     ReleaseBinding,
@@ -322,6 +323,10 @@ class SealedBundleMetadata:
             "environment_hash",
         ):
             require_sha256(getattr(self, field_name), field_name)
+        if self.monitoring_policy_hash != frozen_monitoring_policy_hash():
+            raise ContractError(
+                "bundle monitoring policy hash differs from the frozen policy"
+            )
         if self.readiness_receipt_id != BLOCKED_READINESS_RECEIPT_ID:
             raise ContractError("readiness receipt must be the exact not-issued blocker")
         if self.external_anchor_receipt_id != BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID:
@@ -332,7 +337,8 @@ class SealedBundleMetadata:
             )
         self.gate_receipt.validate()
         if (
-            self.gate_receipt.state != GateState.PASS.value
+            self.gate_receipt.state
+            != GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value
             or self.gate_receipt.trial_id != self.trial_id
             or self.gate_receipt.trial_registry_binding_id != self.trial_registry_binding_id
             or self.gate_receipt.evaluation_permit_id != self.evaluation_permit_id
@@ -365,19 +371,145 @@ class SealedBundleMetadata:
 
     @property
     def trust_eligible(self) -> bool:
-        """Synthetic authorization or clocks can exercise mechanics but never establish trust."""
-        return (
-            self.sealing_authorization.authorization_class == "EXTERNAL_USER_AUTHORITY"
-            and self.gate_receipt.time_authority == "PRODUCTION_SYSTEM_UTC"
-            and self.production_readiness_state == "VERIFIED_READY"
-        )
+        """Schema v3 bundles are mechanically sealable but production blocked.
+
+        A future production-ready contract requires a separately reviewed
+        schema transition that verifies real readiness and external-anchor
+        receipts.  Do not encode an unreachable ``VERIFIED_READY`` branch in
+        the currently validated blocked-state schema.
+        """
+
+        return False
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "SealedBundleMetadata":
-        if set(value) != set(cls.__dataclass_fields__):
-            raise ContractError("sealed bundle metadata fields differ from the exact contract")
+    def _validate_json_types(
+        cls,
+        value: Mapping[str, Any],
+        *,
+        candidate_only: bool,
+    ) -> None:
+        expected_fields = set(cls.__dataclass_fields__)
+        if candidate_only:
+            expected_fields -= {
+                "candidate_id",
+                "sealing_authorization",
+                "bundle_id",
+            }
+        if type(value) is not dict or set(value) != expected_fields:
+            label = "candidate" if candidate_only else "metadata"
+            raise ContractError(
+                f"sealed bundle {label} fields differ from the exact contract"
+            )
         if type(value["schema_version"]) is not int:
             raise ContractError("sealed bundle schema_version must be an exact JSON integer")
+        text_fields = [
+            "model_kind",
+            "feature_schema_id",
+            "training_cutoff",
+            "sealed_at",
+            "calendar_release_id",
+            "action_release_id",
+            "trial_registry_binding_id",
+            "trial_id",
+            "registration_hash",
+            "evaluation_permit_id",
+            "census_anchor_id",
+            "trial_family_anchor_id",
+            "holdout_receipt_id",
+            "readiness_receipt_id",
+            "eligibility_census_contract_id",
+            "external_anchor_receipt_id",
+            "production_readiness_state",
+            "governance_contract_hash",
+            "primary_gate_id",
+            "robustness_policy_hash",
+            "robustness_evidence_hash",
+            "monitoring_policy_hash",
+            "monitoring_reference_hash",
+            "code_hash",
+            "config_hash",
+            "environment_hash",
+        ]
+        if not candidate_only:
+            text_fields.extend(("candidate_id", "bundle_id"))
+        if any(type(value[name]) is not str for name in text_fields):
+            raise ContractError(
+                "sealed bundle identity/time/hash fields must be exact JSON strings"
+            )
+        string_array_fields = (
+            "feature_names",
+            "data_release_ids",
+            "training_release_ids",
+            "allowed_feature_release_ids",
+            "allowed_identity_release_ids",
+            "allowed_security_type_evidence_ids",
+            "allowed_source_epochs",
+        )
+        if any(
+            type(value[name]) is not list
+            or any(type(item) is not str for item in value[name])
+            for name in string_array_fields
+        ):
+            raise ContractError(
+                "sealed bundle string censuses must be exact JSON arrays"
+            )
+        if (
+            type(value["feature_types"]) is not dict
+            or any(
+                type(key) is not str or type(item) is not str
+                for key, item in value["feature_types"].items()
+            )
+        ):
+            raise ContractError(
+                "sealed bundle feature types must be exact JSON strings"
+            )
+        if (
+            type(value["release_bindings"]) is not list
+            or any(
+                type(entry) is not dict
+                or set(entry) != set(ReleaseBinding.__dataclass_fields__)
+                or any(
+                    type(entry[name]) is not str
+                    for name in (
+                        "release_id",
+                        "project",
+                        "dataset",
+                        "source_epoch",
+                        "role",
+                        "quality_state",
+                        "created_at",
+                    )
+                )
+                or any(
+                    entry[name] is not None
+                    and type(entry[name]) is not str
+                    for name in ("event_start", "event_end")
+                )
+                for entry in value["release_bindings"]
+            )
+        ):
+            raise ContractError(
+                "sealed bundle release bindings have invalid exact JSON types"
+            )
+        if (
+            type(value["artifacts"]) is not list
+            or any(
+                type(entry) is not dict
+                or set(entry) != set(BundleArtifact.__dataclass_fields__)
+                or type(entry["path"]) is not str
+                or type(entry["sha256"]) is not str
+                or type(entry["size"]) is not int
+                for entry in value["artifacts"]
+            )
+            or type(value["gate_receipt"]) is not dict
+            or (
+                not candidate_only
+                and type(value["sealing_authorization"]) is not dict
+            )
+        ):
+            raise ContractError(
+                "sealed bundle nested evidence has invalid exact JSON types"
+            )
         for name in ("neutral_band", "maximum_uncertainty"):
             if isinstance(value[name], bool) or not isinstance(value[name], (int, float)):
                 raise ContractError(f"sealed bundle {name} must be an explicit JSON number")
@@ -388,14 +520,18 @@ class SealedBundleMetadata:
         ):
             if type(value[name]) is not int:
                 raise ContractError(f"sealed bundle {name} must be an exact JSON integer")
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "SealedBundleMetadata":
+        cls._validate_json_types(value, candidate_only=False)
         metadata = cls(
-            schema_version=int(value["schema_version"]),
-            model_kind=str(value["model_kind"]),
-            feature_schema_id=str(value["feature_schema_id"]),
+            schema_version=value["schema_version"],
+            model_kind=value["model_kind"],
+            feature_schema_id=value["feature_schema_id"],
             feature_names=tuple(value["feature_names"]),
             feature_types=dict(value["feature_types"]),
-            training_cutoff=str(value["training_cutoff"]),
-            sealed_at=str(value["sealed_at"]),
+            training_cutoff=value["training_cutoff"],
+            sealed_at=value["sealed_at"],
             data_release_ids=tuple(value["data_release_ids"]),
             release_bindings=tuple(ReleaseBinding(**entry) for entry in value["release_bindings"]),
             training_release_ids=tuple(value["training_release_ids"]),
@@ -403,38 +539,38 @@ class SealedBundleMetadata:
             allowed_identity_release_ids=tuple(value["allowed_identity_release_ids"]),
             allowed_security_type_evidence_ids=tuple(value["allowed_security_type_evidence_ids"]),
             allowed_source_epochs=tuple(value["allowed_source_epochs"]),
-            calendar_release_id=str(value["calendar_release_id"]),
-            action_release_id=str(value["action_release_id"]),
-            trial_registry_binding_id=str(value["trial_registry_binding_id"]),
-            trial_id=str(value["trial_id"]),
-            registration_hash=str(value["registration_hash"]),
-            evaluation_permit_id=str(value["evaluation_permit_id"]),
-            census_anchor_id=str(value["census_anchor_id"]),
-            trial_family_anchor_id=str(value["trial_family_anchor_id"]),
-            holdout_receipt_id=str(value["holdout_receipt_id"]),
-            readiness_receipt_id=str(value["readiness_receipt_id"]),
-            eligibility_census_contract_id=str(value["eligibility_census_contract_id"]),
-            external_anchor_receipt_id=str(value["external_anchor_receipt_id"]),
-            production_readiness_state=str(value["production_readiness_state"]),
-            governance_contract_hash=str(value["governance_contract_hash"]),
-            primary_gate_id=str(value["primary_gate_id"]),
-            robustness_policy_hash=str(value["robustness_policy_hash"]),
-            robustness_evidence_hash=str(value["robustness_evidence_hash"]),
-            monitoring_policy_hash=str(value["monitoring_policy_hash"]),
-            monitoring_reference_hash=str(value["monitoring_reference_hash"]),
+            calendar_release_id=value["calendar_release_id"],
+            action_release_id=value["action_release_id"],
+            trial_registry_binding_id=value["trial_registry_binding_id"],
+            trial_id=value["trial_id"],
+            registration_hash=value["registration_hash"],
+            evaluation_permit_id=value["evaluation_permit_id"],
+            census_anchor_id=value["census_anchor_id"],
+            trial_family_anchor_id=value["trial_family_anchor_id"],
+            holdout_receipt_id=value["holdout_receipt_id"],
+            readiness_receipt_id=value["readiness_receipt_id"],
+            eligibility_census_contract_id=value["eligibility_census_contract_id"],
+            external_anchor_receipt_id=value["external_anchor_receipt_id"],
+            production_readiness_state=value["production_readiness_state"],
+            governance_contract_hash=value["governance_contract_hash"],
+            primary_gate_id=value["primary_gate_id"],
+            robustness_policy_hash=value["robustness_policy_hash"],
+            robustness_evidence_hash=value["robustness_evidence_hash"],
+            monitoring_policy_hash=value["monitoring_policy_hash"],
+            monitoring_reference_hash=value["monitoring_reference_hash"],
             gate_receipt=GateReceipt.from_dict(value["gate_receipt"]),
             sealing_authorization=SignedAuthorizationReceipt.from_dict(value["sealing_authorization"]),
-            code_hash=str(value["code_hash"]),
-            config_hash=str(value["config_hash"]),
-            environment_hash=str(value["environment_hash"]),
+            code_hash=value["code_hash"],
+            config_hash=value["config_hash"],
+            environment_hash=value["environment_hash"],
             neutral_band=float(value["neutral_band"]),
             maximum_uncertainty=float(value["maximum_uncertainty"]),
-            maximum_feature_age_minutes=int(value["maximum_feature_age_minutes"]),
-            maximum_identity_age_minutes=int(value["maximum_identity_age_minutes"]),
-            maximum_inference_latency_minutes=int(value["maximum_inference_latency_minutes"]),
+            maximum_feature_age_minutes=value["maximum_feature_age_minutes"],
+            maximum_identity_age_minutes=value["maximum_identity_age_minutes"],
+            maximum_inference_latency_minutes=value["maximum_inference_latency_minutes"],
             artifacts=tuple(BundleArtifact(**entry) for entry in value["artifacts"]),
-            candidate_id=str(value["candidate_id"]),
-            bundle_id=str(value["bundle_id"]),
+            candidate_id=value["candidate_id"],
+            bundle_id=value["bundle_id"],
         )
         metadata.validate()
         return metadata
@@ -455,6 +591,11 @@ class PreparedBundleCandidate:
             raise IntegrityError("prepared candidate is not canonical JSON")
         if self.candidate_id != sha256_bytes(self.candidate_json):
             raise IntegrityError("prepared candidate ID differs from its canonical evidence")
+        SealedBundleMetadata._validate_json_types(payload, candidate_only=True)
+        GateReceipt.from_dict(payload["gate_receipt"])
+        release_bindings_hash(
+            tuple(ReleaseBinding(**entry) for entry in payload["release_bindings"])
+        )
         return payload
 
     def sealing_bindings(self) -> dict[str, str]:
@@ -463,22 +604,22 @@ class PreparedBundleCandidate:
         gate = GateReceipt.from_dict(payload["gate_receipt"])
         return {
             "candidate_id": self.candidate_id,
-            "trial_id": str(payload["trial_id"]),
-            "trial_registry_binding_id": str(payload["trial_registry_binding_id"]),
-            "registration_hash": str(payload["registration_hash"]),
-            "evaluation_permit_id": str(payload["evaluation_permit_id"]),
-            "census_anchor_id": str(payload["census_anchor_id"]),
-            "trial_family_anchor_id": str(payload["trial_family_anchor_id"]),
-            "holdout_receipt_id": str(payload["holdout_receipt_id"]),
-            "readiness_receipt_id": str(payload["readiness_receipt_id"]),
-            "eligibility_census_contract_id": str(payload["eligibility_census_contract_id"]),
-            "external_anchor_receipt_id": str(payload["external_anchor_receipt_id"]),
+            "trial_id": payload["trial_id"],
+            "trial_registry_binding_id": payload["trial_registry_binding_id"],
+            "registration_hash": payload["registration_hash"],
+            "evaluation_permit_id": payload["evaluation_permit_id"],
+            "census_anchor_id": payload["census_anchor_id"],
+            "trial_family_anchor_id": payload["trial_family_anchor_id"],
+            "holdout_receipt_id": payload["holdout_receipt_id"],
+            "readiness_receipt_id": payload["readiness_receipt_id"],
+            "eligibility_census_contract_id": payload["eligibility_census_contract_id"],
+            "external_anchor_receipt_id": payload["external_anchor_receipt_id"],
             "gate_receipt_id": gate.receipt_id,
             "release_bindings_hash": release_bindings_hash(bindings),
-            "governance_contract_hash": str(payload["governance_contract_hash"]),
-            "primary_gate_id": str(payload["primary_gate_id"]),
-            "robustness_policy_hash": str(payload["robustness_policy_hash"]),
-            "robustness_evidence_hash": str(payload["robustness_evidence_hash"]),
+            "governance_contract_hash": payload["governance_contract_hash"],
+            "primary_gate_id": payload["primary_gate_id"],
+            "robustness_policy_hash": payload["robustness_policy_hash"],
+            "robustness_evidence_hash": payload["robustness_evidence_hash"],
         }
 
 
@@ -496,6 +637,13 @@ def prepare_bundle_candidate(
 ) -> PreparedBundleCandidate:
     from .trials import TrialPermit, TrialRegistry
 
+    normalized_artifact_paths = tuple(
+        safe_relative_path(raw_relative).as_posix()
+        for raw_relative in artifact_paths
+    )
+    if len(normalized_artifact_paths) != len(set(normalized_artifact_paths)):
+        raise ContractError("bundle artifact declarations must be unique")
+    validated_artifact_paths = tuple(sorted(normalized_artifact_paths))
     if type(trial_registry) is not TrialRegistry or type(trial_permit) is not TrialPermit:
         raise ContractError("bundle requires concrete registry and permit contract types")
     issued_permit = trial_registry.verify_issued_permit(trial_permit)
@@ -550,7 +698,7 @@ def prepare_bundle_candidate(
     root = Path(bundle_dir)
     resolved_root = root.resolve(strict=True)
     built: list[BundleArtifact] = []
-    for raw_relative in sorted(set(artifact_paths)):
+    for raw_relative in validated_artifact_paths:
         relative = safe_relative_path(raw_relative)
         candidate = root.joinpath(*relative.parts)
         reject_link(candidate)

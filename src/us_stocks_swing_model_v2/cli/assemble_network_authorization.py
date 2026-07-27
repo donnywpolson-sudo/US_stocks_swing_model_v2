@@ -5,7 +5,11 @@ import json
 from pathlib import Path
 
 from ..clock import TrustedClock
-from ..common import atomic_write, canonical_json_bytes, require_contained_path
+from ..common import (
+    atomic_write_new,
+    canonical_json_bytes,
+    require_contained_path,
+)
 from ..errors import EvaluationAuthorizationError
 from ..governance import load_external_authority
 from ..providers.network_authorization import (
@@ -52,6 +56,15 @@ def _bounded_new_output(path: Path, *, allowed_root: Path) -> Path:
     return candidate
 
 
+def _write_new_output(path: Path, payload: bytes) -> None:
+    try:
+        atomic_write_new(path, payload)
+    except FileExistsError as exc:
+        raise EvaluationAuthorizationError(
+            "network authorization output already exists"
+        ) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if bool(args.detached_signature) == bool(args.signing_payload_output):
@@ -93,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         verification_key=args.public_key_file.read_bytes(),
     )
     if signing_payload_output is not None:
-        atomic_write(
+        _write_new_output(
             signing_payload_output,
             network_authorization_signing_payload(
                 request,
@@ -111,7 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         authority=authority,
         clock=TrustedClock.production(),
     )
-    atomic_write(receipt_output, canonical_json_bytes(receipt.as_dict()))
+    _write_new_output(
+        receipt_output,
+        canonical_json_bytes(receipt.as_dict()),
+    )
     print(receipt.receipt_id)
     return 0
 

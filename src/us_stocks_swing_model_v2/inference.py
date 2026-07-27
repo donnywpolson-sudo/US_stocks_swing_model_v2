@@ -8,7 +8,13 @@ from typing import Iterable, Mapping
 
 from .bundle import SealedBundleMetadata, load_bundle
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
-from .common import parse_utc_z, require_aware_utc
+from .common import (
+    canonical_json_bytes,
+    parse_utc_z,
+    require_aware_utc,
+    require_sha256,
+    sha256_bytes,
+)
 from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError, IntegrityError
 from .eligibility import EligibilityCensus
@@ -16,6 +22,38 @@ from .feature_release import load_feature_release
 from .governance import AuthorizationAuthority
 from .ledger import PredictionLedger
 from .schemas import FeatureRow, SecurityType, UnderlyingPrediction
+
+
+SYNTHETIC_DIRECT_PREDICTION_SCOPE = (
+    "SYNTHETIC_DIRECT_PREDICTION_NOT_PUBLISHABLE"
+)
+
+
+def synthetic_direct_prediction_binding_id(
+    *,
+    bundle_id: str,
+    eligibility_census_id: str,
+    ordered_feature_row_hashes: Iterable[str],
+) -> str:
+    require_sha256(bundle_id, "synthetic_direct_prediction.bundle_id")
+    require_sha256(
+        eligibility_census_id,
+        "synthetic_direct_prediction.eligibility_census_id",
+    )
+    row_hashes = tuple(ordered_feature_row_hashes)
+    for index, row_hash in enumerate(row_hashes):
+        require_sha256(
+            row_hash,
+            f"synthetic_direct_prediction.ordered_feature_row_hashes[{index}]",
+        )
+    payload = {
+        "schema_version": 1,
+        "scope": SYNTHETIC_DIRECT_PREDICTION_SCOPE,
+        "bundle_id": bundle_id,
+        "eligibility_census_id": eligibility_census_id,
+        "ordered_feature_row_hashes": list(row_hashes),
+    }
+    return sha256_bytes(canonical_json_bytes(payload))
 
 
 @dataclass(frozen=True)
@@ -101,13 +139,14 @@ class FitFreeInferenceEngine:
         eligibility_census: EligibilityCensus,
         synthetic_permit: SyntheticOnlyPermit,
     ) -> tuple[UnderlyingPrediction, ...]:
-        require_synthetic_permit(
-            synthetic_permit,
-            scope="SYNTHETIC_DIRECT_PREDICTION_NOT_PUBLISHABLE",
-        )
+        materialized = tuple(rows)
         if self._clock.trust_eligible:
             raise ContractError("production inference cannot expose uncommitted predictions")
-        return self._predict_rows(rows, eligibility_census=eligibility_census)
+        return self._predict_rows(
+            materialized,
+            eligibility_census=eligibility_census,
+            synthetic_permit=synthetic_permit,
+        )
 
     def predict_and_commit(
         self,
@@ -117,6 +156,15 @@ class FitFreeInferenceEngine:
         prediction_ledger: PredictionLedger,
         previous_anchor: Path | None = None,
     ) -> Mapping[str, object]:
+        eligibility_census.validate()
+        if (
+            eligibility_census.evidence_state
+            == "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+            or eligibility_census.synthetic_permit_id
+        ):
+            raise ContractError(
+                "production prediction commit rejects synthetic-only eligibility census"
+            )
         manifest, rows = load_feature_release(
             feature_release_directory,
             accepted_release_root=self.accepted_release_root,
@@ -126,7 +174,11 @@ class FitFreeInferenceEngine:
             or manifest.release_id not in self.metadata.allowed_feature_release_ids
         ):
             raise ContractError("verified feature release differs from census/bundle allowlists")
-        predictions = self._predict_rows(rows, eligibility_census=eligibility_census)
+        predictions = self._predict_rows(
+            rows,
+            eligibility_census=eligibility_census,
+            synthetic_permit=None,
+        )
         return prediction_ledger._append_census_from_engine(
             predictions,
             census=eligibility_census,
@@ -140,8 +192,34 @@ class FitFreeInferenceEngine:
         rows: Iterable[FeatureRow],
         *,
         eligibility_census: EligibilityCensus,
+        synthetic_permit: SyntheticOnlyPermit | None,
     ) -> tuple[UnderlyingPrediction, ...]:
+        materialized = tuple(rows)
         eligibility_census.validate()
+        if (
+            eligibility_census.evidence_state
+            == "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+        ):
+            permit = require_synthetic_permit(
+                synthetic_permit,
+                scope=SYNTHETIC_DIRECT_PREDICTION_SCOPE,
+            )
+            expected_binding = synthetic_direct_prediction_binding_id(
+                bundle_id=self.metadata.bundle_id,
+                eligibility_census_id=eligibility_census.census_id,
+                ordered_feature_row_hashes=(
+                    row.row_hash for row in materialized
+                ),
+            )
+            if permit.fixture_id != expected_binding:
+                raise ContractError(
+                    "synthetic direct-prediction permit differs from the exact "
+                    "bundle, census, and ordered feature rows"
+                )
+        elif synthetic_permit is not None:
+            raise ContractError(
+                "non-synthetic prediction cannot use a synthetic-only permit"
+            )
         if (
             eligibility_census.contract_id != self.metadata.eligibility_census_contract_id
             or eligibility_census.bundle_id != self.metadata.bundle_id
@@ -154,7 +232,6 @@ class FitFreeInferenceEngine:
             != self.metadata.gate_receipt.receipt_id
         ):
             raise ContractError("eligibility census differs from the sealed bundle contract")
-        materialized = tuple(rows)
         asset_ids = tuple(sorted(row.asset_id for row in materialized))
         if asset_ids != eligibility_census.expected_asset_ids:
             raise ContractError("feature rows do not exactly cover the expected eligibility census")

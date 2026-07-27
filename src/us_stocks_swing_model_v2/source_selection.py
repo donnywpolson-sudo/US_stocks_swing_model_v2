@@ -25,10 +25,15 @@ def select_explicit_release(
         raise ContractError("release directory and accepted root must be absolute")
     require_contained_path(directory, root)
     reject_link(directory)
-    folded_parts = {part.casefold() for part in directory.parts}
-    if (
-        directory.name.casefold().startswith(".pending-")
-        or any("staging" in part or "pending" in part or "quarantine" in part for part in folded_parts)
+    relative_parts = tuple(
+        part.casefold()
+        for part in directory.resolve(strict=True).relative_to(
+            root.resolve(strict=True)
+        ).parts
+    )
+    if any(
+        part in {".staging", ".quarantine"} or part.startswith(".pending-")
+        for part in relative_parts
     ):
         raise ContractError("pending/staging paths can never be active releases")
     expected_directory = root / expected_dataset / expected_release_id
@@ -51,8 +56,21 @@ def select_explicit_release(
         "feature_only",
         "outcome_only",
     }
-    epoch_roles = {str(epoch): set(roles) for epoch, roles in allowed_epoch_roles.items()}
-    if not epoch_roles or any(not roles or not roles <= valid_roles for roles in epoch_roles.values()):
+    epoch_roles: dict[str, set[str]] = {}
+    for epoch, roles in allowed_epoch_roles.items():
+        if type(epoch) is not str or not epoch:
+            raise ContractError(
+                "epoch-role allowlist keys must be exact nonempty text"
+            )
+        role_set = set(roles)
+        if (
+            not role_set
+            or any(type(role) is not str for role in role_set)
+            or not role_set <= valid_roles
+        ):
+            raise ContractError("epoch-role allowlist is absent or invalid")
+        epoch_roles[epoch] = role_set
+    if not epoch_roles:
         raise ContractError("epoch-role allowlist is absent or invalid")
     if manifest.source_epoch not in epoch_roles or manifest.role not in epoch_roles[manifest.source_epoch]:
         raise ContractError("release source epoch and role pairing is not permitted")

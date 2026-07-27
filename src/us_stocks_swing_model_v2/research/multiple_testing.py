@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -28,17 +28,22 @@ class RomanoWolfResult:
     null_centered: bool
 
 
-def romano_wolf_stepdown(
+def _romano_wolf_stepdown_from_null_statistics(
     observed_statistics: np.ndarray,
     bootstrap_statistics: np.ndarray,
     *,
     hypothesis_ids: tuple[str, ...],
     tail: str,
+    null_centered: bool,
     minimum_resamples: int = 999,
     maximum_bootstrap_stat_bytes: int = 256 * 1024 * 1024,
 ) -> RomanoWolfResult:
-    """Compute max-T stepdown adjusted p-values with a plus-one correction."""
+    """Compute max-T stepdown only from an explicitly centered null bootstrap."""
 
+    if type(null_centered) is not bool or not null_centered:
+        raise ResearchContractError(
+            "Romano-Wolf bootstrap statistics must be explicitly null-centered"
+        )
     observed = finite_float64(
         observed_statistics, name="observed_statistics", ndim=1
     )
@@ -92,7 +97,7 @@ def romano_wolf_stepdown(
         stage_p_values=stages,
         adjusted_p_values=adjusted,
         resamples=boot.shape[0],
-        null_centered=False,
+        null_centered=True,
     )
 
 
@@ -148,12 +153,12 @@ def romano_wolf_from_differentials(
             bootstrap_statistics[resample, column] = hac_t_statistic(
                 resampled[:, column], lag=hac_lag
             )
-    result = romano_wolf_stepdown(
+    return _romano_wolf_stepdown_from_null_statistics(
         observed,
         bootstrap_statistics,
         hypothesis_ids=ids,
         tail=tail,
+        null_centered=True,
         minimum_resamples=minimum_resamples,
         maximum_bootstrap_stat_bytes=maximum_bootstrap_stat_bytes,
     )
-    return replace(result, null_centered=True)

@@ -180,6 +180,8 @@ class ControlledRebuildAuthorization:
             payload = json.loads(expected_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise PermissionError("controlled rebuild authority changed after loading") from exc
+        if not isinstance(payload, dict):
+            raise PermissionError("controlled rebuild authority changed after loading")
         core = {key: value for key, value in payload.items() if key != "authorization_id"}
         if (
             payload.get("authorization_id") != self.authorization_id
@@ -609,6 +611,7 @@ def plan_migration(config: dict[str, Any]) -> MigrationPlan:
         source_root = Path(entry["source_root"])
         approved_root = _approved_root(source_root, allowed_sources)
         require_contained_path(source_root, approved_root, must_exist=True)
+        reject_link(source_root)
         if not source_root.is_dir():
             raise ContractError(f"migration source root is not a directory: {source_root}")
         destination_subdir = safe_relative_path(entry["destination_subdir"])
@@ -626,6 +629,7 @@ def plan_migration(config: dict[str, Any]) -> MigrationPlan:
                 if not path.is_file():
                     continue
                 require_contained_path(path, source_root, must_exist=True)
+                reject_link(path)
                 if path.stat().st_nlink != 1:
                     raise ContractError(f"hardlinked source is prohibited: {path}")
                 relative = path.relative_to(source_root).as_posix()
@@ -910,6 +914,7 @@ def _verify_source(entry: CopyPlanEntry, plan: MigrationPlan) -> None:
     source = Path(entry.source)
     approved = _approved_root(source, tuple(Path(value) for value in plan.allowed_source_roots))
     require_contained_path(source, approved, must_exist=True)
+    reject_link(source)
     if (
         not source.is_file()
         or source.stat().st_nlink != 1
@@ -929,6 +934,7 @@ def _recover_owned_orphan_temps(staging: Path, plan: MigrationPlan) -> None:
     if len(plan_by_object) != len(plan):
         raise IntegrityError("migration payload object namespace collision")
     payload_objects = staging / "payload" / "o"
+    copy_temps: list[tuple[Path, re.Match[str]]] = []
     for candidate in sorted(staging.rglob("*")):
         reject_link(candidate)
         if candidate.is_dir():
@@ -936,16 +942,26 @@ def _recover_owned_orphan_temps(staging: Path, plan: MigrationPlan) -> None:
         if not candidate.is_file() or candidate.stat().st_nlink != 1:
             raise IntegrityError(f"migration staging contains a non-plain entry: {candidate}")
         if _ATOMIC_TEMP_PATTERN.fullmatch(candidate.name):
-            try:
-                candidate.unlink()
-            except OSError as exc:
-                raise IntegrityError(
-                    f"cannot remove owned atomic-write temp: {candidate}"
-                ) from exc
-            continue
+            # tempfile-generated .aw names do not encode their intended target
+            # or journal identity. They are therefore preserved as failure
+            # evidence and require explicit operator disposition; recovery
+            # must not infer ownership from a generic basename.
+            raise IntegrityError(
+                f"migration staging contains an unowned atomic-write temp: {candidate}"
+            )
         match = _COPY_TEMP_PATTERN.fullmatch(candidate.name)
-        if match is None or candidate.parent != payload_objects:
+        if match is None:
             continue
+        if candidate.parent != payload_objects:
+            raise IntegrityError(
+                f"migration copy temp is outside the exact payload-object directory: {candidate}"
+            )
+        copy_temps.append((candidate, match))
+
+    # The complete read-only census above succeeds before any cleanup or
+    # adoption. This prevents an earlier sorted candidate from being mutated
+    # before a later unexpected matching file is rejected.
+    for candidate, match in copy_temps:
         object_relative = validate_migration_payload_object(f"o/{match.group(1)}")
         entry = plan_by_object.get(object_relative)
         if entry is None:

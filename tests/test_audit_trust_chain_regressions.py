@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import json
@@ -12,7 +13,12 @@ import pytest
 from us_stocks_swing_model_v2.calendar import PinnedSessionCalendar
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.common import canonical_json_bytes, require_sha256, sha256_bytes
+from us_stocks_swing_model_v2.common import (
+    canonical_json_bytes,
+    parse_timestamp,
+    require_sha256,
+    sha256_bytes,
+)
 from us_stocks_swing_model_v2.errors import (
     ContractError,
     EvaluationAuthorizationError,
@@ -26,6 +32,14 @@ from us_stocks_swing_model_v2.governance import (
     SignedAuthorizationReceipt,
     load_external_authority,
 )
+import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
+import us_stocks_swing_model_v2.providers.network_authorization as network_authorization_module
+from us_stocks_swing_model_v2.providers.alpaca import (
+    AlpacaBarsPolicy,
+    AlpacaBarsRequest,
+    MAX_ALPACA_RESPONSE_BYTES,
+    guarded_fetch_landed_pages,
+)
 from us_stocks_swing_model_v2.providers.snapshots import (
     AsReceivedSnapshotStore,
     LandedSnapshot,
@@ -38,9 +52,12 @@ from us_stocks_swing_model_v2.providers.snapshots import (
 )
 from us_stocks_swing_model_v2.providers.network_authorization import (
     NETWORK_ACQUISITION_AUTHORIZATION_SCOPE,
+    AuthorizedNetworkRequestAttempt,
+    AuthorizedNetworkResponse,
     NetworkAuthorizationUseStore,
     NetworkAuthorizationSession,
     NetworkRequestPlan,
+    _bind_authorized_network_response,
     assemble_network_authorization_receipt,
     assert_authorized_network_request,
     network_authorization_request,
@@ -125,7 +142,7 @@ def _external_authority(
         "project": "US_stocks_swing_model_v2",
         "status": "ACTIVE",
         "authorities": [{
-            "key_id": "external-user",
+            "key_id": "RFC7515-TEST-FIXTURE-ONLY",
             "key_sha256": sha256_bytes(public_jwk),
             "authorization_class": "EXTERNAL_USER_AUTHORITY",
             "signature_algorithm": EXTERNAL_SIGNATURE_ALGORITHM,
@@ -139,7 +156,7 @@ def _external_authority(
     )
     authority = load_external_authority(
         registry_path,
-        key_id="external-user",
+        key_id="RFC7515-TEST-FIXTURE-ONLY",
         verification_key=public_jwk,
     )
     return authority, registry_path, registry
@@ -148,6 +165,7 @@ def _external_authority(
 def _network_authorization_receipt(
     plan: NetworkRequestPlan,
     *,
+    registry: NetworkAcquisitionRegistry,
     authority: AuthorizationAuthority,
     clock: TrustedClock,
     lifetime: timedelta = timedelta(minutes=10),
@@ -156,6 +174,7 @@ def _network_authorization_receipt(
     request = dict(
         network_authorization_request(
             plan,
+            registry=registry,
             clock=clock,
             nonce="A" * 43,
         )
@@ -224,11 +243,15 @@ def test_network_authorization_is_exact_and_single_use(
         permit=_permit("network-authorization-clock", "TRUSTED_CLOCK_FIXED_TIME"),
     )
     receipt = _network_authorization_receipt(
-        plan, authority=authority, clock=clock
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
     )
     store = NetworkAuthorizationUseStore(
         tmp_path / "authorization-uses",
         allowed_root=tmp_path,
+        registry=registry,
     )
     session = store.authorize(
         plan=plan,
@@ -236,7 +259,7 @@ def test_network_authorization_is_exact_and_single_use(
         authority=authority,
         clock=clock,
     )
-    assert_authorized_network_request(
+    request_attempt = assert_authorized_network_request(
         session,
         source="nasdaqtraded",
         url=plan.initial_url,
@@ -246,6 +269,22 @@ def test_network_authorization_is_exact_and_single_use(
         expected_page_token=None,
         clock=clock,
     )
+    assert type(request_attempt) is AuthorizedNetworkRequestAttempt
+    # Authorization is for one attempt, not one successful response. A
+    # transport failure after this pre-request check must burn the page index.
+    with pytest.raises(TimeoutError):
+        raise TimeoutError("simulated transport interruption")
+    with pytest.raises(EvaluationAuthorizationError, match="reused or is out of sequence"):
+        assert_authorized_network_request(
+            session,
+            source="nasdaqtraded",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=32 * 1024 * 1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
     expired_clock = TrustedClock.synthetic_fixed(
         at + timedelta(minutes=10),
         permit=_permit(
@@ -288,6 +327,7 @@ def test_network_authorization_is_exact_and_single_use(
     object.__setattr__(forged, "nonce", "A" * 43)
     object.__setattr__(forged, "consumed_at", clock.now().isoformat())
     object.__setattr__(forged, "expires_at", receipt.expires_at)
+    object.__setattr__(forged, "time_floor_id", session.time_floor_id)
     with pytest.raises(EvaluationAuthorizationError, match="not issued"):
         assert_authorized_network_request(
             forged,
@@ -297,6 +337,456 @@ def test_network_authorization_is_exact_and_single_use(
             max_response_bytes=32 * 1024 * 1024,
             page_index=0,
             expected_page_token=None,
+            clock=clock,
+        )
+
+
+def test_network_authorization_time_floor_rejects_clock_rollback_and_forward_skew(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.invalid/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.invalid/data",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
+    clock = TrustedClock.synthetic_fixed(
+        at,
+        permit=_permit("time-floor-initial-clock", "TRUSTED_CLOCK_FIXED_TIME"),
+    )
+    root = tmp_path / "authorization-uses"
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
+    )
+    NetworkAuthorizationUseStore(
+        root,
+        allowed_root=tmp_path,
+        registry=registry,
+    ).authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+
+    for label, shifted_at in (
+        ("rollback", at - timedelta(minutes=1)),
+        ("forward-skew", at + timedelta(minutes=30)),
+    ):
+        shifted_clock = TrustedClock.synthetic_fixed(
+            shifted_at,
+            permit=_permit(
+                f"time-floor-{label}-clock",
+                "TRUSTED_CLOCK_FIXED_TIME",
+            ),
+        )
+        shifted_receipt = _network_authorization_receipt(
+            plan,
+            registry=registry,
+            authority=authority,
+            clock=shifted_clock,
+        )
+        with pytest.raises(
+            EvaluationAuthorizationError,
+            match="clock moved outside the allowed drift",
+        ):
+            NetworkAuthorizationUseStore(
+                root,
+                allowed_root=tmp_path,
+                registry=registry,
+            ).authorize(
+                plan=plan,
+                receipt=shifted_receipt,
+                authority=authority,
+                clock=shifted_clock,
+            )
+
+
+def test_network_authorization_time_floor_survives_restart_and_guards_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.invalid/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.invalid/data",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    at = datetime(2026, 7, 15, 20, tzinfo=timezone.utc)
+    clock = TrustedClock.synthetic_fixed(
+        at,
+        permit=_permit("time-floor-restart-clock", "TRUSTED_CLOCK_FIXED_TIME"),
+    )
+    root = tmp_path / "authorization-uses"
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
+    )
+    session = NetworkAuthorizationUseStore(
+        root,
+        allowed_root=tmp_path,
+        registry=registry,
+    ).authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+    floor = json.loads(
+        (root / "authorization-time-floor.json").read_text(encoding="utf-8")
+    )
+    assert floor["network_registry_id"] == registry.registry_id
+    assert floor["time_authority"] == clock.mode
+    assert session.time_floor_id == floor["time_floor_id"]
+
+    restarted_at = at + timedelta(seconds=1)
+    restarted_clock = TrustedClock.synthetic_fixed(
+        restarted_at,
+        permit=_permit(
+            "time-floor-new-process-clock",
+            "TRUSTED_CLOCK_FIXED_TIME",
+        ),
+    )
+    restarted_receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=restarted_clock,
+    )
+    restarted_session = NetworkAuthorizationUseStore(
+        root,
+        allowed_root=tmp_path,
+        registry=registry,
+    ).authorize(
+        plan=plan,
+        receipt=restarted_receipt,
+        authority=authority,
+        clock=restarted_clock,
+    )
+
+    rollback_clock = TrustedClock.synthetic_fixed(
+        at - timedelta(minutes=1),
+        permit=_permit(
+            "time-floor-transport-rollback-clock",
+            "TRUSTED_CLOCK_FIXED_TIME",
+        ),
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="clock moved outside the allowed drift",
+    ):
+        assert_authorized_network_request(
+            restarted_session,
+            source="fixture",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=rollback_clock,
+        )
+
+    with monkeypatch.context() as epoch:
+        epoch.setattr(
+            network_authorization_module.time,
+            "monotonic_ns",
+            lambda: 0,
+        )
+        with pytest.raises(
+            EvaluationAuthorizationError,
+            match="monotonic epoch changed",
+        ):
+            assert_authorized_network_request(
+                restarted_session,
+                source="fixture",
+                url=plan.initial_url,
+                timeout_seconds=30,
+                max_response_bytes=1024,
+                page_index=0,
+                expected_page_token=None,
+                clock=restarted_clock,
+            )
+
+    floor_path = root / "authorization-time-floor.json"
+    tampered = json.loads(floor_path.read_text(encoding="utf-8"))
+    tampered["time_floor_id"] = "f" * 64
+    floor_path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="time floor integrity differs",
+    ):
+        assert_authorized_network_request(
+            restarted_session,
+            source="fixture",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=restarted_clock,
+        )
+
+
+def test_network_request_plan_is_revalidated_against_registry_at_consumers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.com/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.com/data?window=bounded",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    clock = TrustedClock.synthetic_fixed(
+        datetime(2026, 7, 15, 20, tzinfo=timezone.utc),
+        permit=_permit("network-plan-validation-clock", "TRUSTED_CLOCK_FIXED_TIME"),
+    )
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
+    )
+    store = NetworkAuthorizationUseStore(
+        tmp_path / "authorization-uses",
+        allowed_root=tmp_path,
+        registry=registry,
+    )
+
+    unsigned = {
+        **plan._unsigned(),
+        "initial_url": "https://attacker.invalid/data",
+    }
+    forged_origin = NetworkRequestPlan(
+        **unsigned,
+        plan_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    forged_variants = (
+        replace(plan, max_response_bytes=2048),
+        replace(plan, plan_id="f" * 64),
+        replace(plan, network_registry_id="e" * 64),
+        forged_origin,
+    )
+    for forged in forged_variants:
+        with pytest.raises(
+            EvaluationAuthorizationError,
+            match="not registry-bound",
+        ):
+            network_authorization_request(
+                forged,
+                registry=registry,
+                clock=clock,
+            )
+        with pytest.raises(
+            EvaluationAuthorizationError,
+            match="not registry-bound",
+        ):
+            store.authorize(
+                plan=forged,
+                receipt=receipt,
+                authority=authority,
+                clock=clock,
+            )
+
+    session = store.authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+    object.__setattr__(session.plan, "max_response_bytes", 2048)
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="session plan is invalid",
+    ):
+        assert_authorized_network_request(
+            session,
+            source="fixture",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=2048,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
+
+
+def test_network_authorization_rejects_duplicate_query_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.invalid/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    with pytest.raises(ContractError, match="query keys must be unique"):
+        NetworkRequestPlan.create(
+            registry=registry,
+            source="fixture",
+            initial_url="https://example.invalid/data?symbol=ABC&symbol=XYZ",
+            timeout_seconds=30,
+            max_response_bytes=1024,
+            max_pages=2,
+            pagination_parameter="page_token",
+        )
+
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.invalid/data?symbol=ABC",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=2,
+        pagination_parameter="page_token",
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    clock = TrustedClock.synthetic_fixed(
+        datetime(2026, 7, 15, 20, tzinfo=timezone.utc),
+        permit=_permit(
+            "duplicate-query-clock",
+            "TRUSTED_CLOCK_FIXED_TIME",
+        ),
+    )
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
+    )
+    session = NetworkAuthorizationUseStore(
+        tmp_path / "uses",
+        allowed_root=tmp_path,
+        registry=registry,
+    ).authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+    assert_authorized_network_request(
+        session,
+        source="fixture",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=clock,
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="query keys must be unique",
+    ):
+        assert_authorized_network_request(
+            session,
+            source="fixture",
+            url=(
+                "https://example.invalid/data?"
+                "symbol=ABC&symbol=XYZ&page_token=next"
+            ),
+            timeout_seconds=30,
+            max_response_bytes=1024,
+            page_index=1,
+            expected_page_token="next",
             clock=clock,
         )
 
@@ -343,6 +833,10 @@ def test_network_authorization_rejects_excessive_lifetime(
     with pytest.raises(EvaluationAuthorizationError, match="ten minutes"):
         _network_authorization_receipt(
             plan=plan,
+            registry=NetworkAcquisitionRegistry.load(
+                registry_path,
+                allowed_root=tmp_path,
+            ),
             authority=authority,
             clock=clock,
             lifetime=timedelta(minutes=11),
@@ -392,6 +886,13 @@ def test_external_authority_verifies_asymmetric_receipts_and_revalidates_registr
         required_bindings={"evidence": "2" * 64},
         observed_at=datetime(2026, 7, 15, 20, tzinfo=timezone.utc),
     )
+    poisoned_payload = receipt.as_dict()
+    poisoned_payload["bindings"] = {"evidence": True}
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="exact string pairs",
+    ):
+        SignedAuthorizationReceipt.from_dict(poisoned_payload)
     tampered = replace(
         receipt,
         signature=receipt.signature[:-1] + (
@@ -434,6 +935,10 @@ def test_network_evidence_has_no_public_capability_or_arbitrary_byte_landing() -
             headers_sha256="2" * 64,
             capability_id="3" * 64,
         )
+    with pytest.raises(TypeError):
+        AuthorizedNetworkRequestAttempt()  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        AuthorizedNetworkResponse()  # type: ignore[call-arg]
     with pytest.raises(ContractError, match="outside the evidence allowlist"):
         normalize_response_headers({"authorization": "secret"})
     with pytest.raises(ContractError, match="control characters"):
@@ -459,6 +964,50 @@ def test_network_registry_drift_invalidates_loaded_capability_source(tmp_path: P
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ContractError, match="changed after loading"):
         registry.validate()
+
+
+def test_network_registry_operative_policy_is_immutable_and_reconciled(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "network_registry.json"
+    payload = {
+        "schema_version": 1,
+        "project": "US_stocks_swing_model_v2",
+        "status": "ACTIVE",
+        "allowed_sources": {
+            "fixture": {
+                "origin_path": "https://example.invalid/data",
+                "accepted_http_statuses": [200],
+            }
+        },
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    registry = NetworkAcquisitionRegistry.load(path, allowed_root=tmp_path)
+
+    assert registry.registry_id == sha256_bytes(canonical_json_bytes(payload))
+    with pytest.raises(TypeError):
+        registry.allowed_origin_paths["fixture"] = "https://attacker.invalid/data"
+    with pytest.raises(TypeError):
+        registry.accepted_http_statuses["fixture"] = (200, 201)
+
+    capability = registry._issue_response_capability(
+        source="fixture",
+        requested_url="https://example.invalid/data?window=bounded",
+        response_url="https://example.invalid/data?window=bounded",
+        http_status=200,
+        raw=b"compatible",
+        headers={"content-type": "application/octet-stream"},
+    )
+    capability.validate(registry=registry)
+
+    replaced = NetworkAcquisitionRegistry.load(path, allowed_root=tmp_path)
+    object.__setattr__(
+        replaced,
+        "allowed_origin_paths",
+        {"fixture": "https://attacker.invalid/data"},
+    )
+    with pytest.raises(ContractError, match="operative policy differs"):
+        replaced.validate()
 
 
 def test_network_registry_must_remain_inside_its_approved_root(
@@ -495,6 +1044,98 @@ def test_network_registry_must_remain_inside_its_approved_root(
     assert registry.registry_root == str(approved_root.resolve(strict=True))
 
 
+def test_zero_byte_network_response_is_bound_then_rejected_as_snapshot_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    "fixture": {
+                        "origin_path": "https://example.invalid/data",
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    store = AsReceivedSnapshotStore(
+        tmp_path / "snapshots",
+        allowed_root=tmp_path,
+        acquisition_registry=registry,
+    )
+    production_clock = TrustedClock.production()
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.invalid/data",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=production_clock,
+    )
+    authorization_store = NetworkAuthorizationUseStore(
+        tmp_path / "authorization-uses",
+        allowed_root=tmp_path,
+        registry=registry,
+    )
+    session = authorization_store.authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=production_clock,
+    )
+    request_attempt = assert_authorized_network_request(
+        session,
+        source="fixture",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=production_clock,
+    )
+
+    transport_evidence = _bind_authorized_network_response(
+        request_attempt,
+        requested_url=plan.initial_url,
+        response_url=plan.initial_url,
+        http_status=200,
+        raw=b"",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert transport_evidence.raw_sha256 == sha256_bytes(b"")
+    with pytest.raises(ContractError, match="snapshot response is empty"):
+        store._land_network_response(
+            transport_evidence=transport_evidence,
+            source="fixture",
+            requested_url=plan.initial_url,
+            response_url=plan.initial_url,
+            http_status=200,
+            raw=b"",
+            headers={"content-type": "application/octet-stream"},
+            clock=production_clock,
+            max_bytes=1024,
+        )
+
+
 def test_network_snapshot_requires_independent_attestation_for_trust(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -525,20 +1166,146 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
         allowed_root=tmp_path,
         acquisition_registry=registry,
     )
+    production_clock = TrustedClock.production()
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source="fixture",
+        initial_url="https://example.invalid/data",
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, authority_registry_path, authority_registry = _external_authority(
+        tmp_path,
+        monkeypatch,
+    )
+    authorization_receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=production_clock,
+    )
+    authorization_store = NetworkAuthorizationUseStore(
+        tmp_path / "authorization-uses",
+        allowed_root=tmp_path,
+        registry=registry,
+    )
+    session = authorization_store.authorize(
+        plan=plan,
+        receipt=authorization_receipt,
+        authority=authority,
+        clock=production_clock,
+    )
+    request_attempt = assert_authorized_network_request(
+        session,
+        source="fixture",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=production_clock,
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="differs from its authorized request attempt",
+    ):
+        _bind_authorized_network_response(
+            request_attempt,
+            requested_url=plan.initial_url,
+            response_url="https://example.invalid/redirect",
+            http_status=200,
+            raw=b"network fixture",
+            headers={"content-type": "application/octet-stream"},
+        )
+    transport_evidence = _bind_authorized_network_response(
+        request_attempt,
+        requested_url=plan.initial_url,
+        response_url=plan.initial_url,
+        http_status=200,
+        raw=b"network fixture",
+        headers={"content-type": "application/octet-stream"},
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="lacks transport-issued response evidence",
+    ):
+        store._land_network_response(
+            transport_evidence=object(),  # type: ignore[arg-type]
+            source="fixture",
+            requested_url=plan.initial_url,
+            response_url=plan.initial_url,
+            http_status=200,
+            raw=b"network fixture",
+            headers={"content-type": "application/octet-stream"},
+            clock=production_clock,
+            max_bytes=1024,
+        )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="forged, replayed, or mismatched",
+    ):
+        store._land_network_response(
+            transport_evidence=transport_evidence,
+            source="fixture",
+            requested_url=plan.initial_url,
+            response_url=plan.initial_url,
+            http_status=201,
+            raw=b"arbitrary replacement",
+            headers={"content-type": "application/octet-stream"},
+            clock=production_clock,
+            max_bytes=1024,
+        )
+    original_land = store._land
+
+    def fail_landing(**kwargs):
+        raise OSError("simulated landing failure")
+
+    monkeypatch.setattr(store, "_land", fail_landing)
+    with pytest.raises(OSError, match="simulated landing failure"):
+        store._land_network_response(
+            transport_evidence=transport_evidence,
+            source="fixture",
+            requested_url=plan.initial_url,
+            response_url=plan.initial_url,
+            http_status=200,
+            raw=b"network fixture",
+            headers={"content-type": "application/octet-stream"},
+            clock=production_clock,
+            max_bytes=1024,
+        )
+    monkeypatch.setattr(store, "_land", original_land)
     snapshot = store._land_network_response(
+        transport_evidence=transport_evidence,
         source="fixture",
         requested_url="https://example.invalid/data",
         response_url="https://example.invalid/data",
         http_status=200,
         raw=b"network fixture",
         headers={"content-type": "application/octet-stream"},
-        clock=TrustedClock.production(),
+        clock=production_clock,
+        max_bytes=1024,
     )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="forged, replayed, or mismatched",
+    ):
+        store._land_network_response(
+            transport_evidence=transport_evidence,
+            source="fixture",
+            requested_url=plan.initial_url,
+            response_url=plan.initial_url,
+            http_status=200,
+            raw=b"network fixture",
+            headers={"content-type": "application/octet-stream"},
+            clock=production_clock,
+            max_bytes=1024,
+        )
     assert snapshot.trust_eligible is False
     assert store.load(snapshot.root).trust_eligible is False
     assert snapshot.read_verified_bytes() == b"network fixture"
 
-    authority, _, _ = _external_authority(tmp_path, monkeypatch)
     signing = {
         "schema_version": 1,
         "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
@@ -601,6 +1368,188 @@ def test_network_snapshot_requires_independent_attestation_for_trust(
     (forged / "receipt.json").write_bytes(canonical_json_bytes(receipt))
     with pytest.raises(IntegrityError, match="differs from the pinned registry"):
         store.load(forged)
+    authority_registry["status"] = "REVOKED"
+    authority_registry_path.write_text(
+        json.dumps(authority_registry),
+        encoding="utf-8",
+    )
+    assert trusted.trust_eligible is False
+    with pytest.raises(IntegrityError, match="signature is invalid"):
+        trusted.read_verified_bytes()
+
+
+def test_guarded_alpaca_path_integrates_real_trust_chain_with_transport_only_mocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = "alpaca_iex_qualification"
+    registry_path = tmp_path / "network_registry.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "allowed_sources": {
+                    source: {
+                        "origin_path": (
+                            "https://data.alpaca.markets/v2/stocks/bars"
+                        ),
+                        "accepted_http_statuses": [200],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = NetworkAcquisitionRegistry.load(
+        registry_path,
+        allowed_root=tmp_path,
+    )
+    store = AsReceivedSnapshotStore(
+        tmp_path / "snapshots",
+        allowed_root=tmp_path,
+        acquisition_registry=registry,
+    )
+    clock = TrustedClock.production()
+    requested_at = clock.now()
+    request = AlpacaBarsRequest(
+        symbols=("ABC",),
+        start=requested_at - timedelta(days=3),
+        end=requested_at - timedelta(days=1),
+        requested_at=requested_at,
+    )
+    policy = AlpacaBarsPolicy(feed="iex")
+    plan = NetworkRequestPlan.create(
+        registry=registry,
+        source=source,
+        initial_url=request.url(policy),
+        timeout_seconds=30,
+        max_response_bytes=MAX_ALPACA_RESPONSE_BYTES,
+        max_pages=1,
+        pagination_parameter=None,
+    )
+    authority, _, _ = _external_authority(tmp_path, monkeypatch)
+    receipt = _network_authorization_receipt(
+        plan,
+        registry=registry,
+        authority=authority,
+        clock=clock,
+    )
+    authorization_store = NetworkAuthorizationUseStore(
+        tmp_path / "authorization-uses",
+        allowed_root=tmp_path,
+        registry=registry,
+    )
+    session = authorization_store.authorize(
+        plan=plan,
+        receipt=receipt,
+        authority=authority,
+        clock=clock,
+    )
+    raw = canonical_json_bytes(
+        {
+            "bars": {
+                "ABC": [
+                    {
+                        "t": "2026-07-20T04:00:00Z",
+                        "o": 10,
+                        "h": 11,
+                        "l": 9,
+                        "c": 10.5,
+                        "v": 100,
+                    }
+                ]
+            },
+            "next_page_token": None,
+        }
+    )
+
+    class Response:
+        status = 200
+        headers = {
+            "content-length": str(len(raw)),
+            "content-type": "application/json",
+        }
+
+        def __init__(self, url: str):
+            self.url = url
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, limit: int) -> bytes:
+            assert limit == MAX_ALPACA_RESPONSE_BYTES + 1
+            return raw
+
+        def geturl(self) -> str:
+            return self.url
+
+    transport_calls: list[str] = []
+
+    def open_response(
+        http_request: object,
+        *,
+        timeout_seconds: int,
+    ) -> Response:
+        assert timeout_seconds == 30
+        url = str(getattr(http_request, "full_url"))
+        transport_calls.append(url)
+        return Response(url)
+
+    monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
+    monkeypatch.setattr(alpaca_module, "open_without_redirects", open_response)
+    landed = guarded_fetch_landed_pages(
+        request,
+        snapshot_store=store,
+        api_key_id="offline-test-id",
+        api_secret_key="offline-test-secret",
+        policy=policy,
+        network_enabled=True,
+        max_pages=1,
+        clock=clock,
+        authorization_session=session,
+    )
+    assert transport_calls == [plan.initial_url]
+    assert len(landed) == 1
+    snapshot = landed[0]
+    assert snapshot.trust_eligible is False
+    assert snapshot.read_verified_bytes() == raw
+
+    signing = {
+        "schema_version": 1,
+        "scope": NETWORK_ACQUISITION_ATTESTATION_SCOPE,
+        "snapshot_id": snapshot.snapshot_id,
+        "bindings": network_acquisition_attestation_bindings(snapshot),
+        "signed_at": snapshot.retrieved_at.isoformat().replace("+00:00", "Z"),
+        "key_id": authority.key_id,
+        "authority_registry_id": authority.registry_id,
+        "authorization_class": authority.authorization_class,
+    }
+    signature = _rsa_sign_for_fixture(canonical_json_bytes(signing))
+    unsigned = {**signing, "signature": signature}
+    attestation = SignedNetworkAcquisitionReceipt(
+        **signing,
+        signature=signature,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    attestation_path = tmp_path / "network-attestation.json"
+    attestation_path.write_bytes(canonical_json_bytes(attestation.as_dict()))
+    trusted = store.load_attested(
+        snapshot.root,
+        attestation_path=attestation_path,
+        authority=authority,
+        clock=TrustedClock.production(),
+    )
+    assert trusted.trust_eligible is True
+    assert trusted.read_verified_bytes() == raw
+
+    snapshot.raw_path.write_bytes(raw + b"\n")
+    with pytest.raises(IntegrityError, match="snapshot raw bytes differ from receipt"):
+        trusted.read_verified_bytes()
 
 
 def test_self_consistent_unpublished_release_is_not_accepted_evidence(tmp_path: Path) -> None:
@@ -630,6 +1579,22 @@ def test_self_consistent_unpublished_release_is_not_accepted_evidence(tmp_path: 
     numeric_poison["row_count"] = True
     with pytest.raises(ContractError, match="exact JSON integers"):
         ReleaseManifest.from_dict(numeric_poison)
+    for field in (
+        "project",
+        "dataset",
+        "source_epoch",
+        "role",
+        "quality_state",
+        "created_at",
+    ):
+        text_poison = manifest.as_dict()
+        text_poison[field] = 123
+        with pytest.raises(ContractError, match="exact JSON strings"):
+            ReleaseManifest.from_dict(text_poison)
+    file_poison = manifest.as_dict()
+    file_poison["files"][0]["path"] = 123
+    with pytest.raises(ContractError, match="exact JSON field types"):
+        ReleaseManifest.from_dict(file_poison)
     accepted_root = tmp_path / "accepted"
     accepted_root.mkdir()
     with pytest.raises(ContractError, match="escapes its approved root"):
@@ -639,6 +1604,14 @@ def test_self_consistent_unpublished_release_is_not_accepted_evidence(tmp_path: 
 def test_sha256_fields_reject_uppercase_shape_only_values() -> None:
     with pytest.raises(ContractError, match="exact lowercase SHA-256"):
         require_sha256("A" * 64, "audit.uppercase_hash")
+
+
+@pytest.mark.parametrize("value", [None, 1, True, [], object()])
+def test_parse_timestamp_rejects_non_string_inputs_as_contract_errors(
+    value: object,
+) -> None:
+    with pytest.raises(ContractError, match="must be exact ISO-8601 text"):
+        parse_timestamp(value, "audit.timestamp")  # type: ignore[arg-type]
 
 
 def test_calendar_identity_cannot_be_caller_asserted() -> None:
@@ -680,3 +1653,58 @@ def test_gate_receipts_cannot_be_built_from_caller_supplied_ids() -> None:
             trial_id="1" * 64,
             evaluation_permit_id="2" * 64,
         )
+
+
+def test_production_registry_rejects_known_fixture_authority_and_private_material_is_test_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_jwk = _external_public_jwk()
+    registry_path = tmp_path / "production-authorities.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": "US_stocks_swing_model_v2",
+                "status": "ACTIVE",
+                "authorities": [
+                    {
+                        "key_id": "RFC7515-TEST-FIXTURE-ONLY",
+                        "key_sha256": sha256_bytes(public_jwk),
+                        "authorization_class": "EXTERNAL_USER_AUTHORITY",
+                        "signature_algorithm": EXTERNAL_SIGNATURE_ALGORITHM,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        governance_module,
+        "PRODUCTION_AUTHORITY_REGISTRY_PATH",
+        registry_path,
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="prohibited test fixture material",
+    ):
+        load_external_authority(
+            registry_path,
+            key_id="RFC7515-TEST-FIXTURE-ONLY",
+            verification_key=public_jwk,
+        )
+
+    source_root = Path(__file__).parents[1] / "src"
+    for source in source_root.rglob("*.py"):
+        tree = ast.parse(
+            source.read_text(encoding="utf-8"),
+            filename=str(source),
+        )
+        assert all(
+            not (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value == _RFC7515_RSA_D
+            )
+            for node in ast.walk(tree)
+        ), f"fixture private exponent escaped tests: {source}"
