@@ -109,6 +109,12 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _load_source_config(repo_root: Path) -> dict[str, object]:
+    return json.loads(
+        (repo_root / "config" / "sources.json").read_text(encoding="utf-8")
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     supplied_argv = list(sys.argv[1:] if argv is None else argv)
     legacy_emission_alias = any(
@@ -128,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     use_nasdaq = not args.alpaca_only
     alpaca_policies = tuple(AlpacaBarsPolicy(feed=feed, asof=None) for feed in ("sip", "iex"))
     repo_root = Path(__file__).resolve().parents[3]
-    source_config = json.loads((repo_root / "config" / "sources.json").read_text(encoding="utf-8"))
+    source_config = _load_source_config(repo_root)
     acquisition_registry = NetworkAcquisitionRegistry.load(
         repo_root / "config" / "network_acquisition_registry.json",
         allowed_root=repo_root / "config",
