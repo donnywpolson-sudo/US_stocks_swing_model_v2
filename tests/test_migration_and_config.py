@@ -189,6 +189,7 @@ def test_real_migration_config_excludes_derived_and_option_branches() -> None:
     assert "pending" not in json.dumps(config["entries"]).lower()
 
 
+@pytest.mark.local_evidence
 def test_explicit_user_task_authority_binds_completed_non_alpha_copy(
     completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
 ) -> None:
@@ -241,6 +242,7 @@ def test_controlled_rebuild_authorization_revalidation_normalizes_non_object_jso
         authority.validate_file()
 
 
+@pytest.mark.local_evidence
 def test_checked_in_migration_approval_binds_completed_reviewed_capsule(
     completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
 ) -> None:
@@ -668,6 +670,7 @@ def test_long_logical_destination_uses_only_the_sealed_flat_payload_object(
     assert not (release / "payload" / relative).exists()
 
 
+@pytest.mark.local_evidence
 def test_completed_real_migration_flat_namespace_is_unique_and_windows_safe(
     completed_real_migration: tuple[MigrationApproval, CompletedMigrationRelease],
 ) -> None:

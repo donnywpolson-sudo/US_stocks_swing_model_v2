@@ -38,3 +38,6 @@ where = ["src"]
 addopts = "-ra --strict-config --strict-markers"
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+  "local_evidence: requires the ignored completed-migration capsule retained outside a fresh checkout",
+]
