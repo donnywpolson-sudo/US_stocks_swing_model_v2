@@ -167,7 +167,9 @@ def test_synthetic_hash_copy_is_dry_by_default_and_verifies_bytes(tmp_path: Path
 
 
 def test_real_migration_config_excludes_derived_and_option_branches() -> None:
-    config = load_migration_config(REPO / "config" / "migration_allowlist.json")
+    config = json.loads(
+        (REPO / "config" / "migration_allowlist.json").read_text(encoding="utf-8")
+    )
     prohibitions = set(config["global_prohibitions"])
     assert {
         "adopt_legacy_alpaca_parquet",

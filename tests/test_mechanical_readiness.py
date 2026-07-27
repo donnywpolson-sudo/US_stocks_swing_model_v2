@@ -42,7 +42,7 @@ CREATED_AT = "2026-07-15T12:30:00Z"
 
 @pytest.fixture
 def readiness_tmp() -> Iterator[Path]:
-    root = Path(tempfile.mkdtemp(prefix="smr-"))
+    root = Path(tempfile.mkdtemp(prefix="smr-")).resolve(strict=True)
     try:
         yield root
     finally:

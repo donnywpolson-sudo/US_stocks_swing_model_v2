@@ -417,6 +417,10 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
             return object()
 
     root = Path(__file__).resolve().parents[1]
+    source_config = qualification_cli._load_source_config(root)
+    source_config["snapshot_store_root"] = str(
+        root / "data" / "vault" / "qualification" / "as_received"
+    )
     registry_contract = NetworkAcquisitionRegistry.load(
         root / "config" / "network_acquisition_registry.json",
         allowed_root=root / "config",
@@ -442,6 +446,11 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
     )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
     monkeypatch.setattr(qualification_cli, "NetworkAuthorizationUseStore", UseStore)
+    monkeypatch.setattr(
+        qualification_cli,
+        "_load_source_config",
+        lambda _repo_root: source_config,
+    )
     monkeypatch.setattr(
         qualification_cli,
         "assert_authorized_network_request",
@@ -516,10 +525,20 @@ def test_attested_nasdaq_verification_is_offline_and_reports_trust(
     public_key = tmp_path / "public.jwk"
     for path in (attestation, registry, public_key):
         path.write_text("fixture", encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    source_config = qualification_cli._load_source_config(root)
+    source_config["snapshot_store_root"] = str(
+        root / "data" / "vault" / "qualification" / "as_received"
+    )
     monkeypatch.setattr(
         qualification_cli, "open_without_redirects", unexpected_network
     )
     monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
+    monkeypatch.setattr(
+        qualification_cli,
+        "_load_source_config",
+        lambda _repo_root: source_config,
+    )
     monkeypatch.setattr(
         qualification_cli,
         "load_external_authority",
