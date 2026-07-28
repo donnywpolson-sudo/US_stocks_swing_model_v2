@@ -74,15 +74,16 @@ from us_stocks_swing_model_v2.trials import (
 
 
 NOW = datetime(2026, 7, 15, 20, 0, tzinfo=timezone.utc)
+_FIREWALL_CLOCK_PERMIT = SyntheticOnlyPermit.create(
+    fixture_id="firewall-shared-clock-authority",
+    scope="TRUSTED_CLOCK_FIXED_TIME",
+)
 
 
 def _clock(at: datetime) -> TrustedClock:
     return TrustedClock.synthetic_fixed(
         at,
-        permit=SyntheticOnlyPermit.create(
-            fixture_id=f"firewall-{at.isoformat()}",
-            scope="TRUSTED_CLOCK_FIXED_TIME",
-        ),
+        permit=_FIREWALL_CLOCK_PERMIT,
     )
 
 

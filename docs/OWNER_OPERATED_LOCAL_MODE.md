@@ -23,6 +23,11 @@ make the owner's exact local action reproducible and tamper-evident. Frozen
 schema-v1 signed records are rejected by schema-v2 consumers; they are not
 migrated, relabeled, or treated as local records.
 
+Validation binds the record to the observing clock authority. Production
+records validate only with the production system-UTC clock. Synthetic records
+validate only with the same exact synthetic clock permit that created them;
+cross-mode or cross-permit validation fails closed.
+
 Production mechanical-readiness publication uses receipt schema v2. The same
 complete local integrity record is embedded in both non-authorizing milestone
 receipts and included in each receipt's content hash and accepted-release

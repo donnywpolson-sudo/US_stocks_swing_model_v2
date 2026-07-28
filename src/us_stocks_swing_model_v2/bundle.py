@@ -819,6 +819,10 @@ def load_bundle(
             metadata.sealing_authorization.recorded_at,
             "sealing_authorization.recorded_at",
         ),
+        expected_clock_mode=metadata.sealing_authorization.clock_mode,
+        expected_synthetic_permit_id=(
+            metadata.sealing_authorization.synthetic_permit_id
+        ),
     )
     _verify_artifacts(root, metadata, sealed=True)
     return metadata

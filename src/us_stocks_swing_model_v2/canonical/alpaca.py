@@ -192,7 +192,7 @@ def _accept_native_bar(
         or high < low
         or volume < 0
         or trade_count is not None and trade_count < 0
-        or vwap is not None and not math.isfinite(vwap)
+        or vwap is not None and (not math.isfinite(vwap) or vwap <= 0)
     ):
         raise ContractError("native Alpaca bar violates OHLCV invariants")
     key = (symbol, session)

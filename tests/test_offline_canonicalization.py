@@ -664,6 +664,48 @@ def test_rejected_alpaca_bar_does_not_commit_duplicate_state() -> None:
     assert seen == {("ABC", accepted[1])}
 
 
+@pytest.mark.parametrize("vwap", [0, -0.01, float("inf"), float("-inf"), float("nan")])
+def test_alpaca_vwap_requires_a_positive_finite_value(vwap: float) -> None:
+    seen: set[tuple[str, object]] = set()
+    with pytest.raises(ContractError, match="OHLCV invariants"):
+        _accept_native_bar(
+            symbol="ABC",
+            bar={
+                "t": "2026-07-13T04:00:00Z",
+                "o": 10.0,
+                "h": 11.0,
+                "l": 9.0,
+                "c": 10.5,
+                "v": 100,
+                "vw": vwap,
+            },
+            eastern=ZoneInfo("America/New_York"),
+            seen_keys=seen,
+        )
+    assert seen == set()
+
+
+@pytest.mark.parametrize("vwap", [None, 10.25])
+def test_alpaca_vwap_accepts_null_or_positive_finite_value(
+    vwap: float | None,
+) -> None:
+    accepted = _accept_native_bar(
+        symbol="ABC",
+        bar={
+            "t": "2026-07-13T04:00:00Z",
+            "o": 10.0,
+            "h": 11.0,
+            "l": 9.0,
+            "c": 10.5,
+            "v": 100,
+            "vw": vwap,
+        },
+        eastern=ZoneInfo("America/New_York"),
+        seen_keys=set(),
+    )
+    assert accepted[-1] == vwap
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
