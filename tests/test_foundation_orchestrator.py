@@ -278,7 +278,7 @@ def test_checkpoint_and_accepted_aggregate_tamper_fail_closed(
         shutil.rmtree(clean_root)
 
 
-def test_production_execution_is_disabled_and_cli_is_plan_only(
+def test_production_execution_requires_exact_one_shot_authorization(
     orchestrator_tmp: Path,
 ) -> None:
     migration = hfdl_support._completed_migration_release(orchestrator_tmp / "migration")
@@ -294,7 +294,10 @@ def test_production_execution_is_disabled_and_cli_is_plan_only(
             derived_work_root=orchestrator_tmp / "work",
             created_at=CREATED_AT,
         )
-    with pytest.raises(PermissionError, match="production foundation execution is disabled"):
+    with pytest.raises(
+        PermissionError,
+        match="production foundation execution requires the exact one-shot authorization",
+    ):
         run_stock_historical_foundation(
             migration_release_directory=migration,
             accepted_release_root=accepted,
@@ -303,8 +306,7 @@ def test_production_execution_is_disabled_and_cli_is_plan_only(
             **_execution_kwargs(orchestrator_tmp),
         )
     options = {option for action in cli_module.parser()._actions for option in action.option_strings}
-    assert "--execute" not in options
-    assert "--work-root" not in options
+    assert {"--execute", "--authorization", "--work-root"} <= options
     assert not {
         "--provider",
         "--download",

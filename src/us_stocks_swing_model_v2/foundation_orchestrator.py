@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -66,6 +67,9 @@ AGGREGATE_ROLE = "legacy_discovery_only"
 AGGREGATE_QUALITY = "LEGACY_CAVEATED"
 AGGREGATE_COMPONENT_COUNT = 11
 SYNTHETIC_EXECUTION_SCOPE = "SYNTHETIC_FOUNDATION_EXECUTION"
+PRODUCTION_REFRESH_AUTHORIZATION_CLASS = (
+    "ONE_SHOT_NON_ACTIVE_FOUNDATION_SUCCESSOR_REFRESH"
+)
 PHASES = ("migration", "calendar", "hfdl", "bridge", "aggregate")
 _ATOMIC_TEMP = re.compile(r"^\.aw\.[^.]+\.tmp$")
 _INDEX_FIELDS = {
@@ -117,6 +121,7 @@ _IMPLEMENTATION_PATHS = (
     "src/us_stocks_swing_model_v2/locking.py",
     "src/us_stocks_swing_model_v2/capabilities.py",
     "config/hfdl_historical_foundation_contract.json",
+    "config/foundation_refresh_authorization.json",
     "config/xnys_calendar_release_receipt.json",
     "config/xnys_calendar_policy.json",
     "config/environment.lock.json",
@@ -149,6 +154,7 @@ _RECEIPT_FIELDS = {
     "implementation_hash",
     "environment_hash",
     "synthetic_permit_id",
+    "production_refresh_authorization_id",
     "migration",
     "calendar",
     "hfdl",
@@ -189,6 +195,7 @@ class _PreparedInputs:
     calendar_binding: Mapping[str, Any]
     hfdl_contract: HfdlPublishContract
     synthetic_permit: SyntheticOnlyPermit | None
+    production_refresh_authorization_id: str | None
     created_at: str
     implementation_hash: str
     environment_hash: str
@@ -237,6 +244,190 @@ def _read_json(path: Path, *, canonical: bool, label: str) -> dict[str, Any]:
     return payload
 
 
+def _load_production_refresh_authorization(
+    path: Path,
+) -> tuple[dict[str, Any], str]:
+    expected = (
+        _repo_root() / "config" / "foundation_refresh_authorization.json"
+    ).resolve(strict=True)
+    candidate = Path(path)
+    if candidate.resolve(strict=True) != expected:
+        raise ContractError(
+            "production foundation refresh requires the exact checked-in authorization"
+        )
+    payload = _read_json(
+        candidate,
+        canonical=False,
+        label="production foundation refresh authorization",
+    )
+    expected_fields = {
+        "schema_version",
+        "authorization_version",
+        "authorization_class",
+        "authorization_source",
+        "authorization_text",
+        "project",
+        "authorized_base_commit",
+        "maximum_commits_after_base",
+        "migration",
+        "calendar",
+        "created_at",
+        "accepted_root",
+        "work_root",
+        "maximum_distinct_builds",
+        "idempotent_resume_same_build_allowed",
+        "prior_releases_immutable",
+        "provider_calls_allowed",
+        "model_or_wfa_allowed",
+        "legacy_paths_allowed",
+        "expected_component_count",
+        "timeout_seconds",
+        "authorization_id",
+    }
+    if set(payload) != expected_fields:
+        raise IntegrityError("production foundation refresh authorization fields differ")
+    unsigned = {
+        key: value for key, value in payload.items() if key != "authorization_id"
+    }
+    authorization_id = sha256_bytes(canonical_json_bytes(unsigned).removesuffix(b"\n"))
+    if (
+        payload["authorization_id"] != authorization_id
+        or payload["schema_version"] != 1
+        or payload["authorization_version"] != "1.0.0"
+        or payload["authorization_class"]
+        != PRODUCTION_REFRESH_AUTHORIZATION_CLASS
+        or payload["authorization_source"] != "CURRENT_THREAD_USER_MESSAGE"
+        or payload["project"] != PROJECT
+        or payload["maximum_commits_after_base"] != 1
+        or payload["maximum_distinct_builds"] != 1
+        or payload["idempotent_resume_same_build_allowed"] is not True
+        or payload["prior_releases_immutable"] is not True
+        or payload["provider_calls_allowed"] is not False
+        or payload["model_or_wfa_allowed"] is not False
+        or payload["legacy_paths_allowed"] is not False
+        or payload["expected_component_count"] != AGGREGATE_COMPONENT_COUNT
+        or payload["timeout_seconds"] != 7200
+    ):
+        raise IntegrityError("production foundation refresh authorization boundary differs")
+    if (
+        type(payload["authorized_base_commit"]) is not str
+        or re.fullmatch(r"[0-9a-f]{40}", payload["authorized_base_commit"]) is None
+    ):
+        raise ContractError(
+            "foundation_refresh_authorization.authorized_base_commit "
+            "must be an exact lowercase Git object ID"
+        )
+    return payload, authorization_id
+
+
+def _git_output(*args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=_repo_root(),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(
+            "production foundation refresh requires a valid committed Git closure"
+        ) from exc
+    return completed.stdout.strip()
+
+
+def _validate_production_refresh_authorization(
+    payload: Mapping[str, Any],
+    *,
+    prepared: _PreparedInputs,
+    migration_release_directory: Path,
+    accepted_release_root: Path,
+    derived_work_root: Path,
+) -> None:
+    root = _repo_root().resolve(strict=True)
+    if Path(_git_output("rev-parse", "--show-toplevel")).resolve(strict=True) != root:
+        raise IntegrityError("production foundation refresh Git root differs")
+    if _git_output("status", "--porcelain", "--untracked-files=no"):
+        raise IntegrityError("production foundation refresh requires a clean tracked tree")
+    base = str(payload["authorized_base_commit"])
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", base, "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(
+            "production foundation refresh HEAD is not descended from its authorized base"
+        ) from exc
+    if int(_git_output("rev-list", "--count", f"{base}..HEAD")) != int(
+        payload["maximum_commits_after_base"]
+    ):
+        raise IntegrityError(
+            "production foundation refresh commit distance differs from authorization"
+        )
+    migration = payload["migration"]
+    calendar = payload["calendar"]
+    if (
+        not isinstance(migration, Mapping)
+        or set(migration)
+        != {
+            "relative_directory",
+            "plan_id",
+            "inventory_sha256",
+            "completion_receipt_sha256",
+            "file_count",
+            "total_bytes",
+        }
+        or not isinstance(calendar, Mapping)
+        or set(calendar)
+        != {"receipt_relative_path", "receipt_id", "release_id"}
+    ):
+        raise IntegrityError("production foundation refresh input bindings differ")
+    migration_binding = _migration_binding(prepared)
+    if (
+        Path(migration_release_directory).resolve(strict=True)
+        != root.joinpath(
+            *safe_relative_path(str(migration["relative_directory"])).parts
+        )
+        or dict(migration_binding)
+        != {
+            "manifest_schema_version": MIGRATION_MANIFEST_SCHEMA_VERSION,
+            "payload_layout_version": PAYLOAD_LAYOUT_VERSION,
+            "plan_id": migration["plan_id"],
+            "inventory_sha256": migration["inventory_sha256"],
+            "completion_receipt_sha256": migration["completion_receipt_sha256"],
+            "file_count": migration["file_count"],
+            "total_bytes": migration["total_bytes"],
+        }
+    ):
+        raise IntegrityError("production foundation refresh migration binding differs")
+    receipt_path = root.joinpath(
+        *safe_relative_path(str(calendar["receipt_relative_path"])).parts
+    )
+    receipt = _read_json(receipt_path, canonical=False, label="XNYS release receipt")
+    if (
+        receipt.get("receipt_id") != calendar["receipt_id"]
+        or receipt.get("release_id") != calendar["release_id"]
+        or prepared.calendar_binding.get("receipt_id") != calendar["receipt_id"]
+        or prepared.calendar_binding.get("release", {}).get("release_id")
+        != calendar["release_id"]
+    ):
+        raise IntegrityError("production foundation refresh calendar binding differs")
+    if (
+        prepared.created_at != payload["created_at"]
+        or Path(accepted_release_root).resolve(strict=True)
+        != root.joinpath(*safe_relative_path(str(payload["accepted_root"])).parts)
+        or Path(derived_work_root).resolve(strict=False)
+        != root.joinpath(*safe_relative_path(str(payload["work_root"])).parts)
+    ):
+        raise IntegrityError("production foundation refresh output binding differs")
+
+
 def _accepted_binding(
     directory: Path,
     *,
@@ -283,11 +474,10 @@ def _production_calendar(
         or receipt["execution_authority"] is not False
         or receipt["policy_sha256"]
         != sha256_file(_repo_root() / "config" / "xnys_calendar_policy.json")
-        or receipt["code_sha256"]
-        != sha256_file(_repo_root() / "src" / "us_stocks_swing_model_v2" / "exchange_calendar.py")
         or receipt["environment_sha256"] != _environment_hash()
     ):
         raise IntegrityError("XNYS release receipt binding differs")
+    require_sha256(receipt["code_sha256"], "XNYS release receipt code_sha256")
     directory = accepted_root / "xnys_sessions" / str(receipt["release_id"])
     loaded = load_xnys_calendar_release(directory, accepted_release_root=accepted_root)
     manifest = verify_accepted_release(directory, accepted_root=accepted_root)
@@ -298,6 +488,9 @@ def _production_calendar(
         or sha256_file(directory / "provenance.json") != receipt["provenance_sha256"]
         or loaded.calendar.verification_receipt_id != receipt["verification_receipt_id"]
         or manifest.release_id != receipt["release_id"]
+        or manifest.code_hash != receipt["code_sha256"]
+        or manifest.config_hash != receipt["policy_sha256"]
+        or manifest.environment_hash != receipt["environment_sha256"]
         or manifest.row_count != receipt["session_count"]
         or manifest.event_start != receipt["first_session"]
         or manifest.event_end != receipt["last_session"]
@@ -355,6 +548,7 @@ def _prepare_inputs(
     calendar_release_directory: Path | None,
     hfdl_contract: HfdlPublishContract | None,
     hfdl_synthetic_permit: SyntheticOnlyPermit | None,
+    production_refresh_authorization_id: str | None = None,
 ) -> _PreparedInputs:
     parse_utc_z(created_at, "foundation.created_at")
     migration_path = Path(migration_release_directory)
@@ -366,6 +560,11 @@ def _prepare_inputs(
     selected.validate()
     synthetic_id = selected.synthetic_permit_id
     if synthetic_id is None:
+        if production_refresh_authorization_id is not None:
+            require_sha256(
+                production_refresh_authorization_id,
+                "foundation.production_refresh_authorization_id",
+            )
         if hfdl_synthetic_permit is not None or calendar_release_directory is not None:
             raise ContractError("production foundation cannot accept synthetic overrides")
         expected_migration_root = (
@@ -387,6 +586,10 @@ def _prepare_inputs(
         )
         permit = None
     else:
+        if production_refresh_authorization_id is not None:
+            raise ContractError(
+                "synthetic foundation cannot carry a production refresh authorization"
+            )
         if hfdl_synthetic_permit is None or calendar_release_directory is None:
             raise ContractError("synthetic foundation requires permit and calendar release")
         permit = require_synthetic_permit(
@@ -411,6 +614,7 @@ def _prepare_inputs(
         "calendar_binding": calendar_binding,
         "hfdl_contract_id": selected.contract_id,
         "synthetic_permit_id": synthetic_id,
+        "production_refresh_authorization_id": production_refresh_authorization_id,
         "created_at": created_at,
         "implementation_hash": implementation_hash,
         "environment_hash": environment_hash,
@@ -423,6 +627,7 @@ def _prepare_inputs(
         calendar_binding=calendar_binding,
         hfdl_contract=selected,
         synthetic_permit=permit,
+        production_refresh_authorization_id=production_refresh_authorization_id,
         created_at=created_at,
         implementation_hash=implementation_hash,
         environment_hash=environment_hash,
@@ -456,6 +661,9 @@ def _checkpoint_evidence(prepared: _PreparedInputs) -> dict[str, Any]:
         "contract_id": prepared.contract_id,
         "synthetic_permit_id": (
             prepared.synthetic_permit.permit_id if prepared.synthetic_permit else None
+        ),
+        "production_refresh_authorization_id": (
+            prepared.production_refresh_authorization_id
         ),
     }
 
@@ -737,6 +945,9 @@ def _aggregate_receipt(
         "synthetic_permit_id": (
             prepared.synthetic_permit.permit_id if prepared.synthetic_permit else None
         ),
+        "production_refresh_authorization_id": (
+            prepared.production_refresh_authorization_id
+        ),
         "migration": _migration_binding(prepared),
         "calendar": dict(prepared.calendar_binding),
         "hfdl": dict(hfdl_binding),
@@ -959,45 +1170,84 @@ def run_stock_historical_foundation(
     hfdl_synthetic_permit: SyntheticOnlyPermit | None = None,
     execution_synthetic_permit: SyntheticOnlyPermit | None = None,
     execution_allowed_root: Path | None = None,
+    production_refresh_authorization_path: Path | None = None,
 ) -> StockHistoricalFoundationResult:
-    """Build mechanics-only fixtures; production publication is not configured."""
+    """Build synthetic fixtures or one exact authorized production successor."""
 
-    execution_permit = require_synthetic_permit(
-        execution_synthetic_permit,
-        scope=SYNTHETIC_EXECUTION_SCOPE,
-    )
-    if execution_allowed_root is None:
-        raise ContractError(
-            "synthetic foundation execution requires an explicit allowed root"
-        )
-    execution_root = Path(execution_allowed_root)
-    if not execution_root.is_absolute():
-        raise ContractError("foundation execution allowed root must be absolute")
-    execution_root = require_contained_path(execution_root, execution_root)
-    reject_link(execution_root)
-    if hfdl_contract is None or hfdl_contract.synthetic_permit_id is None:
-        raise PermissionError(
-            "production foundation execution is disabled; use the plan-only CLI"
-        )
     accepted = Path(accepted_release_root)
     work = Path(derived_work_root)
-    prepared = _prepare_inputs(
-        migration_release_directory=migration_release_directory,
-        accepted_release_root=accepted,
-        created_at=created_at,
-        calendar_receipt_path=calendar_receipt_path,
-        calendar_release_directory=calendar_release_directory,
-        hfdl_contract=hfdl_contract,
-        hfdl_synthetic_permit=hfdl_synthetic_permit,
-    )
-    if (
-        prepared.synthetic_permit is None
-        or prepared.synthetic_permit.fixture_id != execution_permit.fixture_id
-    ):
-        raise ContractError(
-            "foundation execution and input permits must bind the same synthetic fixture"
+    production = production_refresh_authorization_path is not None
+    if production:
+        if any(
+            value is not None
+            for value in (
+                calendar_release_directory,
+                hfdl_contract,
+                hfdl_synthetic_permit,
+                execution_synthetic_permit,
+                execution_allowed_root,
+            )
+        ):
+            raise ContractError(
+                "production foundation refresh cannot accept synthetic overrides"
+            )
+        authorization, authorization_id = _load_production_refresh_authorization(
+            Path(production_refresh_authorization_path)
         )
-    execution_permit.validate(SYNTHETIC_EXECUTION_SCOPE)
+        execution_root = _repo_root().resolve(strict=True)
+        prepared = _prepare_inputs(
+            migration_release_directory=migration_release_directory,
+            accepted_release_root=accepted,
+            created_at=created_at,
+            calendar_receipt_path=calendar_receipt_path,
+            calendar_release_directory=None,
+            hfdl_contract=None,
+            hfdl_synthetic_permit=None,
+            production_refresh_authorization_id=authorization_id,
+        )
+        _validate_production_refresh_authorization(
+            authorization,
+            prepared=prepared,
+            migration_release_directory=Path(migration_release_directory),
+            accepted_release_root=accepted,
+            derived_work_root=work,
+        )
+        execution_permit = None
+    else:
+        execution_permit = require_synthetic_permit(
+            execution_synthetic_permit,
+            scope=SYNTHETIC_EXECUTION_SCOPE,
+        )
+        if execution_allowed_root is None:
+            raise ContractError(
+                "synthetic foundation execution requires an explicit allowed root"
+            )
+        execution_root = Path(execution_allowed_root)
+        if not execution_root.is_absolute():
+            raise ContractError("foundation execution allowed root must be absolute")
+        execution_root = require_contained_path(execution_root, execution_root)
+        reject_link(execution_root)
+        if hfdl_contract is None or hfdl_contract.synthetic_permit_id is None:
+            raise PermissionError(
+                "production foundation execution requires the exact one-shot authorization"
+            )
+        prepared = _prepare_inputs(
+            migration_release_directory=migration_release_directory,
+            accepted_release_root=accepted,
+            created_at=created_at,
+            calendar_receipt_path=calendar_receipt_path,
+            calendar_release_directory=calendar_release_directory,
+            hfdl_contract=hfdl_contract,
+            hfdl_synthetic_permit=hfdl_synthetic_permit,
+        )
+        if (
+            prepared.synthetic_permit is None
+            or prepared.synthetic_permit.fixture_id != execution_permit.fixture_id
+        ):
+            raise ContractError(
+                "foundation execution and input permits must bind the same synthetic fixture"
+            )
+        execution_permit.validate(SYNTHETIC_EXECUTION_SCOPE)
     for label, path, must_exist in (
         ("migration", prepared.migration.root, True),
         ("accepted", accepted, False),
@@ -1008,7 +1258,7 @@ def run_stock_historical_foundation(
             require_contained_path(path, execution_root, must_exist=must_exist)
         except ContractError as exc:
             raise ContractError(
-                f"foundation {label} path escapes the synthetic execution root"
+                f"foundation {label} path escapes the authorized execution root"
             ) from exc
     if not work.is_absolute():
         raise ContractError("foundation derived-work root must be absolute")
@@ -1057,9 +1307,16 @@ def run_stock_historical_foundation(
                 derived_work_root=work / "h",
                 created_at=prepared.created_at,
                 contract=prepared.hfdl_contract,
-                publication_synthetic_permit=SyntheticOnlyPermit.create(
-                    fixture_id=prepared.hfdl_contract.contract_id,
-                    scope=SYNTHETIC_PUBLICATION_SCOPE,
+                publication_synthetic_permit=(
+                    None
+                    if production
+                    else SyntheticOnlyPermit.create(
+                        fixture_id=prepared.hfdl_contract.contract_id,
+                        scope=SYNTHETIC_PUBLICATION_SCOPE,
+                    )
+                ),
+                production_refresh_authorization_id=(
+                    prepared.production_refresh_authorization_id
                 ),
                 publication_allowed_root=execution_root,
             )

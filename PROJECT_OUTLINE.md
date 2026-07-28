@@ -238,7 +238,9 @@ Milestone state:
    and bitemporal identity mechanics. The preserved Nasdaq snapshot is not
    qualified identity evidence pending authenticated acquisition provenance.
    Alpaca remains a guarded prospective lane. Further foundation publication
-   has no production execution path; the CLI is plan-only.
+   is plan-only by default. The exact checked-in one-shot successor-refresh
+   authorization is the only non-synthetic exception; it cannot create more
+   than one distinct non-active build or grant research or production use.
 3. **Historical research ready mechanically**: registered nested-WFA executor,
    dependence-aware statistics, costs, benchmarks, controls, finite gates, and
    sleeve/book robustness propagation are implemented and bound to

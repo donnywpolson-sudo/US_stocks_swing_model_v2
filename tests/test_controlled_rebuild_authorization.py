@@ -1,6 +1,7 @@
 import json
 import hashlib
 from pathlib import Path
+import re
 
 
 def sha256_json(value: object) -> str:
@@ -34,3 +35,39 @@ def test_controlled_rebuild_authorization_is_exact_and_non_alpha() -> None:
         "bounded_free_alpaca_qualification",
         "bounded_free_nasdaq_qualification",
     }
+
+
+def test_foundation_refresh_authorization_is_exact_one_shot_and_non_alpha() -> None:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "foundation_refresh_authorization.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    authorization_id = payload.pop("authorization_id")
+    assert sha256_json(payload) == authorization_id == (
+        "b74581430dfa30794e2712ff654303dbde0399de2624c1d4e74a75aae7b9c39c"
+    )
+    assert payload["authorization_class"] == (
+        "ONE_SHOT_NON_ACTIVE_FOUNDATION_SUCCESSOR_REFRESH"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", payload["authorized_base_commit"])
+    assert payload["maximum_distinct_builds"] == 1
+    assert payload["work_root"] == "data/w/r"
+    work = path.parents[1] / payload["work_root"]
+    worst_case = (
+        work
+        / "b"
+        / "hfdl_foundation"
+        / ("f" * 32)
+        / "stages"
+        / "hfdl_pitrading_consolidated_feature_inputs"
+        / "data"
+        / ("." + "f" * 64 + ".parquet." + "f" * 8 + ".tmp")
+    )
+    assert len(str(worst_case)) < 250
+    assert payload["idempotent_resume_same_build_allowed"] is True
+    assert payload["prior_releases_immutable"] is True
+    assert payload["provider_calls_allowed"] is False
+    assert payload["model_or_wfa_allowed"] is False
+    assert payload["legacy_paths_allowed"] is False

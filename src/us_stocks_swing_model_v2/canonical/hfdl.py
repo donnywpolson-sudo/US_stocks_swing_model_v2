@@ -89,7 +89,24 @@ class HfdlValidationResult:
         }
 
 
-def load_validated_hfdl_sidecar(sidecar_path: Path) -> dict[str, object]:
+def _parse_hfdl_created_at(
+    value: str,
+    *,
+    allow_migrated_utc_offset: bool,
+) -> datetime:
+    try:
+        return parse_utc_z(value, "created_at_utc")
+    except ContractError:
+        if allow_migrated_utc_offset and value.endswith("+00:00"):
+            return parse_utc_z(value[:-6] + "Z", "created_at_utc")
+        raise
+
+
+def load_validated_hfdl_sidecar(
+    sidecar_path: Path,
+    *,
+    _allow_migrated_utc_offset: bool = False,
+) -> dict[str, object]:
     """Load the one canonical HFDL sidecar contract.
 
     Undeclared fields are retained only as untrusted compatibility input: they
@@ -144,26 +161,37 @@ def load_validated_hfdl_sidecar(sidecar_path: Path) -> dict[str, object]:
         raise ContractError(
             "HFDL sidecar does not preserve required source limitations"
         )
-    parse_utc_z(sidecar["created_at_utc"], "created_at_utc")
+    _parse_hfdl_created_at(
+        sidecar["created_at_utc"],
+        allow_migrated_utc_offset=_allow_migrated_utc_offset,
+    )
     return sidecar
 
 
-def validate_and_tag_hfdl(parquet_path: Path, sidecar_path: Path) -> HfdlValidationResult:
+def validate_and_tag_hfdl(
+    parquet_path: Path,
+    sidecar_path: Path,
+    *,
+    _allow_migrated_utc_offset: bool = False,
+) -> HfdlValidationResult:
     parquet_file = Path(parquet_path)
     sidecar_file = Path(sidecar_path)
     for candidate in (parquet_file, sidecar_file):
         reject_link(candidate)
         if not candidate.is_file() or candidate.stat().st_nlink != 1:
             raise ContractError(f"HFDL input must be an independent plain file: {candidate}")
-    sidecar = load_validated_hfdl_sidecar(sidecar_file)
+    sidecar = load_validated_hfdl_sidecar(
+        sidecar_file,
+        _allow_migrated_utc_offset=_allow_migrated_utc_offset,
+    )
     parquet_hash = sha256_file(parquet_file)
     if sidecar["sha256"] != parquet_hash:
         raise IntegrityError("HFDL sidecar hash differs from Parquet")
     # This is when the legacy file/sidecar was produced or retrieved. It is not
     # an as-received observation time for any historical session.
-    source_retrieved_at = parse_utc_z(
+    source_retrieved_at = _parse_hfdl_created_at(
         sidecar["created_at_utc"],
-        "created_at_utc",
+        allow_migrated_utc_offset=_allow_migrated_utc_offset,
     )
     table = pq.read_table(parquet_file)
     if tuple(table.column_names) != HFDL_COLUMNS or table.schema.remove_metadata() != HFDL_NATIVE_SCHEMA:

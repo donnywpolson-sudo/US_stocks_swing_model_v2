@@ -187,6 +187,7 @@ _CODE_PATHS = (
 _CONFIG_PATHS = (
     "config/research_readiness_contract.json",
     "config/controlled_rebuild_authorization.json",
+    "config/foundation_refresh_authorization.json",
     "config/environment.lock.json",
     "requirements.lock",
     "requirements.sha256.lock",

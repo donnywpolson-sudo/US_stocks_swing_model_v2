@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "authorization_version": "1.0.0",
+  "authorization_class": "ONE_SHOT_NON_ACTIVE_FOUNDATION_SUCCESSOR_REFRESH",
+  "authorization_source": "CURRENT_THREAD_USER_MESSAGE",
+  "authorization_text": "1. Define a new one-shot authorization to rebuild the non-active foundation under the tightened contracts.\n2. Rebuild and publish successor releases without altering prior evidence.\n3. Run the full synthetic suite and the no-write readiness assessor.\n4. Publish new commit-bound readiness receipts only if everything passes.\n5. Then qualify Alpaca SIP versus IEX and obtain a fresh Nasdaq snapshot before starting registered historical discovery.",
+  "project": "US_stocks_swing_model_v2",
+  "authorized_base_commit": "e78496fadad662ebb770db1588506c28c5f17b57",
+  "maximum_commits_after_base": 1,
+  "migration": {
+    "relative_directory": "data/vault/migration_releases/479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82",
+    "plan_id": "479e3943b0eeae69d08aa078eece05ff73b20def0500b13f746646bb1534ef82",
+    "inventory_sha256": "c70b8ba01c96a0fdf9f4cd5a313a675c30b3db94ddd2ec7f52bdee0da4cc31ce",
+    "completion_receipt_sha256": "ec90af5831c443279a6fbf937712687c0de8e8dd9d3e4e74a480473d44c790de",
+    "file_count": 4911,
+    "total_bytes": 345845816
+  },
+  "calendar": {
+    "receipt_relative_path": "config/xnys_calendar_release_receipt.json",
+    "receipt_id": "8c657eb08626e2091f5084a716819e3a5b688afea2c791389844337cb65dd67e",
+    "release_id": "055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1"
+  },
+  "created_at": "2026-07-28T02:44:26Z",
+  "accepted_root": "data/vault/accepted",
+  "work_root": "data/w/r",
+  "maximum_distinct_builds": 1,
+  "idempotent_resume_same_build_allowed": true,
+  "prior_releases_immutable": true,
+  "provider_calls_allowed": false,
+  "model_or_wfa_allowed": false,
+  "legacy_paths_allowed": false,
+  "expected_component_count": 11,
+  "timeout_seconds": 7200,
+  "authorization_id": "b74581430dfa30794e2712ff654303dbde0399de2624c1d4e74a75aae7b9c39c"
+}

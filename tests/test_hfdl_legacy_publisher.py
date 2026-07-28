@@ -303,13 +303,13 @@ def _publish_fixture(
     return accepted, work, permit, result
 
 
-def test_hfdl_publication_requires_explicit_synthetic_action_before_mutation(
+def test_hfdl_publication_requires_explicit_authorization_before_mutation(
     hfdl_tmp: Path,
 ) -> None:
     release = _completed_migration_release(hfdl_tmp / "migration")
     accepted = hfdl_tmp / "accepted"
     work = hfdl_tmp / "work"
-    with pytest.raises(PermissionError, match="synthetic-only"):
+    with pytest.raises(PermissionError, match="one-shot refresh authorization"):
         publish_hfdl_legacy_discovery(
             migration_release_directory=release,
             accepted_release_root=accepted,

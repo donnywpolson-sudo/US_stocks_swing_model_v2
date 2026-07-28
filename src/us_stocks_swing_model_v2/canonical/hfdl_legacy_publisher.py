@@ -634,7 +634,10 @@ def _verify_pair_inputs(pair: HfdlInputPair) -> None:
             or sha256_file(entry.payload_path) != entry.sha256
         ):
             raise IntegrityError("verified migration HFDL pair changed during publication")
-    load_validated_hfdl_sidecar(pair.sidecar.payload_path)
+    load_validated_hfdl_sidecar(
+        pair.sidecar.payload_path,
+        _allow_migrated_utc_offset=True,
+    )
 
 
 def _capsule_receipt(path: Path, *, pair: HfdlInputPair, build_id: str) -> dict[str, Any]:
@@ -824,7 +827,11 @@ def _materialize_pair_capsule(
     pending = pairs_root / f".pending-{pair.pair_id[:12]}-{uuid.uuid4().hex[:8]}"
     pending.mkdir()
     try:
-        result = validate_and_tag_hfdl(pair.parquet.payload_path, pair.sidecar.payload_path)
+        result = validate_and_tag_hfdl(
+            pair.parquet.payload_path,
+            pair.sidecar.payload_path,
+            _allow_migrated_utc_offset=True,
+        )
         split_root = pending / "split"
         split_outputs = write_tagged_hfdl_legacy_epochs(result, split_root)
         outputs: dict[str, dict[str, object]] = {}
@@ -1281,24 +1288,80 @@ def publish_hfdl_legacy_discovery(
     created_at: str,
     contract: HfdlPublishContract | None = None,
     publication_synthetic_permit: SyntheticOnlyPermit | None = None,
+    production_refresh_authorization_id: str | None = None,
     publication_allowed_root: Path | None = None,
 ) -> HfdlPublicationResult:
-    """Publish synthetic fixture epochs without reading or writing the legacy repo."""
+    """Publish exact derived epochs without reading or writing the legacy repo."""
 
-    if contract is None or contract.synthetic_permit_id is None:
-        raise PermissionError(
-            "HFDL publication is synthetic-only; production callers may only plan"
-        )
+    if contract is None:
+        raise PermissionError("HFDL publication requires an explicit contract")
     selected_contract = contract
     selected_contract.validate()
-    publication_permit = require_synthetic_permit(
-        publication_synthetic_permit,
-        scope=SYNTHETIC_PUBLICATION_SCOPE,
-    )
-    if publication_permit.fixture_id != selected_contract.contract_id:
-        raise ContractError(
-            "HFDL publication permit is not bound to the exact synthetic contract"
+    if selected_contract.synthetic_permit_id is None:
+        if publication_synthetic_permit is not None:
+            raise ContractError(
+                "production HFDL publication cannot use a synthetic permit"
+            )
+        if production_refresh_authorization_id is None:
+            raise PermissionError(
+                "production HFDL publication requires the one-shot refresh authorization"
+            )
+        require_sha256(
+            production_refresh_authorization_id,
+            "hfdl.production_refresh_authorization_id",
         )
+        repo = Path(__file__).resolve().parents[3]
+        authorization_path = repo / "config" / "foundation_refresh_authorization.json"
+        authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+        unsigned_authorization = {
+            key: value
+            for key, value in authorization.items()
+            if key != "authorization_id"
+        }
+        authorized_work = repo.joinpath(
+            *safe_relative_path(str(authorization.get("work_root"))).parts
+        )
+        authorized_migration = repo.joinpath(
+            *safe_relative_path(
+                str(authorization.get("migration", {}).get("relative_directory"))
+            ).parts
+        )
+        authorized_accepted = repo.joinpath(
+            *safe_relative_path(str(authorization.get("accepted_root"))).parts
+        )
+        if (
+            authorization.get("authorization_id")
+            != production_refresh_authorization_id
+            or production_refresh_authorization_id
+            != sha256_bytes(
+                canonical_json_bytes(unsigned_authorization).removesuffix(b"\n")
+            )
+            or authorization.get("authorization_class")
+            != "ONE_SHOT_NON_ACTIVE_FOUNDATION_SUCCESSOR_REFRESH"
+            or authorization.get("created_at") != created_at
+            or Path(migration_release_directory).resolve(strict=True)
+            != authorized_migration.resolve(strict=True)
+            or Path(accepted_release_root).resolve(strict=True)
+            != authorized_accepted.resolve(strict=True)
+            or Path(derived_work_root).resolve(strict=False)
+            != (authorized_work / "h").resolve(strict=False)
+        ):
+            raise IntegrityError(
+                "production HFDL publication differs from the checked-in authorization"
+            )
+    else:
+        if production_refresh_authorization_id is not None:
+            raise ContractError(
+                "synthetic HFDL publication cannot use a production authorization"
+            )
+        publication_permit = require_synthetic_permit(
+            publication_synthetic_permit,
+            scope=SYNTHETIC_PUBLICATION_SCOPE,
+        )
+        if publication_permit.fixture_id != selected_contract.contract_id:
+            raise ContractError(
+                "HFDL publication permit is not bound to the exact synthetic contract"
+            )
     if publication_allowed_root is None:
         raise ContractError("HFDL publication requires an explicit allowed root")
     allowed_root = Path(publication_allowed_root)

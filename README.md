@@ -235,10 +235,15 @@ Run validation in proportion to the task. Documentation-only work needs a
 reviewed diff, consistency checks, and `git diff --check`. Ask before running
 the full `python -m pytest -q` suite unless the task already authorizes it.
 Provider and copy CLIs are dry-run/plan-only by default. Execution requires
-explicit flags and bounded scope. Foundation
-CLI operation is plan-only; its mutating mechanics are synthetic-fixture-only
-and root-bound. Free-source qualification `--plan-only` performs no filesystem
-writes. In owner-operated local mode, a download requires both
+explicit flags and bounded scope. Foundation CLI operation is plan-only by
+default. Its normal mutating mechanics are synthetic-fixture-only and
+root-bound. The sole exception is the exact checked-in one-shot non-active
+successor refresh authorization; it binds one clean committed closure, the
+completed migration capsule, pinned calendar, timestamp, roots, and idempotent
+same-build recovery while preserving all prior releases. It grants no provider,
+model, WFA, candidate, or production-use authority. Free-source qualification
+`--plan-only` performs no filesystem writes. In owner-operated local mode, a
+download requires both
 `--execute-network` and `FREE_SOURCE_QUALIFICATION_APPROVED=YES`; neither is
 accepted alone. The process-local session binds the checked network registry,
 exact URL, timeout, response limit, and page sequence. Landed bytes and

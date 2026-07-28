@@ -168,9 +168,15 @@
   content-addressed evidence, not independent authorization. Reject legacy
   schema-v1 signed records at local-record boundaries; never migrate or
   relabel them.
-- `build_historical_foundation` is plan-only. Foundation publication mechanics
-  require an explicit synthetic-only permit and exact containing fixture root;
-  there is no production publication authority.
+- `build_historical_foundation` is plan-only by default. Foundation publication
+  mechanics require an explicit synthetic-only permit and exact containing
+  fixture root, except for the exact checked-in
+  `config/foundation_refresh_authorization.json`. That authorization permits
+  one distinct non-active successor build from its bound migration capsule,
+  pinned calendar, timestamp, roots, and clean one-commit descendant of the
+  authorized base. It may resume only the same build, must preserve every prior
+  release, and grants no provider, model, WFA, candidate, or production-use
+  authority. No generic production foundation publication path exists.
 - A semantic change after an evaluation creates a new registered trial.
 - Before provider activity, copies, data builds, historical research, training,
   evaluation, prediction, report generation, or generated-artifact mutation,

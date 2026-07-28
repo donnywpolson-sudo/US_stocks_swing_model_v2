@@ -27,8 +27,16 @@
 - Outcome maturation requires bar evidence for every expected exchange session
   from entry through exit.
 - HFDL bridge source-index bounds must exactly match the verified epoch manifest.
-- Latest full local validation after the outcome/HFDL assessment fixes: 595
-  passed, 3 platform skips. Reconfirm on the merged tree.
+- The immutable migrated HFDL sidecars retain their original exact `+00:00`
+  creation-time encoding. The rebuild compatibility path normalizes that UTC
+  instant in memory only; public inputs remain `Z`-strict and source bytes are
+  never rewritten.
+- The exact checked-in one-shot foundation-refresh authorization permits only
+  one non-active successor build on the clean authorized descendant. It
+  preserves prior releases, allows idempotent resume of that same build, and
+  grants no provider, model, WFA, candidate, or production-use authority.
+- Reconfirm the full local suite on the committed successor tree before
+  publishing new commit-bound readiness receipts.
 
 ## Accepted Assurance Boundaries
 

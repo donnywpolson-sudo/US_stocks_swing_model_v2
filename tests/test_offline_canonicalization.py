@@ -183,6 +183,27 @@ def test_public_hfdl_validator_rejects_non_exact_sidecar_evidence(
         validate_and_tag_hfdl(parquet, sidecar)
 
 
+def test_migrated_hfdl_utc_offset_compatibility_preserves_source_bytes(
+    tmp_path: Path,
+) -> None:
+    parquet, sidecar = _hfdl_fixture(tmp_path)
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    payload["created_at_utc"] = "2026-07-15T00:00:00+00:00"
+    sidecar.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    before = sidecar.read_bytes()
+
+    result = validate_and_tag_hfdl(
+        parquet,
+        sidecar,
+        _allow_migrated_utc_offset=True,
+    )
+
+    assert sidecar.read_bytes() == before
+    assert result.table.column("source_retrieved_at")[0].as_py() == datetime(
+        2026, 7, 15, tzinfo=timezone.utc
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
