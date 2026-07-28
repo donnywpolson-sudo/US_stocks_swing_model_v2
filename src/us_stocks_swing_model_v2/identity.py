@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .common import (
@@ -48,6 +48,51 @@ class AlpacaAssetRecord:
     known_at: datetime
     evidence_state: str
     synthetic_permit_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AlpacaAssetProjection:
+    projection_contract_id: str
+    projection_assessment_id: str
+    snapshot_id: str
+    raw_sha256: str
+    raw_record_count: int
+    selected_rows_sha256: str
+    excluded_counts: tuple[tuple[str, int], ...]
+    records: tuple[AlpacaAssetRecord, ...]
+
+    @property
+    def selected_record_count(self) -> int:
+        return len(self.records)
+
+    @property
+    def evidence_state(self) -> str:
+        states = {record.evidence_state for record in self.records}
+        if len(states) != 1:
+            raise IntegrityError("Alpaca projection mixes evidence states")
+        return next(iter(states))
+
+    @property
+    def trust_eligible(self) -> bool:
+        return self.evidence_state == "NETWORK_AS_RECEIVED" and all(
+            not record.synthetic_permit_ids for record in self.records
+        )
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "projection_contract_id": self.projection_contract_id,
+            "projection_assessment_id": self.projection_assessment_id,
+            "snapshot_id": self.snapshot_id,
+            "raw_sha256": self.raw_sha256,
+            "raw_record_count": self.raw_record_count,
+            "selected_record_count": self.selected_record_count,
+            "selected_rows_sha256": self.selected_rows_sha256,
+            "excluded_counts": dict(self.excluded_counts),
+            "selected_duplicate_id_keys": 0,
+            "selected_duplicate_symbol_keys": 0,
+            "evidence_state": self.evidence_state,
+            "trust_eligible": self.trust_eligible,
+        }
 
 
 @dataclass(frozen=True)
@@ -300,6 +345,187 @@ def parse_alpaca_assets(snapshot: LandedSnapshot) -> tuple[AlpacaAssetRecord, ..
             )
         )
     return tuple(records)
+
+
+def project_active_us_equity_assets(
+    snapshot: LandedSnapshot,
+    *,
+    projection_contract: Mapping[str, object],
+    projection_contract_id: str,
+) -> AlpacaAssetProjection:
+    """Project current US-equity identity without mutating as-received bytes.
+
+    The legacy strict parser above remains unchanged. This projection validates
+    every provider row, audits excluded classes/statuses, and never chooses
+    between duplicate selected identities.
+    """
+
+    expected_contract = {
+        "schema_version": 1,
+        "name": "ALPACA_ACTIVE_US_EQUITY_PROJECTION",
+        "input_root": "exact_json_list",
+        "required_fields": [
+            "id",
+            "symbol",
+            "class",
+            "exchange",
+            "status",
+            "tradable",
+        ],
+        "all_row_validation": [
+            "required_fields_present",
+            "required_field_types_exact",
+            "asset_id_nonempty_not_reserved",
+            "asset_id_globally_unique",
+        ],
+        "selection": {"class": "us_equity", "status": "active"},
+        "selected_row_validation": [
+            "symbol_nonempty_exact_trimmed_uppercase",
+            "exchange_nonempty_exact_trimmed_uppercase",
+            "tradable_exact_boolean",
+            "asset_id_unique",
+            "symbol_unique",
+        ],
+        "excluded_rows": "audited_by_class_and_status_never_emitted",
+        "duplicate_policy": (
+            "never_deduplicate_fail_selected_duplicate_id_or_symbol"
+        ),
+        "output_order": "asset_id_ascending",
+    }
+    if dict(projection_contract) != expected_contract:
+        raise ContractError("Alpaca asset projection contract differs")
+    require_sha256(
+        projection_contract_id,
+        "alpaca_asset_projection.projection_contract_id",
+    )
+    if projection_contract_id != sha256_bytes(
+        canonical_json_bytes(expected_contract)
+    ):
+        raise ContractError("Alpaca asset projection contract ID differs")
+    if snapshot.source != "alpaca_assets" or snapshot.http_status != 200:
+        raise ContractError("snapshot is not a successful Alpaca asset snapshot")
+    try:
+        payload = json.loads(snapshot.read_verified_bytes())
+    except json.JSONDecodeError as exc:
+        raise ContractError("Alpaca asset snapshot is not JSON") from exc
+    if not isinstance(payload, list):
+        raise ContractError("Alpaca asset projection requires an exact JSON list")
+    required = {"id", "symbol", "class", "exchange", "status", "tradable"}
+    seen_all_ids: set[str] = set()
+    seen_selected_ids: set[str] = set()
+    seen_selected_symbols: set[str] = set()
+    excluded_counts: dict[str, int] = {}
+    selected_wire_rows: list[dict[str, object]] = []
+    records: list[AlpacaAssetRecord] = []
+    for row in payload:
+        if not isinstance(row, dict) or not required <= row.keys():
+            raise ContractError("Alpaca asset row lacks frozen fields")
+        if any(
+            type(row[name]) is not str
+            for name in ("id", "symbol", "class", "exchange", "status")
+        ) or type(row["tradable"]) is not bool:
+            raise ContractError("Alpaca asset row has invalid frozen field types")
+        asset_id = row["id"]
+        if (
+            not asset_id
+            or asset_id.startswith(UNRESOLVED_NASDAQ_ASSET_PREFIX)
+            or asset_id in seen_all_ids
+        ):
+            raise ContractError(
+                "Alpaca asset IDs must be nonempty, nonreserved, and globally unique"
+            )
+        seen_all_ids.add(asset_id)
+        selected = row["class"] == "us_equity" and row["status"] == "active"
+        if not selected:
+            audit_key = f"{row['class']}_{row['status']}"
+            excluded_counts[audit_key] = excluded_counts.get(audit_key, 0) + 1
+            continue
+        symbol = row["symbol"]
+        exchange = row["exchange"]
+        if (
+            not symbol
+            or symbol != symbol.strip().upper()
+            or not exchange
+            or exchange != exchange.strip().upper()
+        ):
+            raise ContractError(
+                "selected Alpaca symbols and exchanges must be exact uppercase text"
+            )
+        if asset_id in seen_selected_ids or symbol in seen_selected_symbols:
+            raise ContractError(
+                "selected Alpaca asset IDs and symbols must be unique; "
+                "deduplication is prohibited"
+            )
+        seen_selected_ids.add(asset_id)
+        seen_selected_symbols.add(symbol)
+        selected_wire_rows.append(
+            {
+                name: row[name]
+                for name in (
+                    "id",
+                    "symbol",
+                    "class",
+                    "exchange",
+                    "status",
+                    "tradable",
+                )
+            }
+        )
+        records.append(
+            AlpacaAssetRecord(
+                asset_id=asset_id,
+                symbol=symbol,
+                asset_class=row["class"],
+                exchange=exchange,
+                status=row["status"],
+                tradable=row["tradable"],
+                snapshot_id=snapshot.snapshot_id,
+                known_at=snapshot.retrieved_at,
+                evidence_state=(
+                    "NETWORK_AS_RECEIVED"
+                    if snapshot.trust_eligible
+                    else "SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE"
+                ),
+                synthetic_permit_ids=(
+                    ()
+                    if snapshot.synthetic_permit_id is None
+                    else (snapshot.synthetic_permit_id,)
+                ),
+            )
+        )
+    if not records:
+        raise ContractError("Alpaca asset projection selected no active US equities")
+    selected_wire_rows.sort(key=lambda row: str(row["id"]))
+    records.sort(key=lambda record: record.asset_id)
+    selected_rows_sha256 = sha256_bytes(
+        canonical_json_bytes(selected_wire_rows)
+    )
+    unsigned_assessment = {
+        "schema_version": 1,
+        "snapshot_id": snapshot.snapshot_id,
+        "raw_sha256": snapshot.raw_sha256,
+        "projection_contract_id": projection_contract_id,
+        "raw_record_count": len(payload),
+        "selected_record_count": len(records),
+        "selected_rows_sha256": selected_rows_sha256,
+        "excluded_counts": dict(sorted(excluded_counts.items())),
+        "selected_duplicate_id_keys": 0,
+        "selected_duplicate_symbol_keys": 0,
+    }
+    projection = AlpacaAssetProjection(
+        projection_contract_id=projection_contract_id,
+        projection_assessment_id=sha256_bytes(
+            canonical_json_bytes(unsigned_assessment)
+        ),
+        snapshot_id=snapshot.snapshot_id,
+        raw_sha256=snapshot.raw_sha256,
+        raw_record_count=len(payload),
+        selected_rows_sha256=selected_rows_sha256,
+        excluded_counts=tuple(sorted(excluded_counts.items())),
+        records=tuple(records),
+    )
+    projection.summary()
+    return projection
 
 
 def merge_identity_snapshot(

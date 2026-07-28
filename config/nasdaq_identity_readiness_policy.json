@@ -49,6 +49,7 @@
   },
   "authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
   "base_tree": "ebf85be7b58183afdf88b99a9a6a38d60c82feb2",
+  "alpaca_asset_projection_policy_id": "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68",
   "baseline_contract": {
     "accepted_root": "data/vault/accepted",
     "dataset": "nasdaq_bootstrap_baseline",
@@ -61,7 +62,7 @@
   },
   "identity_release_contract": {
     "dataset": "identity",
-    "source_epoch": "nasdaq_alpaca_identity_v1",
+    "source_epoch": "nasdaq_alpaca_active_us_equity_v1",
     "role": "prospective_as_received",
     "quality_state": "PASS",
     "payload_filename": "identity_snapshots.json",
@@ -87,5 +88,5 @@
   },
   "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
   "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
-  "policy_id": "09c3d8a213c60024f71c6aae13d1e1b34a3c8a6e7f8e16463eb70c9f35661be2"
+  "policy_id": "f710222c1994cdb6878371f3d14626e4c97c59f06d9126c04578db230d8fa6e1"
 }

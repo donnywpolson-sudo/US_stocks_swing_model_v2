@@ -14,6 +14,10 @@ from us_stocks_swing_model_v2.identity import (
     _load_identity_release_payload,
     merge_identity_snapshot,
     parse_alpaca_assets,
+    project_active_us_equity_assets,
+)
+from us_stocks_swing_model_v2.providers.identity_readiness import (
+    load_alpaca_asset_projection_policy,
 )
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
@@ -106,6 +110,56 @@ def _complete_snapshot(
         policy=_nasdaq_policy(),
     )
     return merge_identity_snapshot(alpaca, nasdaq)
+
+
+def _projected_snapshot(
+    store: AsReceivedSnapshotStore,
+    *,
+    retrieved_at: datetime,
+    file_time: str,
+    assets: tuple[tuple[str, str, str], ...],
+):
+    raw = json.dumps(
+        [
+            {
+                "id": asset_id,
+                "symbol": symbol,
+                "class": "us_equity",
+                "exchange": "NASDAQ",
+                "status": status,
+                "tradable": status == "active",
+            }
+            for asset_id, symbol, status in assets
+        ]
+    ).encode()
+    landed = store.land(
+        source="alpaca_assets",
+        url="https://paper-api.alpaca.markets/v2/assets",
+        http_status=200,
+        raw=raw,
+        headers={"etag": f"projected-{retrieved_at.isoformat()}"},
+        retrieved_at=retrieved_at,
+        synthetic_permit=_snapshot_permit(),
+    )
+    policy = load_alpaca_asset_projection_policy(Path(__file__).parents[1])
+    projection = project_active_us_equity_assets(
+        landed,
+        projection_contract=policy["projection_contract"],
+        projection_contract_id=policy["projection_contract_id"],
+    )
+    nasdaq = parse_nasdaq_traded(
+        store.land(
+            source="nasdaqtraded",
+            url=NASDAQ_TRADED_URL,
+            http_status=200,
+            raw=_nasdaq_bytes(("ABC",), file_time),
+            headers={"etag": f"projected-nasdaq-{retrieved_at.isoformat()}"},
+            retrieved_at=retrieved_at,
+            synthetic_permit=_snapshot_permit(),
+        ),
+        policy=_nasdaq_policy(),
+    )
+    return merge_identity_snapshot(projection.records, nasdaq)
 
 
 def _write_identity_payload(
@@ -312,6 +366,49 @@ def test_complete_snapshots_tombstone_disappearance_reuse_and_symbol_change(tmp_
     }
     assert after_change["asset-new"].symbol == "ABD"
     assert after_change["asset-new"].eligible
+
+
+def test_projection_tombstones_inactive_uuid_and_binds_symbol_reuse_causally(
+    tmp_path: Path,
+) -> None:
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    first = _projected_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 15, 18, 0, tzinfo=timezone.utc),
+        file_time="0715202613:00",
+        assets=(("asset-old", "ABC", "active"),),
+    )
+    reused = _projected_snapshot(
+        store,
+        retrieved_at=datetime(2026, 7, 16, 19, 0, tzinfo=timezone.utc),
+        file_time="0716202613:00",
+        assets=(
+            ("asset-old", "ABC", "inactive"),
+            ("asset-new", "ABC", "active"),
+        ),
+    )
+    assert reused.effective_at == datetime(
+        2026, 7, 16, 19, 0, tzinfo=timezone.utc
+    )
+    assert reused.effective_at > reused.nasdaq_file_created_at
+    current_row = next(row for row in reused.rows if row.symbol == "ABC")
+    assert current_row.asset_id == "asset-new"
+    assert current_row.eligible
+
+    ledger = _identity_ledger()
+    ledger.append_snapshot(first)
+    ledger.append_snapshot(reused)
+    current = {
+        row.asset_id: row
+        for row in ledger.visible_as_of(
+            effective_as_of=reused.effective_at,
+            known_as_of=reused.known_at,
+        )
+    }
+    assert not current["asset-old"].membership_present
+    assert not current["asset-old"].eligible
+    assert current["asset-new"].membership_present
+    assert current["asset-new"].eligible
 
 
 def test_later_observed_alpaca_state_is_not_backdated_to_nasdaq_file_time(

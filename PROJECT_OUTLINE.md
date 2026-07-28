@@ -191,7 +191,7 @@ permission to rerun or rescue a retired hypothesis.
 | HF Data Library | `legacy_discovery` only, physically separated into pre-2022-03-04 PiTrading-consolidated and later IEX-only epochs |
 | Existing Alpaca SIP capsule and probe | Failed source-qualification evidence only; never an active feed |
 | Alpaca Basic bars | Guarded prospective OHLCV lane; SIP and IEX passed the bounded comparison, but no feed is selected or active |
-| Alpaca assets | Guarded plan-only identity supplement; capture requires its own exact approval |
+| Alpaca assets | One immutable mixed asset snapshot is preserved; the frozen offline projection selects 14,096 active US equities from 33,379 raw rows, audits exclusions, and fails selected duplicates; no identity release or activation exists |
 | Nasdaq Trader | Fresh snapshots A and B produced the published non-active 13,064 continuity baseline; a strictly newer capture, offline join, accepted identity release, and activation remain separate gates |
 | Alpha Vantage | Excluded |
 | Options data | Excluded from model inputs, outputs, training, evaluation, and validation |
@@ -240,9 +240,10 @@ Milestone state:
    qualified identity evidence. Two fresh captures passed the bootstrap without
    a normal-parser bypass, and their non-active continuity-baseline receipt was
    published without relabeling the preserved historical receipt. Guarded
-   plan-only tooling now requires a newer Nasdaq snapshot, a separately captured
-   Alpaca asset snapshot, and an offline merged-identity pass before it can emit
-   a publication plan. Identity release publication and activation remain later
+   plan-only tooling now uses the separately captured Alpaca asset snapshot only
+   through a hash-bound active-US-equity projection, and still requires a newer
+   Nasdaq snapshot plus an offline merged-identity pass before it can emit a
+   publication plan. Identity release publication and activation remain later
    independent gates. Further foundation publication
    is plan-only by default. The exact checked-in one-shot successor-refresh
    authorization is the only non-synthetic exception; it cannot create more

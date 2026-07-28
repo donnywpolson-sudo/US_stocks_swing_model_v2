@@ -158,6 +158,26 @@ request plan ID, `FREE_SOURCE_QUALIFICATION_APPROVED=YES`, credentials supplied
 only through the process environment, and production system UTC. Credentials
 are never included in the request plan, snapshot, output, or logs.
 
+The captured `/v2/assets` response remains immutable and unfiltered. Identity
+readiness applies the frozen
+`config/alpaca_asset_projection_policy.json` contract offline: validate every
+raw row, select only `class=us_equity` and `status=active`, audit every excluded
+class/status, and fail rather than deduplicate a selected asset ID or symbol.
+The legacy strict parser API remains available for its existing callers. The
+approved source epoch for any later release is
+`nasdaq_alpaca_active_us_equity_v1`.
+
+One landed snapshot can be reverified without network access or writes:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_identity_sources `
+  --verify-alpaca-assets <alpaca-assets-snapshot>
+```
+
+The output binds the raw snapshot hash, projection contract and assessment IDs,
+raw and selected counts, selected-row hash, and exclusion counts. It neither
+publishes an identity release nor activates a source.
+
 After both captures exist, the join assessment is offline and no-write:
 
 ```powershell

@@ -10,6 +10,7 @@ from ..providers.identity_readiness import (
     assess_identity_inputs,
     build_alpaca_assets_request_plan,
     guarded_capture_alpaca_assets,
+    verify_alpaca_asset_snapshot,
 )
 from ..providers.snapshots import AsReceivedSnapshotStore, NetworkAcquisitionRegistry
 
@@ -38,6 +39,12 @@ def parser() -> argparse.ArgumentParser:
         metavar=("ALPACA_ASSET_SNAPSHOT", "NASDAQ_SNAPSHOT"),
         help="offline assessment of two already-landed source snapshots",
     )
+    mode.add_argument(
+        "--verify-alpaca-assets",
+        type=Path,
+        metavar="ALPACA_ASSET_SNAPSHOT",
+        help="offline integrity and frozen-projection verification of one snapshot",
+    )
     value.add_argument(
         "--approved-plan-id",
         help="exact Alpaca asset request plan ID required by --execute-network",
@@ -48,6 +55,26 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     root = _repo_root()
+    if args.verify_alpaca_assets is not None:
+        projection = verify_alpaca_asset_snapshot(
+            snapshot_directory=args.verify_alpaca_assets,
+            repo_root=root,
+        )
+        print(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "mode": "OFFLINE_ALPACA_ASSET_PROJECTION_VERIFICATION_NO_WRITES",
+                    "projection": projection.summary(),
+                    "network_calls": 0,
+                    "identity_release_publication": False,
+                    "source_activation": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
     if args.assess_pair is not None:
         assessment = assess_identity_inputs(
             alpaca_snapshot_directory=args.assess_pair[0],

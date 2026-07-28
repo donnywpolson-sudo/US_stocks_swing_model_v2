@@ -98,7 +98,7 @@ and API.
 | Existing HF Data Library parquet | Historical discovery input only, split into separate PiTrading and IEX epochs; non-PIT |
 | Existing 780-symbol Alpaca SIP capsule and 30-symbol probe | Failed qualification evidence only; native/checkpoint/snapshot/audit evidence may migrate, while derived Parquet must be regenerated |
 | Alpaca Basic bars | Guarded prospective candidate lane; SIP and IEX passed the bounded comparison, but no feed is selected or active |
-| Alpaca assets | Guarded plan-only prospective identity supplement; no asset snapshot has been captured or activated |
+| Alpaca assets | One immutable mixed asset snapshot is preserved; its hash-bound offline projection selects 14,096 active US equities from 33,379 raw rows without deduplication; no identity release or activation exists |
 | Nasdaq Trader symbol directory | Fresh snapshots A and B established a published, non-active continuity baseline of 13,064; a strictly newer capture, offline Alpaca join, identity release, and activation remain separately gated |
 | Alpha Vantage | Excluded |
 | Options data | Excluded from model inputs, outputs, research, and validation |

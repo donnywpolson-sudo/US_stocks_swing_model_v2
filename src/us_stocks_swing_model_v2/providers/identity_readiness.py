@@ -22,7 +22,12 @@ from ..common import (
 )
 from ..environment import validate_environment_lock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
-from ..identity import IdentitySnapshot, merge_identity_snapshot, parse_alpaca_assets
+from ..identity import (
+    AlpacaAssetProjection,
+    IdentitySnapshot,
+    merge_identity_snapshot,
+    project_active_us_equity_assets,
+)
 from .alpaca import AUTH_ENVIRONMENT_TOKEN
 from .http import open_without_redirects
 from .nasdaq import NasdaqCompletenessPolicy, parse_nasdaq_traded
@@ -44,6 +49,9 @@ from .snapshots import (
 
 PROJECT = "US_stocks_swing_model_v2"
 POLICY_PATH = Path("config/nasdaq_identity_readiness_policy.json")
+ALPACA_ASSET_PROJECTION_POLICY_PATH = Path(
+    "config/alpaca_asset_projection_policy.json"
+)
 ALPACA_ASSETS_URL = "https://paper-api.alpaca.markets/v2/assets"
 ALPACA_ASSETS_SOURCE = "alpaca_assets"
 ALPACA_ASSETS_MAX_BYTES = 32 * 1024 * 1024
@@ -76,6 +84,7 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         "authorization_plan_id",
         "base_tree",
         "baseline_contract",
+        "alpaca_asset_projection_policy_id",
         "identity_release_contract",
         "execution_contract",
         "environment_id",
@@ -137,7 +146,7 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
     release = policy["identity_release_contract"]
     if release != {
         "dataset": "identity",
-        "source_epoch": "nasdaq_alpaca_identity_v1",
+        "source_epoch": "nasdaq_alpaca_active_us_equity_v1",
         "role": "prospective_as_received",
         "quality_state": "PASS",
         "payload_filename": "identity_snapshots.json",
@@ -166,6 +175,69 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         raise ContractError("identity readiness execution boundary differs")
 
 
+def load_alpaca_asset_projection_policy(
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    root = Path(repo_root or _repo_root()).resolve(strict=True)
+    path = root / ALPACA_ASSET_PROJECTION_POLICY_PATH
+    require_contained_path(path, root)
+    policy = _json_object(path, label="Alpaca asset projection policy")
+    if set(policy) != {
+        "schema_version",
+        "project",
+        "projection_contract",
+        "projection_contract_id",
+        "reviewed_evidence",
+        "implementation_plan_id",
+        "policy_file_id",
+    }:
+        raise ContractError("Alpaca asset projection policy fields differ")
+    if (
+        type(policy["schema_version"]) is not int
+        or policy["schema_version"] != 1
+        or policy["project"] != PROJECT
+        or policy["implementation_plan_id"]
+        != "dbb5232245c3a931a6db2376431e644960bdf64361ef7010c98e5292c01edb5c"
+    ):
+        raise ContractError("Alpaca asset projection policy identity differs")
+    for name in (
+        "projection_contract_id",
+        "implementation_plan_id",
+        "policy_file_id",
+    ):
+        require_sha256(policy[name], f"Alpaca projection policy {name}")
+    if (
+        policy["projection_contract_id"]
+        != "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68"
+        or policy["projection_contract_id"]
+        != sha256_bytes(canonical_json_bytes(policy["projection_contract"]))
+    ):
+        raise ContractError("Alpaca asset projection contract ID differs")
+    reviewed = policy["reviewed_evidence"]
+    if reviewed != {
+        "snapshot_id": "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a",
+        "raw_sha256": "72f81af8eebd337bec1466ea28dcc0c67142be272d714d60f4ddebf4aabc3657",
+        "retrieved_at": "2026-07-28T12:32:14.716418Z",
+        "raw_record_count": 33379,
+        "selected_record_count": 14096,
+        "selected_rows_sha256": "38edf565af6808d789e87abc385e2f526f0f7d416af262ae7306827c4fcc6f96",
+        "excluded_counts": {
+            "crypto_active": 73,
+            "us_equity_inactive": 19210,
+        },
+        "selected_duplicate_id_keys": 0,
+        "selected_duplicate_symbol_keys": 0,
+        "projection_assessment_id": "0c6469bd91e8316e16827ef38c1ee160f04942de6da210c724e6a323313d2eb3",
+    }:
+        raise ContractError("reviewed Alpaca projection evidence differs")
+    unsigned = {
+        key: value for key, value in policy.items() if key != "policy_file_id"
+    }
+    if policy["policy_file_id"] != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise ContractError("Alpaca asset projection policy file ID differs")
+    return policy
+
+
 def load_identity_readiness_policy(
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
@@ -188,6 +260,12 @@ def load_identity_readiness_policy(
         != policy["environment_id"]
     ):
         raise ContractError("identity readiness environment differs")
+    projection_policy = load_alpaca_asset_projection_policy(root)
+    if (
+        projection_policy["projection_contract_id"]
+        != policy["alpaca_asset_projection_policy_id"]
+    ):
+        raise ContractError("identity readiness projection policy differs")
     return policy
 
 
@@ -384,8 +462,13 @@ def guarded_capture_alpaca_assets(
         clock=trusted_clock,
         max_bytes=ALPACA_ASSETS_MAX_BYTES,
     )
-    records = parse_alpaca_assets(snapshot)
-    if not records or not snapshot.trust_eligible:
+    projection_policy = load_alpaca_asset_projection_policy(root)
+    projection = project_active_us_equity_assets(
+        snapshot,
+        projection_contract=projection_policy["projection_contract"],
+        projection_contract_id=projection_policy["projection_contract_id"],
+    )
+    if not projection.records or not projection.trust_eligible:
         raise IntegrityError("Alpaca asset capture is empty or not trust eligible")
     return snapshot
 
@@ -398,6 +481,11 @@ class IdentityInputAssessment:
     alpaca_raw_sha256: str
     alpaca_receipt_sha256: str
     alpaca_record_count: int
+    alpaca_raw_record_count: int
+    alpaca_projection_contract_id: str
+    alpaca_projection_assessment_id: str
+    alpaca_selected_rows_sha256: str
+    alpaca_excluded_counts: tuple[tuple[str, int], ...]
     nasdaq_snapshot_id: str
     nasdaq_raw_sha256: str
     nasdaq_receipt_sha256: str
@@ -420,6 +508,13 @@ class IdentityInputAssessment:
             "alpaca_raw_sha256": self.alpaca_raw_sha256,
             "alpaca_receipt_sha256": self.alpaca_receipt_sha256,
             "alpaca_record_count": self.alpaca_record_count,
+            "alpaca_raw_record_count": self.alpaca_raw_record_count,
+            "alpaca_projection_contract_id": self.alpaca_projection_contract_id,
+            "alpaca_projection_assessment_id": (
+                self.alpaca_projection_assessment_id
+            ),
+            "alpaca_selected_rows_sha256": self.alpaca_selected_rows_sha256,
+            "alpaca_excluded_counts": dict(self.alpaca_excluded_counts),
             "nasdaq_snapshot_id": self.nasdaq_snapshot_id,
             "nasdaq_raw_sha256": self.nasdaq_raw_sha256,
             "nasdaq_receipt_sha256": self.nasdaq_receipt_sha256,
@@ -440,6 +535,7 @@ def _assess_loaded_inputs(
     nasdaq_snapshot: LandedSnapshot,
     baseline: TrustedNasdaqBaseline,
     nasdaq_policy: NasdaqCompletenessPolicy | None,
+    alpaca_projection_policy: Mapping[str, Any],
     require_production: bool,
 ) -> IdentityInputAssessment:
     if (
@@ -460,7 +556,14 @@ def _assess_loaded_inputs(
         or nasdaq_snapshot.retrieved_at <= baseline.retrieved_at
     ):
         raise ContractError("Nasdaq identity snapshot is not newer than snapshot B")
-    assets = parse_alpaca_assets(alpaca_snapshot)
+    projection = project_active_us_equity_assets(
+        alpaca_snapshot,
+        projection_contract=alpaca_projection_policy["projection_contract"],
+        projection_contract_id=alpaca_projection_policy[
+            "projection_contract_id"
+        ],
+    )
+    assets = projection.records
     listings = parse_nasdaq_traded(
         nasdaq_snapshot,
         policy=nasdaq_policy,
@@ -484,6 +587,11 @@ def _assess_loaded_inputs(
         "alpaca_raw_sha256": alpaca_snapshot.raw_sha256,
         "alpaca_receipt_sha256": sha256_file(alpaca_snapshot.root / "receipt.json"),
         "alpaca_record_count": len(assets),
+        "alpaca_raw_record_count": projection.raw_record_count,
+        "alpaca_projection_contract_id": projection.projection_contract_id,
+        "alpaca_projection_assessment_id": projection.projection_assessment_id,
+        "alpaca_selected_rows_sha256": projection.selected_rows_sha256,
+        "alpaca_excluded_counts": dict(projection.excluded_counts),
         "nasdaq_snapshot_id": nasdaq_snapshot.snapshot_id,
         "nasdaq_raw_sha256": nasdaq_snapshot.raw_sha256,
         "nasdaq_receipt_sha256": sha256_file(nasdaq_snapshot.root / "receipt.json"),
@@ -501,6 +609,11 @@ def _assess_loaded_inputs(
         alpaca_raw_sha256=alpaca_snapshot.raw_sha256,
         alpaca_receipt_sha256=unsigned["alpaca_receipt_sha256"],
         alpaca_record_count=len(assets),
+        alpaca_raw_record_count=projection.raw_record_count,
+        alpaca_projection_contract_id=projection.projection_contract_id,
+        alpaca_projection_assessment_id=projection.projection_assessment_id,
+        alpaca_selected_rows_sha256=projection.selected_rows_sha256,
+        alpaca_excluded_counts=projection.excluded_counts,
         nasdaq_snapshot_id=nasdaq_snapshot.snapshot_id,
         nasdaq_raw_sha256=nasdaq_snapshot.raw_sha256,
         nasdaq_receipt_sha256=unsigned["nasdaq_receipt_sha256"],
@@ -561,5 +674,57 @@ def assess_identity_inputs(
         nasdaq_snapshot=nasdaq,
         baseline=baseline,
         nasdaq_policy=None,
+        alpaca_projection_policy=load_alpaca_asset_projection_policy(root),
         require_production=True,
     )
+
+
+def verify_alpaca_asset_snapshot(
+    *,
+    snapshot_directory: Path,
+    repo_root: Path | None = None,
+) -> AlpacaAssetProjection:
+    """Reverify one landed snapshot and its projection without writes."""
+
+    root = Path(repo_root or _repo_root()).resolve(strict=True)
+    source_config = _json_object(
+        root / "config" / "sources.json",
+        label="source configuration",
+    )
+    expected_store = root / "data" / "vault" / "qualification" / "as_received"
+    if (
+        source_config.get("project") != PROJECT
+        or Path(str(source_config.get("snapshot_store_root"))) != expected_store
+    ):
+        raise ContractError("identity snapshot store differs from source configuration")
+    registry = NetworkAcquisitionRegistry.load(
+        root / "config" / "network_acquisition_registry.json",
+        allowed_root=root / "config",
+    )
+    store = AsReceivedSnapshotStore(
+        expected_store,
+        allowed_root=root,
+        acquisition_registry=registry,
+    )
+    snapshot = store.load(Path(snapshot_directory))
+    if not snapshot.local_integrity_verified:
+        raise ContractError("Alpaca asset snapshot is not locally integrity verified")
+    policy = load_alpaca_asset_projection_policy(root)
+    projection = project_active_us_equity_assets(
+        snapshot,
+        projection_contract=policy["projection_contract"],
+        projection_contract_id=policy["projection_contract_id"],
+    )
+    reviewed = policy["reviewed_evidence"]
+    if snapshot.snapshot_id == reviewed["snapshot_id"] and (
+        snapshot.raw_sha256 != reviewed["raw_sha256"]
+        or iso_z(snapshot.retrieved_at) != reviewed["retrieved_at"]
+        or projection.raw_record_count != reviewed["raw_record_count"]
+        or projection.selected_record_count != reviewed["selected_record_count"]
+        or projection.selected_rows_sha256 != reviewed["selected_rows_sha256"]
+        or dict(projection.excluded_counts) != reviewed["excluded_counts"]
+        or projection.projection_assessment_id
+        != reviewed["projection_assessment_id"]
+    ):
+        raise IntegrityError("reviewed Alpaca asset projection differs")
+    return projection

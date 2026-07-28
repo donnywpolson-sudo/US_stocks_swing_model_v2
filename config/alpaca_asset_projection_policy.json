@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "projection_contract": {
+    "schema_version": 1,
+    "name": "ALPACA_ACTIVE_US_EQUITY_PROJECTION",
+    "input_root": "exact_json_list",
+    "required_fields": [
+      "id",
+      "symbol",
+      "class",
+      "exchange",
+      "status",
+      "tradable"
+    ],
+    "all_row_validation": [
+      "required_fields_present",
+      "required_field_types_exact",
+      "asset_id_nonempty_not_reserved",
+      "asset_id_globally_unique"
+    ],
+    "selection": {
+      "class": "us_equity",
+      "status": "active"
+    },
+    "selected_row_validation": [
+      "symbol_nonempty_exact_trimmed_uppercase",
+      "exchange_nonempty_exact_trimmed_uppercase",
+      "tradable_exact_boolean",
+      "asset_id_unique",
+      "symbol_unique"
+    ],
+    "excluded_rows": "audited_by_class_and_status_never_emitted",
+    "duplicate_policy": "never_deduplicate_fail_selected_duplicate_id_or_symbol",
+    "output_order": "asset_id_ascending"
+  },
+  "projection_contract_id": "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68",
+  "reviewed_evidence": {
+    "snapshot_id": "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a",
+    "raw_sha256": "72f81af8eebd337bec1466ea28dcc0c67142be272d714d60f4ddebf4aabc3657",
+    "retrieved_at": "2026-07-28T12:32:14.716418Z",
+    "raw_record_count": 33379,
+    "selected_record_count": 14096,
+    "selected_rows_sha256": "38edf565af6808d789e87abc385e2f526f0f7d416af262ae7306827c4fcc6f96",
+    "excluded_counts": {
+      "crypto_active": 73,
+      "us_equity_inactive": 19210
+    },
+    "selected_duplicate_id_keys": 0,
+    "selected_duplicate_symbol_keys": 0,
+    "projection_assessment_id": "0c6469bd91e8316e16827ef38c1ee160f04942de6da210c724e6a323313d2eb3"
+  },
+  "implementation_plan_id": "dbb5232245c3a931a6db2376431e644960bdf64361ef7010c98e5292c01edb5c",
+  "policy_file_id": "0b77b305fa36052b80c16c8c79e069333697d513c5b81cc07d25a8645b279190"
+}

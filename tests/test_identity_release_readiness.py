@@ -11,6 +11,10 @@ from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
 from us_stocks_swing_model_v2.common import canonical_json_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError, NetworkGuardError
+from us_stocks_swing_model_v2.identity import (
+    parse_alpaca_assets,
+    project_active_us_equity_assets,
+)
 from us_stocks_swing_model_v2.providers.identity_publisher import (
     PRODUCTION_STATUS,
     SYNTHETIC_STATUS,
@@ -27,6 +31,7 @@ from us_stocks_swing_model_v2.providers.identity_readiness import (
     _assess_loaded_inputs,
     build_alpaca_assets_request_plan,
     guarded_capture_alpaca_assets,
+    load_alpaca_asset_projection_policy,
     load_identity_readiness_policy,
 )
 from us_stocks_swing_model_v2.providers.nasdaq import (
@@ -45,6 +50,10 @@ BASELINE_FILE_TIME = datetime(2026, 7, 28, 11, 1, tzinfo=timezone.utc)
 
 def _permit(fixture: str, scope: str = "SYNTHETIC_AS_RECEIVED_SNAPSHOT"):
     return SyntheticOnlyPermit.create(fixture_id=fixture, scope=scope)
+
+
+def _projection_policy():
+    return load_alpaca_asset_projection_policy(REPO)
 
 
 def _baseline() -> TrustedNasdaqBaseline:
@@ -106,6 +115,7 @@ def _assessment(tmp_path: Path) -> IdentityInputAssessment:
         nasdaq_snapshot=nasdaq,
         baseline=_baseline(),
         nasdaq_policy=completeness,
+        alpaca_projection_policy=_projection_policy(),
         require_production=False,
     )
 
@@ -127,6 +137,105 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
     assert policy["execution_contract"]["activation"] is False
     assert policy["execution_contract"]["source_config_mutations"] == 0
     assert policy["identity_release_contract"]["role"] == "prospective_as_received"
+    assert (
+        policy["identity_release_contract"]["source_epoch"]
+        == "nasdaq_alpaca_active_us_equity_v1"
+    )
+    assert (
+        policy["alpaca_asset_projection_policy_id"]
+        == "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68"
+    )
+
+
+def test_projection_filters_mixed_assets_without_changing_legacy_parser(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {
+            "id": "asset-active",
+            "symbol": "AAA",
+            "class": "us_equity",
+            "exchange": "NASDAQ",
+            "status": "active",
+            "tradable": True,
+        },
+        {
+            "id": "asset-inactive",
+            "symbol": "DUP",
+            "class": "us_equity",
+            "exchange": "NASDAQ",
+            "status": "inactive",
+            "tradable": False,
+        },
+        {
+            "id": "crypto-active",
+            "symbol": "DUP",
+            "class": "crypto",
+            "exchange": "CRYPTO",
+            "status": "active",
+            "tradable": True,
+        },
+    ]
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    snapshot = store.land(
+        source=ALPACA_ASSETS_SOURCE,
+        url=ALPACA_ASSETS_URL,
+        http_status=200,
+        raw=json.dumps(rows).encode(),
+        headers={"etag": "mixed-assets"},
+        retrieved_at=datetime(2026, 7, 29, 15, 0, tzinfo=timezone.utc),
+        synthetic_permit=_permit("mixed-assets"),
+    )
+    with pytest.raises(
+        ContractError,
+        match="well-formed US equity|unique per snapshot",
+    ):
+        parse_alpaca_assets(snapshot)
+    policy = _projection_policy()
+    projected = project_active_us_equity_assets(
+        snapshot,
+        projection_contract=policy["projection_contract"],
+        projection_contract_id=policy["projection_contract_id"],
+    )
+    assert [row.asset_id for row in projected.records] == ["asset-active"]
+    assert dict(projected.excluded_counts) == {
+        "crypto_active": 1,
+        "us_equity_inactive": 1,
+    }
+    assert projected.raw_record_count == 3
+
+
+def test_projection_never_silently_deduplicates_selected_symbols(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {
+            "id": f"asset-{index}",
+            "symbol": "DUP",
+            "class": "us_equity",
+            "exchange": "NASDAQ",
+            "status": "active",
+            "tradable": True,
+        }
+        for index in range(2)
+    ]
+    store = AsReceivedSnapshotStore(tmp_path / "snapshots", allowed_root=tmp_path)
+    snapshot = store.land(
+        source=ALPACA_ASSETS_SOURCE,
+        url=ALPACA_ASSETS_URL,
+        http_status=200,
+        raw=json.dumps(rows).encode(),
+        headers={"etag": "duplicate-assets"},
+        retrieved_at=datetime(2026, 7, 29, 15, 0, tzinfo=timezone.utc),
+        synthetic_permit=_permit("duplicate-assets"),
+    )
+    policy = _projection_policy()
+    with pytest.raises(ContractError, match="deduplication is prohibited"):
+        project_active_us_equity_assets(
+            snapshot,
+            projection_contract=policy["projection_contract"],
+            projection_contract_id=policy["projection_contract_id"],
+        )
 
 
 def test_alpaca_asset_request_is_one_page_bounded_and_plan_only() -> None:
@@ -181,6 +290,7 @@ def test_offline_join_requires_both_inputs_strictly_newer_than_baseline(
             nasdaq_policy=NasdaqCompletenessPolicy.synthetic_fixture(
                 permit=_permit("stale-policy", "NASDAQ_COMPLETENESS_FIXTURE")
             ),
+            alpaca_projection_policy=_projection_policy(),
             require_production=False,
         )
 
@@ -225,6 +335,16 @@ def test_synthetic_identity_publication_is_atomic_idempotent_and_non_active(
     assert receipt["authorities"]["identity_release_publication"] is False
     assert receipt["authorities"]["source_activation"] is False
     assert receipt["authorities"]["network_calls"] is False
+    assert (
+        receipt["alpaca_projection_contract_id"]
+        == assessment.alpaca_projection_contract_id
+    )
+    assert (
+        receipt["alpaca_projection_assessment_id"]
+        == assessment.alpaca_projection_assessment_id
+    )
+    assert receipt["alpaca_selected_record_count"] == assessment.alpaca_record_count
+    assert receipt["alpaca_raw_record_count"] == assessment.alpaca_raw_record_count
 
 
 def test_identity_release_verifier_rejects_payload_mutation(tmp_path: Path) -> None:

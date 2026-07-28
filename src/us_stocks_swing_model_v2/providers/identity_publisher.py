@@ -47,7 +47,7 @@ PUBLICATION_SCOPE = "NASDAQ_ALPACA_IDENTITY_RELEASE_PUBLICATION"
 FIXTURE_SCOPE = "IDENTITY_RELEASE_PUBLICATION_FIXTURE"
 DATASET = "identity"
 FIXTURE_DATASET = "identity_publication_fixture"
-SOURCE_EPOCH = "nasdaq_alpaca_identity_v1"
+SOURCE_EPOCH = "nasdaq_alpaca_active_us_equity_v1"
 ROLE = "prospective_as_received"
 FIXTURE_ROLE = "qualification_evidence_only"
 QUALITY_STATE = "PASS"
@@ -77,6 +77,12 @@ RECEIPT_FIELDS = {
     "baseline",
     "input_assessment_id",
     "alpaca_snapshot_id",
+    "alpaca_projection_contract_id",
+    "alpaca_projection_assessment_id",
+    "alpaca_raw_record_count",
+    "alpaca_selected_record_count",
+    "alpaca_selected_rows_sha256",
+    "alpaca_excluded_counts",
     "nasdaq_snapshot_id",
     "identity_snapshot_id",
     "identity_row_count",
@@ -102,6 +108,7 @@ CODE_CLOSURE_PATHS = (
     "src/us_stocks_swing_model_v2/releases.py",
 )
 CONFIG_CLOSURE_PATHS = (
+    "config/alpaca_asset_projection_policy.json",
     "config/environment.lock.json",
     "config/nasdaq_identity_readiness_policy.json",
     "config/network_acquisition_registry.json",
@@ -225,6 +232,13 @@ def _plan_from_context(
         "alpaca_raw_sha256": assessment.alpaca_raw_sha256,
         "alpaca_receipt_sha256": assessment.alpaca_receipt_sha256,
         "alpaca_record_count": assessment.alpaca_record_count,
+        "alpaca_raw_record_count": assessment.alpaca_raw_record_count,
+        "alpaca_projection_contract_id": assessment.alpaca_projection_contract_id,
+        "alpaca_projection_assessment_id": (
+            assessment.alpaca_projection_assessment_id
+        ),
+        "alpaca_selected_rows_sha256": assessment.alpaca_selected_rows_sha256,
+        "alpaca_excluded_counts": dict(assessment.alpaca_excluded_counts),
         "nasdaq_snapshot_id": assessment.nasdaq_snapshot_id,
         "nasdaq_raw_sha256": assessment.nasdaq_raw_sha256,
         "nasdaq_receipt_sha256": assessment.nasdaq_receipt_sha256,
@@ -308,6 +322,10 @@ def build_identity_release_publication_plan(
 def _authorization_bindings(plan: Mapping[str, Any]) -> dict[str, str]:
     return {
         "accepted_root": str(plan["accepted_root"]),
+        "alpaca_projection_assessment_id": str(
+            plan["alpaca_projection_assessment_id"]
+        ),
+        "alpaca_projection_contract_id": str(plan["alpaca_projection_contract_id"]),
         "alpaca_snapshot_id": str(plan["alpaca_snapshot_id"]),
         "baseline_release_id": str(plan["baseline_release_id"]),
         "dataset": str(plan["dataset"]),
@@ -388,6 +406,14 @@ def _publication_receipt(
         },
         "input_assessment_id": plan["input_assessment_id"],
         "alpaca_snapshot_id": plan["alpaca_snapshot_id"],
+        "alpaca_projection_contract_id": plan["alpaca_projection_contract_id"],
+        "alpaca_projection_assessment_id": plan[
+            "alpaca_projection_assessment_id"
+        ],
+        "alpaca_raw_record_count": plan["alpaca_raw_record_count"],
+        "alpaca_selected_record_count": plan["alpaca_record_count"],
+        "alpaca_selected_rows_sha256": plan["alpaca_selected_rows_sha256"],
+        "alpaca_excluded_counts": plan["alpaca_excluded_counts"],
         "nasdaq_snapshot_id": plan["nasdaq_snapshot_id"],
         "identity_snapshot_id": plan["identity_snapshot_id"],
         "identity_row_count": plan["identity_row_count"],
@@ -427,6 +453,9 @@ def _validate_publication_receipt(
         "publication_plan_id",
         "input_assessment_id",
         "alpaca_snapshot_id",
+        "alpaca_projection_contract_id",
+        "alpaca_projection_assessment_id",
+        "alpaca_selected_rows_sha256",
         "nasdaq_snapshot_id",
         "identity_snapshot_id",
         "environment_id",
@@ -436,6 +465,18 @@ def _validate_publication_receipt(
     if (
         type(receipt["identity_row_count"]) is not int
         or receipt["identity_row_count"] < 1
+        or type(receipt["alpaca_raw_record_count"]) is not int
+        or receipt["alpaca_raw_record_count"] < 1
+        or type(receipt["alpaca_selected_record_count"]) is not int
+        or receipt["alpaca_selected_record_count"] < 1
+        or type(receipt["alpaca_excluded_counts"]) is not dict
+        or any(
+            type(key) is not str or type(value) is not int or value < 1
+            for key, value in receipt["alpaca_excluded_counts"].items()
+        )
+        or receipt["alpaca_selected_record_count"]
+        + sum(receipt["alpaca_excluded_counts"].values())
+        != receipt["alpaca_raw_record_count"]
         or receipt["schema_version"] != 1
         or receipt["project"] != PROJECT
         or receipt["receipt_class"] != RECEIPT_CLASS
@@ -470,6 +511,10 @@ def _validate_publication_receipt(
         or record.subject_id != receipt["input_assessment_id"]
         or record.bindings.get("publication_plan_id")
         != receipt["publication_plan_id"]
+        or record.bindings.get("alpaca_projection_contract_id")
+        != receipt["alpaca_projection_contract_id"]
+        or record.bindings.get("alpaca_projection_assessment_id")
+        != receipt["alpaca_projection_assessment_id"]
         or (record.clock_mode == "PRODUCTION_SYSTEM_UTC") is synthetic
     ):
         raise IntegrityError("identity publication local record differs")
