@@ -227,6 +227,13 @@ def build_outcome(
             bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
             revision_number, prior_revision_id,
         )
+    if any(bar is None for bar in available_bars):
+        return _unresolved(
+            prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,
+            OutcomeStatus.MISSING_SOURCE, "an expected outcome-interval source bar is missing",
+            calendar, bar_release_id, actions.release_id, source_epoch, evidence_view_as_of,
+            revision_number, prior_revision_id,
+        )
     if entry_bar is None or exit_bar is None or entry_bar.open is None or exit_bar.close is None:
         return _unresolved(
             prediction_id, eligibility_census_id, asset_id, decision_session, entry_session, exit_session,

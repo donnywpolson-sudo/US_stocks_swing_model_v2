@@ -1086,6 +1086,41 @@ def test_absent_corporate_action_coverage_fails_closed() -> None:
     assert outcome.reason == "complete corporate-action coverage is unavailable"
 
 
+def test_missing_intermediate_outcome_session_cannot_mature() -> None:
+    complete_bars = _bars(exit_close=110.0)
+    complete = build_outcome(
+        prediction_id="4" * 64,
+        eligibility_census_id="c" * 64,
+        asset_id="asset-1",
+        decision_session=date(2026, 7, 6),
+        calendar=_calendar(),
+        bars=complete_bars,
+        bar_release_id=BAR_RELEASE_ID,
+        actions=_action_ledger(),
+        action_view_as_of=AS_OF,
+        source_epoch="fixture_epoch",
+    )
+    assert complete.status is OutcomeStatus.MATURED
+
+    incomplete_bars = dict(complete_bars)
+    del incomplete_bars[date(2026, 7, 9)]
+    incomplete = build_outcome(
+        prediction_id="5" * 64,
+        eligibility_census_id="c" * 64,
+        asset_id="asset-1",
+        decision_session=date(2026, 7, 6),
+        calendar=_calendar(),
+        bars=incomplete_bars,
+        bar_release_id=BAR_RELEASE_ID,
+        actions=_action_ledger(),
+        action_view_as_of=AS_OF,
+        source_epoch="fixture_epoch",
+    )
+    assert incomplete.status is OutcomeStatus.MISSING_SOURCE
+    assert incomplete.split_normalized_price_return is None
+    assert incomplete.reason == "an expected outcome-interval source bar is missing"
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [

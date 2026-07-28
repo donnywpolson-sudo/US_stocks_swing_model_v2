@@ -105,9 +105,20 @@ def _publish(root: Path):
 def test_source_index_reconciles_every_declaration_to_parquet(
     bridge_tmp: Path,
 ) -> None:
-    _accepted, hfdl, _calendar, _permit = _accepted_inputs(bridge_tmp)
+    accepted, hfdl, _calendar, _permit = _accepted_inputs(bridge_tmp)
     source = hfdl.epoch_release_directories[HFDL_EPOCHS[0]]
-    assert _source_index(source)
+    manifest = verify_accepted_release(source, accepted_root=accepted)
+    index_arguments = {
+        "expected_event_start": str(manifest.event_start),
+        "expected_event_end": str(manifest.event_end),
+    }
+    assert _source_index(source, **index_arguments)
+    with pytest.raises(IntegrityError, match="epoch bounds differ"):
+        _source_index(
+            source,
+            expected_event_start="2022-03-02",
+            expected_event_end=str(manifest.event_end),
+        )
     original_rows = [
         json.loads(line)
         for line in (source / "symbol_index.jsonl").read_bytes().splitlines()
@@ -129,7 +140,7 @@ def test_source_index_reconciles_every_declaration_to_parquet(
             b"".join(canonical_json_bytes(row) for row in rows)
         )
         with pytest.raises(IntegrityError, match="source index"):
-            _source_index(poisoned)
+            _source_index(poisoned, **index_arguments)
 
 
 def test_bridge_publishes_six_unpooled_legacy_releases_with_exact_censuses(

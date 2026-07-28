@@ -24,7 +24,10 @@
   and synthetic records require the exact creating clock permit.
 - Network preflight attempts are intentionally spent before transport; failures
   require a new explicit invocation and session.
-- Latest full local validation after the clock/VWAP assessment fixes: 594
+- Outcome maturation requires bar evidence for every expected exchange session
+  from entry through exit.
+- HFDL bridge source-index bounds must exactly match the verified epoch manifest.
+- Latest full local validation after the outcome/HFDL assessment fixes: 595
   passed, 3 platform skips. Reconfirm on the merged tree.
 
 ## Accepted Assurance Boundaries
