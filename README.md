@@ -244,7 +244,7 @@ accepted alone. The process-local session binds the checked network registry,
 exact URL, timeout, response limit, and page sequence. Landed bytes and
 normalized response metadata are content-addressed and verified offline as
 `LOCAL_INTEGRITY_VERIFIED`; this is reproducibility evidence, not independent
-provenance. See `docs/NETWORK_ACQUISITION_ATTESTATION.md`. Readiness
+provenance. See `docs/NETWORK_ACQUISITION.md`. Readiness
 commands operate only on accepted local releases and make no provider or
 historical-research calls.
 

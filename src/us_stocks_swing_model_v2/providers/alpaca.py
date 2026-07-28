@@ -17,10 +17,10 @@ from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
 from .http import open_without_redirects
-from .network_authorization import (
-    AuthorizedNetworkResponse,
+from .network_execution import (
+    NetworkResponseEvidence,
     LocalNetworkExecutionSession,
-    _bind_authorized_network_response,
+    _bind_network_response,
     assert_local_network_request,
 )
 from .snapshots import (
@@ -29,9 +29,6 @@ from .snapshots import (
     LandedSnapshot,
     normalize_response_headers,
 )
-
-assert_authorized_network_request = assert_local_network_request
-
 
 ALPACA_BARS_ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
 AUTH_ENVIRONMENT_TOKEN = "FREE_SOURCE_QUALIFICATION_APPROVED"
@@ -49,7 +46,7 @@ class HttpResponseEvidence:
     raw_bytes: bytes
     headers: dict[str, str]
     retrieved_at: datetime
-    transport_evidence: AuthorizedNetworkResponse | None = None
+    transport_evidence: NetworkResponseEvidence | None = None
 
     @property
     def sha256(self) -> str:
@@ -210,7 +207,7 @@ def guarded_fetch_json(
         trusted_clock.now(),
     )
     url = request.url(policy)
-    request_attempt = assert_authorized_network_request(
+    request_attempt = assert_local_network_request(
         authorization_session,
         source=f"alpaca_{policy.feed}_qualification",
         url=url,
@@ -261,7 +258,7 @@ def guarded_fetch_json(
         raw_bytes=payload_bytes,
         headers=headers,
         retrieved_at=trusted_clock.now(),
-        transport_evidence=_bind_authorized_network_response(
+        transport_evidence=_bind_network_response(
             request_attempt,
             requested_url=url,
             response_url=response_url,

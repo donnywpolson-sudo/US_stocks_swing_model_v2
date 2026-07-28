@@ -18,6 +18,10 @@ def test_controlled_rebuild_authority_and_repo_independence_are_explicit() -> No
     contract = _contract()
     authorization = contract["authorization"]
     assert authorization["this_contract_grants_execution_authority"] is False
+    assert authorization["owner_operated_mode"] == "LOCAL_INTEGRITY_RECORDS"
+    assert authorization["external_authorization_receipt_required"] is False
+    assert authorization["local_integrity_record_schema_version"] == 2
+    assert authorization["local_integrity_record_required"] is True
     assert set(authorization["current_controlled_rebuild_receipt_allows"]) == {
         "approved_hash_copy",
         "non_alpha_data_validation",
@@ -152,7 +156,7 @@ def test_robustness_and_monitoring_governance_are_binding_and_fail_closed() -> N
     assert monitoring["automatic_retraining_retuning_source_substitution_or_resume"] is False
     policy = json.loads(MONITORING_POLICY_PATH.read_text(encoding="utf-8"))
     assert policy["policy_version"] == (
-        "1.1.0-pending-before-warning-non-authorizing"
+        "1.2.0-owner-operated-local-integrity"
     )
     assert policy["state_precedence"] == [
         "MONITORING_INVALID",
@@ -164,4 +168,10 @@ def test_robustness_and_monitoring_governance_are_binding_and_fail_closed() -> N
     assert policy["record_contract"]["append_only_hash_chain"] is True
     assert policy["record_contract"]["automatic_actions_must_be_empty"] is True
     assert policy["recovery"]["automatic_resume"] is False
-    assert policy["recovery"]["signed_review_required_after_paused_or_invalid"] is True
+    assert policy["recovery"]["local_integrity_scope"] == (
+        "AUTHORIZE_MONITORING_RECOVERY"
+    )
+    assert (
+        policy["recovery"]["owner_review_record_required_after_paused_or_invalid"]
+        is True
+    )

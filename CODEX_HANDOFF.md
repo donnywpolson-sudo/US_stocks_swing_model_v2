@@ -3,7 +3,7 @@
 ## Repository
 
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
-- Merged remediation baseline: `de7838a` (PR #3)
+- Merged owner-operated baseline: `e109647` (PR #6)
 - Reconcile this handoff with the current Git commit, branch, and worktree before acting.
 
 ## Current Milestone
@@ -11,16 +11,23 @@
 `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`
 
 - The reviewed migration capsule contains 4,911 files and 345,845,816 bytes.
-- The checked-in authority registry remains `NOT_CONFIGURED`.
+- The project is operated locally by one owner; external signing authorities and
+  public-key registries are not part of the active design.
 - Alpaca is not qualified, and Nasdaq evidence is not trust-eligible.
 - No real-history WFA, alpha, candidate, provider, or live operation is authorized.
-- Latest full local validation on the merged remediation tree: 597 passed, 3 platform skips.
+- Owner actions are bound to schema-v2 content-addressed local integrity records.
+- Network execution remains plan-only unless both `--execute-network` and
+  `FREE_SOURCE_QUALIFICATION_APPROVED=YES` are supplied for the exact bounded plan.
+- Latest full local validation during the authority-removal cleanup: 585 passed,
+  3 platform skips. Reconfirm on the merged tree.
 
 ## Accepted Assurance Boundaries
 
 - Static and named runtime I/O isolation are bounded regression evidence, not an operating-system sandbox.
 - Filesystem publication assumes trusted single-principal cooperative writers, not hostile same-principal mutation.
-- Correctly synchronized system UTC is a deployment prerequisite for initial authorization time-floor creation and recovery; privileged first-use clock spoofing is outside the supported threat model.
+- Correctly synchronized system UTC is a prerequisite for trustworthy production
+  timestamps and local integrity records; privileged clock spoofing is outside
+  the supported threat model.
 - Local and GitHub tests are review evidence. They are not production authorization, provider approval, or alpha evidence.
 
 ## Portable CI
@@ -32,4 +39,7 @@
 
 ## Next Gate
 
-External authority remains unconfigured. No key, provider, acquisition, data, research-execution, or production operation is authorized by this handoff. The next separately planned milestone is bounded source qualification.
+No provider, acquisition, data, real-history research, or production operation
+is authorized by this handoff. The owner may separately choose a bounded source
+qualification or a research-governance milestone; either remains plan-only until
+its explicit local execution controls are satisfied.

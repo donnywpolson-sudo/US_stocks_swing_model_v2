@@ -24,7 +24,10 @@
   },
   "authorization": {
     "this_contract_grants_execution_authority": false,
-    "external_authorization_receipt_required": true,
+    "owner_operated_mode": "LOCAL_INTEGRITY_RECORDS",
+    "external_authorization_receipt_required": false,
+    "local_integrity_record_schema_version": 2,
+    "local_integrity_record_required": true,
     "current_controlled_rebuild_receipt_allows": [
       "approved_hash_copy",
       "non_alpha_data_validation",

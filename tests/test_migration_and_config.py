@@ -804,16 +804,17 @@ def test_hash_copy_dry_run_is_concise_unless_detailed_is_requested(
     )[0].sha256
 
 
-def test_hash_copy_cli_exposes_public_key_but_no_shared_secret_input() -> None:
+def test_hash_copy_cli_exposes_only_retained_controlled_rebuild_mode() -> None:
     options = {
         option
         for action in hash_copy_parser()._actions
         for option in action.option_strings
     }
+    assert "--controlled-rebuild-authorization" in options
     assert {
         "--authorization",
         "--authority-registry",
         "--authority-key-id",
         "--public-key-file",
-    } <= options
+    }.isdisjoint(options)
     assert "--verification-key-file" not in options

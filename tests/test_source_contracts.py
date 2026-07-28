@@ -139,9 +139,9 @@ def test_alpaca_request_time_is_bounded_by_trusted_execution_time(
     monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
     monkeypatch.setattr(
         alpaca_module,
-        "assert_authorized_network_request",
+        "assert_local_network_request",
         lambda *args, **kwargs: pytest.fail(
-            "authorization was reached before trusted-time rejection"
+            "network preflight was reached before trusted-time rejection"
         ),
     )
     clock = TrustedClock.synthetic_fixed(
@@ -379,7 +379,7 @@ def test_nasdaq_only_capture_does_not_require_calendar_or_claim_qualification(
     )
     monkeypatch.setattr(
         qualification_cli,
-        "_bind_authorized_network_response",
+        "_bind_network_response",
         lambda *args, **kwargs: object(),
     )
     assert qualification_main([
@@ -463,12 +463,12 @@ def test_alpaca_response_is_bounded_and_retrieval_time_is_post_response(
     observed: dict[str, object] = {}
     monkeypatch.setattr(
         alpaca_module,
-        "assert_authorized_network_request",
+        "assert_local_network_request",
         lambda *args, **kwargs: object(),
     )
     monkeypatch.setattr(
         alpaca_module,
-        "_bind_authorized_network_response",
+        "_bind_network_response",
         lambda *args, **kwargs: object(),
     )
 

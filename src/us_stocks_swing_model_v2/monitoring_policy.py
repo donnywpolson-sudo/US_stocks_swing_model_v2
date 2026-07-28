@@ -5,7 +5,7 @@ from __future__ import annotations
 from .common import canonical_json_bytes, sha256_bytes
 
 
-MONITORING_POLICY_VERSION = "1.1.0-pending-before-warning-non-authorizing"
+MONITORING_POLICY_VERSION = "1.2.0-owner-operated-local-integrity"
 MONITORING_STATE_PRECEDENCE = (
     "MONITORING_INVALID",
     "MONITORING_PAUSED",
