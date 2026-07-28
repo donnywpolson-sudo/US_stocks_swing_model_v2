@@ -302,7 +302,12 @@ def _read_canonical_json(path: Path, expected_fields: set[str], label: str) -> d
     return payload
 
 
-def _source_index(epoch_directory: Path) -> tuple[dict[str, Any], ...]:
+def _source_index(
+    epoch_directory: Path,
+    *,
+    expected_event_start: str,
+    expected_event_end: str,
+) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
     epoch_root = Path(epoch_directory)
     index_path = epoch_root / "symbol_index.jsonl"
@@ -383,6 +388,13 @@ def _source_index(epoch_directory: Path) -> tuple[dict[str, Any], ...]:
         rows.append(row)
     if not rows or [row["symbol"] for row in rows] != sorted({row["symbol"] for row in rows}):
         raise IntegrityError("HFDL source index is empty, duplicated, or unsorted")
+    if (
+        min(row["session_start"] for row in rows) != expected_event_start
+        or max(row["session_end"] for row in rows) != expected_event_end
+    ):
+        raise IntegrityError(
+            "HFDL source index epoch bounds differ from its verified manifest"
+        )
     return tuple(rows)
 
 
@@ -989,7 +1001,11 @@ def publish_hfdl_historical_foundation(
             output_rows = Counter()
             source_rows = 0
             noncalendar_rows = 0
-            indexes = _source_index(source_directory)
+            indexes = _source_index(
+                source_directory,
+                expected_event_start=str(source_manifest.event_start),
+                expected_event_end=str(source_manifest.event_end),
+            )
             for index in indexes:
                 source_path = source_directory.joinpath(*safe_relative_path(index["data_path"]).parts)
                 source_table = pq.read_table(source_path)
@@ -1294,7 +1310,11 @@ def load_hfdl_historical_foundation(
             event_start=str(source_manifest.event_start),
             event_end=str(source_manifest.event_end),
         )
-        indexes = _source_index(source_directory)
+        indexes = _source_index(
+            source_directory,
+            expected_event_start=str(source_manifest.event_start),
+            expected_event_end=str(source_manifest.event_end),
+        )
         bindings = payload["epochs"][epoch]
         if not isinstance(bindings, dict) or set(bindings) != set(OUTPUT_KINDS):
             raise IntegrityError("historical-foundation epoch bindings differ")
