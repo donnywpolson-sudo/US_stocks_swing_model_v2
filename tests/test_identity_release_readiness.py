@@ -15,6 +15,9 @@ from us_stocks_swing_model_v2.identity import (
     parse_alpaca_assets,
     project_active_us_equity_assets,
 )
+from us_stocks_swing_model_v2.providers import (
+    identity_publisher as identity_publisher_module,
+)
 from us_stocks_swing_model_v2.providers.identity_publisher import (
     PRODUCTION_STATUS,
     SYNTHETIC_STATUS,
@@ -133,6 +136,26 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
         policy["authorization_plan_id"]
         == "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545"
     )
+    assert (
+        policy["authorization_plan"]["base_commit"]
+        == "ac5c9142172736e820427024be6ddb902cd9c177"
+    )
+    remediation = policy["publication_eligibility_remediation"]
+    assert (
+        remediation["base_commit"]
+        == "a554f957f05fa88aa694da8f14d44749256ee0d8"
+    )
+    assert remediation["base_tree"] == "fa905e28f4788f99608c27b0fbd0d20a0692cf43"
+    assert remediation["required_successor_commit_count"] == 1
+    assert remediation["require_clean_tree"] is True
+    assert (
+        remediation["preserved_authorization_plan_id"]
+        == policy["authorization_plan_id"]
+    )
+    assert (
+        policy["publication_eligibility_remediation_id"]
+        == "a4eb4c06895239da3d529bef44ea36a27ba5221089621a34e507604b8deff63c"
+    )
     assert policy["baseline_contract"]["record_count"] == 13064
     assert policy["execution_contract"]["activation"] is False
     assert policy["execution_contract"]["source_config_mutations"] == 0
@@ -145,6 +168,59 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
         policy["alpaca_asset_projection_policy_id"]
         == "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68"
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "distance", "message"),
+    [
+        (" M CODEX_HANDOFF.md", 1, "clean committed tree"),
+        ("", 0, "exactly one reviewed successor"),
+        ("", 2, "exactly one reviewed successor"),
+        ("", 1, None),
+    ],
+)
+def test_publication_repository_gate_requires_clean_single_successor(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    distance: int,
+    message: str | None,
+) -> None:
+    policy = load_identity_readiness_policy(REPO)
+    remediation = policy["publication_eligibility_remediation"]
+    base = remediation["base_commit"]
+
+    def fake_run_git(root: Path, *arguments: str) -> str:
+        if arguments == ("rev-parse", "--show-toplevel"):
+            return str(REPO.resolve())
+        if arguments == ("rev-parse", f"{base}^{{tree}}"):
+            return remediation["base_tree"]
+        if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return status
+        if arguments == ("rev-list", "--count", f"{base}..HEAD"):
+            return str(distance)
+        if arguments == ("rev-parse", "HEAD"):
+            return "c" * 40
+        if arguments == ("rev-parse", "HEAD^{tree}"):
+            return "d" * 40
+        raise AssertionError(f"unexpected Git arguments: {arguments!r}")
+
+    monkeypatch.setattr(identity_publisher_module, "_run_git", fake_run_git)
+    monkeypatch.setattr(
+        identity_publisher_module.subprocess,
+        "run",
+        lambda *args, **kwargs: object(),
+    )
+    if message is None:
+        assert identity_publisher_module._repository_binding(
+            REPO.resolve(),
+            policy=policy,
+        ) == {"head": "c" * 40, "tree": "d" * 40}
+    else:
+        with pytest.raises(IntegrityError, match=message):
+            identity_publisher_module._repository_binding(
+                REPO.resolve(),
+                policy=policy,
+            )
 
 
 def test_projection_filters_mixed_assets_without_changing_legacy_parser(
@@ -335,6 +411,7 @@ def test_synthetic_identity_publication_is_atomic_idempotent_and_non_active(
     assert receipt["authorities"]["identity_release_publication"] is False
     assert receipt["authorities"]["source_activation"] is False
     assert receipt["authorities"]["network_calls"] is False
+    assert receipt["publication_eligibility_remediation_id"] == "2" * 64
     assert (
         receipt["alpaca_projection_contract_id"]
         == assessment.alpaca_projection_contract_id

@@ -72,6 +72,7 @@ RECEIPT_FIELDS = {
     "status",
     "created_at",
     "implementation_plan_id",
+    "publication_eligibility_remediation_id",
     "publication_plan_id",
     "publisher_code_commit",
     "baseline",
@@ -157,9 +158,15 @@ def _repository_binding(
 ) -> dict[str, str]:
     if Path(_run_git(root, "rev-parse", "--show-toplevel")).resolve(strict=True) != root:
         raise IntegrityError("identity publication Git root differs")
-    if _run_git(root, "status", "--porcelain=v1", "--untracked-files=all"):
+    remediation = policy["publication_eligibility_remediation"]
+    base = str(remediation["base_commit"])
+    expected_base_tree = str(remediation["base_tree"])
+    actual_base_tree = _run_git(root, "rev-parse", f"{base}^{{tree}}")
+    if actual_base_tree != expected_base_tree:
+        raise IntegrityError("identity publication reviewed base tree differs")
+    status = _run_git(root, "status", "--porcelain=v1", "--untracked-files=all")
+    if status:
         raise IntegrityError("identity publication requires a clean committed tree")
-    base = policy["authorization_plan"]["base_commit"]
     try:
         subprocess.run(
             ["git", "-C", str(root), "merge-base", "--is-ancestor", base, "HEAD"],
@@ -171,9 +178,12 @@ def _repository_binding(
         raise IntegrityError(
             "identity publication commit is not descended from its reviewed base"
         ) from exc
-    if int(_run_git(root, "rev-list", "--count", f"{base}..HEAD")) != 1:
+    distance = int(_run_git(root, "rev-list", "--count", f"{base}..HEAD"))
+    required_distance = int(remediation["required_successor_commit_count"])
+    if distance != required_distance:
         raise IntegrityError(
-            "identity publication requires exactly one implementation commit after its base"
+            "identity publication requires exactly one reviewed successor "
+            "commit after its remediation base"
         )
     head = _run_git(root, "rev-parse", "HEAD")
     tree = _run_git(root, "rev-parse", "HEAD^{tree}")
@@ -221,6 +231,9 @@ def _plan_from_context(
             else "PUBLISH_ONE_NON_ACTIVE_IDENTITY_RELEASE"
         ),
         "implementation_plan_id": policy["authorization_plan_id"],
+        "publication_eligibility_remediation_id": policy[
+            "publication_eligibility_remediation_id"
+        ],
         "publisher_code_commit": repository["head"],
         "publisher_tree": repository["tree"],
         "baseline_release_id": assessment.baseline.release_id,
@@ -334,6 +347,9 @@ def _authorization_bindings(plan: Mapping[str, Any]) -> dict[str, str]:
         "nasdaq_snapshot_id": str(plan["nasdaq_snapshot_id"]),
         "project": PROJECT,
         "publication_count": "1",
+        "publication_eligibility_remediation_id": str(
+            plan["publication_eligibility_remediation_id"]
+        ),
         "publication_plan_id": str(plan["publication_plan_id"]),
         "publisher_code_commit": str(plan["publisher_code_commit"]),
         "work_root": str(plan["work_root"]),
@@ -396,6 +412,9 @@ def _publication_receipt(
         "status": SYNTHETIC_STATUS if synthetic else PRODUCTION_STATUS,
         "created_at": record.recorded_at,
         "implementation_plan_id": plan["implementation_plan_id"],
+        "publication_eligibility_remediation_id": plan[
+            "publication_eligibility_remediation_id"
+        ],
         "publication_plan_id": plan["publication_plan_id"],
         "publisher_code_commit": plan["publisher_code_commit"],
         "baseline": {
@@ -450,6 +469,7 @@ def _validate_publication_receipt(
         raise IntegrityError("identity publication receipt ID differs")
     for name in (
         "implementation_plan_id",
+        "publication_eligibility_remediation_id",
         "publication_plan_id",
         "input_assessment_id",
         "alpaca_snapshot_id",
@@ -511,6 +531,8 @@ def _validate_publication_receipt(
         or record.subject_id != receipt["input_assessment_id"]
         or record.bindings.get("publication_plan_id")
         != receipt["publication_plan_id"]
+        or record.bindings.get("publication_eligibility_remediation_id")
+        != receipt["publication_eligibility_remediation_id"]
         or record.bindings.get("alpaca_projection_contract_id")
         != receipt["alpaca_projection_contract_id"]
         or record.bindings.get("alpaca_projection_assessment_id")
@@ -679,6 +701,7 @@ def build_identity_publication_fixture_plan(
     verified = require_synthetic_permit(permit, scope=FIXTURE_SCOPE)
     policy = {
         "authorization_plan_id": "a" * 64,
+        "publication_eligibility_remediation_id": "2" * 64,
         "environment_id": "b" * 64,
         "network_registry_id": "c" * 64,
     }

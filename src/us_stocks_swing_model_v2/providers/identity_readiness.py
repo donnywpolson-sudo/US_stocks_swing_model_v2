@@ -83,6 +83,8 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         "authorization_plan",
         "authorization_plan_id",
         "base_tree",
+        "publication_eligibility_remediation",
+        "publication_eligibility_remediation_id",
         "baseline_contract",
         "alpaca_asset_projection_policy_id",
         "identity_release_contract",
@@ -101,6 +103,7 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         raise ContractError("Nasdaq identity readiness policy identity differs")
     for name in (
         "authorization_plan_id",
+        "publication_eligibility_remediation_id",
         "environment_id",
         "network_registry_id",
         "policy_id",
@@ -131,6 +134,48 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         canonical_json_bytes(authorization)
     ):
         raise ContractError("identity readiness authorization plan ID differs")
+    remediation = policy["publication_eligibility_remediation"]
+    if remediation != {
+        "schema_version": 1,
+        "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
+        "base_commit": "a554f957f05fa88aa694da8f14d44749256ee0d8",
+        "base_tree": "fa905e28f4788f99608c27b0fbd0d20a0692cf43",
+        "preserved_authorization_plan_id": (
+            "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545"
+        ),
+        "input_assessment_id": (
+            "f74cb03ebd303fc2863c2105326e1b69d6177a6d5c975cc5fcc6f208dea34da1"
+        ),
+        "alpaca_snapshot_id": (
+            "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a"
+        ),
+        "nasdaq_snapshot_id": (
+            "34494904a1a7db8408fba9e1ca233021fe06133faaa5744a2029ea3535c2a5c0"
+        ),
+        "required_successor_commit_count": 1,
+        "require_clean_tree": True,
+        "verification": [
+            "targeted_identity_release_readiness_tests",
+            "git_diff_check",
+        ],
+        "prohibitions": [
+            "network_calls",
+            "identity_release_publication",
+            "config_sources_mutation",
+            "source_activation",
+            "model_or_research_execution",
+            "secret_read_or_logging",
+        ],
+        "commit_message": "Remediate identity publication eligibility",
+        "stop_after_commit": True,
+    }:
+        raise ContractError("identity publication eligibility remediation differs")
+    if policy["publication_eligibility_remediation_id"] != sha256_bytes(
+        canonical_json_bytes(remediation)
+    ):
+        raise ContractError(
+            "identity publication eligibility remediation ID differs"
+        )
     baseline = policy["baseline_contract"]
     if baseline != {
         "accepted_root": "data/vault/accepted",

@@ -49,6 +49,33 @@
   },
   "authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
   "base_tree": "ebf85be7b58183afdf88b99a9a6a38d60c82feb2",
+  "publication_eligibility_remediation": {
+    "schema_version": 1,
+    "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
+    "base_commit": "a554f957f05fa88aa694da8f14d44749256ee0d8",
+    "base_tree": "fa905e28f4788f99608c27b0fbd0d20a0692cf43",
+    "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
+    "input_assessment_id": "f74cb03ebd303fc2863c2105326e1b69d6177a6d5c975cc5fcc6f208dea34da1",
+    "alpaca_snapshot_id": "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a",
+    "nasdaq_snapshot_id": "34494904a1a7db8408fba9e1ca233021fe06133faaa5744a2029ea3535c2a5c0",
+    "required_successor_commit_count": 1,
+    "require_clean_tree": true,
+    "verification": [
+      "targeted_identity_release_readiness_tests",
+      "git_diff_check"
+    ],
+    "prohibitions": [
+      "network_calls",
+      "identity_release_publication",
+      "config_sources_mutation",
+      "source_activation",
+      "model_or_research_execution",
+      "secret_read_or_logging"
+    ],
+    "commit_message": "Remediate identity publication eligibility",
+    "stop_after_commit": true
+  },
+  "publication_eligibility_remediation_id": "a4eb4c06895239da3d529bef44ea36a27ba5221089621a34e507604b8deff63c",
   "alpaca_asset_projection_policy_id": "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68",
   "baseline_contract": {
     "accepted_root": "data/vault/accepted",
@@ -88,5 +115,5 @@
   },
   "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
   "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
-  "policy_id": "f710222c1994cdb6878371f3d14626e4c97c59f06d9126c04578db230d8fa6e1"
+  "policy_id": "dcc49442fef3b1d860f01828579dfe361e7f78fa6c0121ce1af70a3f6daf5b37"
 }

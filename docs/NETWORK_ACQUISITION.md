@@ -185,6 +185,15 @@ python -m us_stocks_swing_model_v2.cli.qualify_identity_sources `
   --assess-pair <alpaca-assets-snapshot> <fresh-nasdaq-snapshot>
 ```
 
+The original identity-readiness authorization remains immutable historical
+evidence. Publication planning additionally binds the separately
+content-addressed eligibility-remediation record in
+`config/nasdaq_identity_readiness_policy.json`. That record fixes the reviewed
+base commit and tree after the Alpaca projection remediation. The production
+publisher still requires a completely clean tree descended by exactly one
+reviewed successor commit; dirty, zero-distance, unrelated, base-tree-mismatched,
+and multi-commit states fail closed.
+
 The identity publisher also defaults to a no-write plan:
 
 ```powershell
