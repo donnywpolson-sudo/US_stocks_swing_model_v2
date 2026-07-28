@@ -1547,20 +1547,32 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
 def test_all_four_sleeves_are_binding_and_underpowered_is_inconclusive() -> None:
     policy = _gate_policy()
     passing = _sleeve_metric()
-    metrics = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
+    sleeves = ("stock_long", "stock_short", "etf_long", "etf_short")
+    metrics = {sleeve: passing for sleeve in sleeves}
     assert policy.aggregate(metrics) is GateState.PASS_HISTORICAL_DISCOVERY_SCREEN
-    metrics["stock_short"] = _sleeve_metric(
+
+    missing = {sleeve: passing for sleeve in sleeves}
+    del missing["etf_short"]
+    assert (
+        policy.evaluate(missing)["etf_short"]
+        is GateState.INCONCLUSIVE_DATA_OR_POWER
+    )
+    assert policy.aggregate(missing) is GateState.INCONCLUSIVE_DATA_OR_POWER
+
+    underpowered = {sleeve: passing for sleeve in sleeves}
+    underpowered["etf_short"] = _sleeve_metric(sessions=19)
+    assert policy.aggregate(underpowered) is GateState.INCONCLUSIVE_DATA_OR_POWER
+
+    definite_failure = {sleeve: passing for sleeve in sleeves}
+    definite_failure["stock_short"] = _sleeve_metric(
         effect=-0.001,
         confidence_lower=-0.002,
         confidence_upper=-0.0001,
     )
-    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
-    del metrics["etf_short"]
-    assert policy.evaluate(metrics)["etf_short"] is GateState.INCONCLUSIVE_DATA_OR_POWER
-    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
-    metrics["etf_short"] = _sleeve_metric(sessions=29)
-    assert policy.aggregate(metrics) is GateState.FAIL_NO_EDGE
-    robustness = {sleeve: passing for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")}
+    definite_failure["etf_short"] = _sleeve_metric(sessions=19)
+    assert policy.aggregate(definite_failure) is GateState.FAIL_NO_EDGE
+
+    robustness = {sleeve: passing for sleeve in sleeves}
     robustness["stock_long"] = replace(
         passing,
         robustness_state="INCONCLUSIVE_ROBUSTNESS",

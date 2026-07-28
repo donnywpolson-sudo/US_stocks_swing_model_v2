@@ -37,7 +37,7 @@ from .common import (
     sha256_file,
 )
 from .environment import validate_environment_lock
-from .errors import ContractError, IntegrityError
+from .errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from .exchange_calendar import load_xnys_calendar_release
 from .foundation_orchestrator import (
     AGGREGATE_COMPONENT_COUNT,
@@ -69,11 +69,11 @@ from .research.executor import (
 
 
 PROJECT = "US_stocks_swing_model_v2"
-READINESS_VERSION = "1.0.0"
+READINESS_VERSION = "1.1.0"
 READINESS_STATE = "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED"
 REBUILD_DATASET = "stock_rebuild_complete_receipt"
 HISTORICAL_READY_DATASET = "stock_historical_research_ready_receipt"
-RECEIPT_SOURCE_EPOCH = "mechanical_readiness_non_authorizing_v1"
+RECEIPT_SOURCE_EPOCH = "mechanical_readiness_non_authorizing_v2"
 RECEIPT_ROLE = "qualification_evidence_only"
 RECEIPT_QUALITY = "QUALIFICATION_EVIDENCE"
 REBUILD_MILESTONE = "REBUILD_COMPLETE"
@@ -118,6 +118,7 @@ _RECEIPT_FIELDS = {
     "pit_guard",
     "authority_and_claims",
     "upstream_milestone",
+    "local_integrity_record",
     "receipt_id",
 }
 _FOUNDATION_BINDING_FIELDS = {
@@ -1045,6 +1046,7 @@ def _receipt(
     milestone: str,
     created_at: str,
     upstream_milestone: Mapping[str, Any] | None,
+    local_action_record: LocalIntegrityRecord | None,
 ) -> dict[str, Any]:
     if milestone == REBUILD_MILESTONE:
         scope = "COMMITTED_REBUILD_MECHANICS_ONLY"
@@ -1053,7 +1055,7 @@ def _receipt(
     else:
         raise ContractError("unknown mechanical readiness milestone")
     unsigned = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": PROJECT,
         "milestone": milestone,
         "milestone_scope": scope,
@@ -1068,6 +1070,9 @@ def _receipt(
         "pit_guard": dict(assessment.pit_guard),
         "authority_and_claims": dict(_AUTHORITY_AND_CLAIMS),
         "upstream_milestone": dict(upstream_milestone) if upstream_milestone else None,
+        "local_integrity_record": (
+            None if local_action_record is None else local_action_record.as_dict()
+        ),
     }
     return {**unsigned, "receipt_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
@@ -1112,6 +1117,55 @@ def _write_exact(path: Path, payload: bytes) -> None:
             raise IntegrityError("readiness stage receipt differs")
         return
     atomic_write(path, payload)
+
+
+def _load_or_create_local_action_record(
+    *,
+    path: Path,
+    assessment: MechanicalReadinessAssessment,
+    accepted_release_root: Path,
+    readiness_work_root: Path,
+    created_at: str,
+    clock: TrustedClock,
+) -> LocalIntegrityRecord:
+    bindings = mechanical_readiness_authorization_bindings(
+        assessment=assessment,
+        accepted_release_root=accepted_release_root,
+        readiness_work_root=readiness_work_root,
+        created_at=created_at,
+    )
+    if path.exists():
+        payload = _json_object(
+            path,
+            canonical=True,
+            label="mechanical readiness local action record",
+        )
+        try:
+            record = LocalIntegrityRecord.from_dict(payload)
+        except EvaluationAuthorizationError as exc:
+            raise IntegrityError(
+                "mechanical readiness local action record is invalid"
+            ) from exc
+    else:
+        record = create_local_integrity_record(
+            scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
+            subject_id=assessment.assessment_id,
+            bindings=bindings,
+            clock=clock,
+        )
+        _write_exact(path, canonical_json_bytes(record.as_dict()))
+    try:
+        record.validate(
+            expected_scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
+            expected_subject_id=assessment.assessment_id,
+            required_bindings=bindings,
+            clock=clock,
+        )
+    except EvaluationAuthorizationError as exc:
+        raise IntegrityError(
+            "mechanical readiness local action record differs"
+        ) from exc
+    return record
 
 
 def _publish_receipt(
@@ -1183,6 +1237,16 @@ def publish_stock_mechanical_readiness(
         accepted_release_root=accepted_root,
         synthetic_permit=synthetic_permit,
     )
+    build_id = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "assessment_id": assessment.assessment_id,
+                "created_at": created_at,
+                "readiness_version": READINESS_VERSION,
+            }
+        )
+    )
+    build_root = work_root / build_id[:20]
     local_action_record: LocalIntegrityRecord | None = None
     if synthetic_permit is None:
         if clock is None:
@@ -1194,15 +1258,12 @@ def publish_stock_mechanical_readiness(
             raise PermissionError(
                 "mechanical-readiness publication requires the production system UTC clock"
             )
-        local_action_record = create_local_integrity_record(
-            scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
-            subject_id=assessment.assessment_id,
-            bindings=mechanical_readiness_authorization_bindings(
-                assessment=assessment,
-                accepted_release_root=accepted_root,
-                readiness_work_root=work_root,
-                created_at=created_at,
-            ),
+        local_action_record = _load_or_create_local_action_record(
+            path=build_root / "local_action_record.json",
+            assessment=assessment,
+            accepted_release_root=accepted_root,
+            readiness_work_root=work_root,
+            created_at=created_at,
             clock=trusted_clock,
         )
         work_root.parent.mkdir(parents=True, exist_ok=True)
@@ -1210,21 +1271,12 @@ def publish_stock_mechanical_readiness(
         raise PermissionError(
             "synthetic mechanical-readiness publication cannot name a production clock"
         )
-    build_id = sha256_bytes(
-        canonical_json_bytes(
-            {
-                "assessment_id": assessment.assessment_id,
-                "created_at": created_at,
-                "readiness_version": READINESS_VERSION,
-            }
-        )
-    )
-    build_root = work_root / build_id[:20]
     rebuild_receipt = _receipt(
         assessment,
         milestone=REBUILD_MILESTONE,
         created_at=created_at,
         upstream_milestone=None,
+        local_action_record=local_action_record,
     )
     rebuild_dir = _publish_receipt(
         rebuild_receipt,
@@ -1246,6 +1298,7 @@ def publish_stock_mechanical_readiness(
         milestone=HISTORICAL_READY_MILESTONE,
         created_at=created_at,
         upstream_milestone=upstream,
+        local_action_record=local_action_record,
     )
     historical_dir = _publish_receipt(
         historical_receipt,
@@ -1270,6 +1323,7 @@ def publish_stock_mechanical_readiness(
         accepted_release_root=accepted_root,
         rebuild_complete_release_directory=rebuild_dir,
         historical_research_ready_release_directory=historical_dir,
+        synthetic_permit=synthetic_permit,
     )
     return result
 
@@ -1326,6 +1380,7 @@ def _verify_stock_mechanical_readiness_publication_against_assessment(
     accepted_release_root: Path,
     rebuild_complete_release_directory: Path,
     historical_research_ready_release_directory: Path,
+    synthetic_permit: SyntheticOnlyPermit | None,
 ) -> MechanicalReadinessPublication:
     rebuild_payload = _json_object(
         Path(rebuild_complete_release_directory) / "rebuild_complete.json",
@@ -1334,11 +1389,49 @@ def _verify_stock_mechanical_readiness_publication_against_assessment(
     )
     created_at = rebuild_payload.get("created_at")
     parse_utc_z(created_at, "rebuild_complete.created_at")
+    embedded_record = rebuild_payload.get("local_integrity_record")
+    local_action_record: LocalIntegrityRecord | None
+    if synthetic_permit is not None:
+        if embedded_record is not None:
+            raise IntegrityError(
+                "synthetic readiness receipt cannot carry a production local action record"
+            )
+        local_action_record = None
+    else:
+        if type(embedded_record) is not dict:
+            raise IntegrityError(
+                "production readiness receipt lacks its local action record"
+            )
+        try:
+            local_action_record = LocalIntegrityRecord.from_dict(embedded_record)
+            readiness_work_root = Path(
+                local_action_record.bindings["readiness_work_root"]
+            )
+            if not readiness_work_root.is_absolute():
+                raise EvaluationAuthorizationError(
+                    "local integrity readiness work root must be absolute"
+                )
+            local_action_record.validate(
+                expected_scope=MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE,
+                expected_subject_id=assessment.assessment_id,
+                required_bindings=mechanical_readiness_authorization_bindings(
+                    assessment=assessment,
+                    accepted_release_root=Path(accepted_release_root),
+                    readiness_work_root=readiness_work_root,
+                    created_at=created_at,
+                ),
+                clock=TrustedClock.production(),
+            )
+        except (EvaluationAuthorizationError, KeyError) as exc:
+            raise IntegrityError(
+                "production readiness local action record is invalid"
+            ) from exc
     expected_rebuild = _receipt(
         assessment,
         milestone=REBUILD_MILESTONE,
         created_at=created_at,
         upstream_milestone=None,
+        local_action_record=local_action_record,
     )
     rebuild_manifest = _verify_receipt_release(
         Path(rebuild_complete_release_directory),
@@ -1369,6 +1462,7 @@ def _verify_stock_mechanical_readiness_publication_against_assessment(
         milestone=HISTORICAL_READY_MILESTONE,
         created_at=created_at,
         upstream_milestone=upstream,
+        local_action_record=local_action_record,
     )
     _verify_receipt_release(
         Path(historical_research_ready_release_directory),
@@ -1383,7 +1477,7 @@ def _verify_stock_mechanical_readiness_publication_against_assessment(
     )
     return MechanicalReadinessPublication(
         assessment_id=assessment.assessment_id,
-        local_action_record=None,
+        local_action_record=local_action_record,
         rebuild_complete_release_directory=Path(rebuild_complete_release_directory),
         historical_research_ready_release_directory=Path(
             historical_research_ready_release_directory
@@ -1414,4 +1508,5 @@ def verify_stock_mechanical_readiness_publication(
         historical_research_ready_release_directory=Path(
             historical_research_ready_release_directory
         ),
+        synthetic_permit=synthetic_permit,
     )

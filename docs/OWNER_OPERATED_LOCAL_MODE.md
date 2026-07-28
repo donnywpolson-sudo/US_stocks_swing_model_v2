@@ -19,9 +19,18 @@ creation time, and optional synthetic-test permit. Its ID is the SHA-256 of the
 canonical record content.
 
 These records are not signatures and do not claim independent approval. They
-make the owner’s exact local action reproducible and tamper-evident. Frozen
+make the owner's exact local action reproducible and tamper-evident. Frozen
 schema-v1 signed records are rejected by schema-v2 consumers; they are not
 migrated, relabeled, or treated as local records.
+
+Production mechanical-readiness publication uses receipt schema v2. The same
+complete local integrity record is embedded in both non-authorizing milestone
+receipts and included in each receipt's content hash and accepted-release
+manifest. Verification reconstructs the exact scope, assessment, roots,
+datasets, filenames, timestamp, and publication count before accepting either
+release. Missing, altered, mismatched, or legacy schema-v1 unbound receipts
+fail closed. Synthetic-only readiness fixtures carry an explicit null record
+and remain usable only with their synthetic permit.
 
 The following controls remain binding:
 
