@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "1.1.0-pending-before-warning-non-authorizing",
+  "policy_version": "1.2.0-owner-operated-local-integrity",
   "project": "US_stocks_swing_model_v2",
   "mechanics_only": true,
   "reference": {
@@ -43,8 +43,8 @@
   },
   "recovery": {
     "automatic_resume": false,
-    "authorization_scope": "AUTHORIZE_MONITORING_RECOVERY",
-    "signed_review_required_after_paused_or_invalid": true,
+    "local_integrity_scope": "AUTHORIZE_MONITORING_RECOVERY",
+    "owner_review_record_required_after_paused_or_invalid": true,
     "review_binds_previous_record_bundle_policy_reference_and_observation": true,
     "recovery_without_exact_review_remains_paused": true
   },

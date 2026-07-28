@@ -76,8 +76,9 @@ because it served the same project mission.
 The controlled architecture, approved local migration, non-active historical
 foundation, preserved public Nasdaq snapshot, and deterministic historical
 research mechanics are complete. The Nasdaq snapshot is acquisition evidence,
-not qualified identity evidence, because current self-hashed network receipts
-lack independently authenticated provenance. The completed foundation remains
+not qualified identity evidence: its historical receipt predates the
+owner-operated local-integrity contract and the source has not been requalified
+under the current bounded acquisition path. The completed foundation remains
 legacy discovery evidence with unresolved point-in-time limitations.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
@@ -190,7 +191,7 @@ permission to rerun or rescue a retired hypothesis.
 | HF Data Library | `legacy_discovery` only, physically separated into pre-2022-03-04 PiTrading-consolidated and later IEX-only epochs |
 | Existing Alpaca SIP capsule and probe | Failed source-qualification evidence only; never an active feed |
 | Alpaca Basic | Guarded prospective candidate OHLCV lane; SIP and IEX remain unqualified until a bounded receipt proves one |
-| Nasdaq Trader | Preserved public snapshot evidence only; not trust-eligible until an independently authenticated acquisition receipt exists |
+| Nasdaq Trader | Preserved public snapshot evidence only; not trust-eligible until a fresh bounded capture is locally integrity-verified and separately shown fit for its intended identity role |
 | Alpha Vantage | Excluded |
 | Options data | Excluded from model inputs, outputs, training, evaluation, and validation |
 

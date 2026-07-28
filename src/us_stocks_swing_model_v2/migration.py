@@ -27,7 +27,6 @@ from .common import (
 from .errors import ContractError, IntegrityError
 from .clock import TrustedClock, require_trusted_clock
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
-from .governance import AuthorizationAuthority, SignedAuthorizationReceipt
 from .locking import ExclusiveFileLock
 
 
@@ -76,8 +75,8 @@ MIGRATION_IMPLEMENTATION_PATHS = (
 class ControlledRebuildAuthorization:
     """Exact user-task authority for this one non-alpha rebuild copy.
 
-    This is deliberately not a ``SignedAuthorizationReceipt`` and therefore
-    cannot satisfy trial, evaluation, sealing, or production gates.  Its only
+    This historical task receipt cannot satisfy trial, evaluation, sealing, or
+    production gates. Its only
     consumer is the controlled hash-copy path below, where it is combined with
     the reviewed plan, inventory, implementation closure, and approval.
     """
@@ -711,8 +710,6 @@ def execute_copy_plan(
     plan: MigrationPlan,
     *,
     approval: MigrationApproval,
-    authorization: SignedAuthorizationReceipt | None = None,
-    authorization_authority: AuthorizationAuthority | None = None,
     controlled_rebuild_authorization: ControlledRebuildAuthorization | None = None,
     synthetic_permit: SyntheticOnlyPermit | None = None,
     synthetic_allowed_root: Path | None = None,
@@ -725,32 +722,13 @@ def execute_copy_plan(
     trusted_clock = require_trusted_clock(clock)
     if trusted_clock.mode != "PRODUCTION_SYSTEM_UTC":
         raise PermissionError("controlled hash copy requires the production system UTC clock")
-    external_mode = authorization is not None or authorization_authority is not None
     controlled_mode = controlled_rebuild_authorization is not None
     synthetic_mode = synthetic_permit is not None or synthetic_allowed_root is not None
-    if sum((external_mode, controlled_mode, synthetic_mode)) != 1:
+    if sum((controlled_mode, synthetic_mode)) != 1:
         raise PermissionError(
-            "copy requires exactly one asymmetric external, controlled-rebuild, "
-            "or synthetic-only authority mode"
+            "copy requires exactly one controlled-rebuild or synthetic-only mode"
         )
-    if external_mode:
-        if authorization is None or authorization_authority is None:
-            raise PermissionError("external copy authority is incomplete")
-        if authorization_authority.authorization_class != "EXTERNAL_USER_AUTHORITY":
-            raise PermissionError("controlled hash copy requires external user authority")
-        authorization.validate(
-            authority=authorization_authority,
-            expected_scope=COPY_AUTHORIZATION_SCOPE,
-            expected_subject_id=plan.plan_id,
-            required_bindings=migration_authorization_bindings(plan, approval),
-            clock=trusted_clock,
-        )
-        authorization_evidence = CopyAuthorizationEvidence(
-            receipt_id=authorization.receipt_id,
-            registry_id=authorization.authority_registry_id,
-            authorization_class=authorization.authorization_class,
-        )
-    elif controlled_mode:
+    if controlled_mode:
         assert controlled_rebuild_authorization is not None
         controlled_rebuild_authorization.validate_plan(plan)
         authorization_core = {

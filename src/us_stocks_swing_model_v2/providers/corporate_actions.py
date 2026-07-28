@@ -25,10 +25,10 @@ from .alpaca import (
     HttpResponseEvidence,
 )
 from .http import open_without_redirects
-from .network_authorization import (
-    AuthorizedNetworkRequestAttempt,
+from .network_execution import (
+    NetworkRequestAttempt,
     LocalNetworkExecutionSession,
-    _bind_authorized_network_response,
+    _bind_network_response,
     assert_local_network_request,
 )
 from .snapshots import (
@@ -37,9 +37,6 @@ from .snapshots import (
     LandedSnapshot,
     normalize_response_headers,
 )
-
-assert_authorized_network_request = assert_local_network_request
-
 
 CORPORATE_ACTIONS_ENDPOINT = "https://data.alpaca.markets/v1/corporate-actions"
 MAX_PAGE_LIMIT = 1000
@@ -556,7 +553,7 @@ def guarded_fetch_corporate_action_pages(
     request = initial
     seen_tokens: set[str] = set()
     for page_index in range(max_pages):
-        request_attempt = assert_authorized_network_request(
+        request_attempt = assert_local_network_request(
             authorization_session,
             source="alpaca_corporate_actions",
             url=request.url(),
@@ -735,7 +732,7 @@ def _fetch_page(
     api_secret_key: str,
     timeout_seconds: int,
     clock: TrustedClock,
-    request_attempt: AuthorizedNetworkRequestAttempt,
+    request_attempt: NetworkRequestAttempt,
 ) -> HttpResponseEvidence:
     url = request.url()
     parsed = urlparse(url)
@@ -782,7 +779,7 @@ def _fetch_page(
         raw_bytes=raw,
         headers=headers,
         retrieved_at=require_trusted_clock(clock).now(),
-        transport_evidence=_bind_authorized_network_response(
+        transport_evidence=_bind_network_response(
             request_attempt,
             requested_url=url,
             response_url=response_url,

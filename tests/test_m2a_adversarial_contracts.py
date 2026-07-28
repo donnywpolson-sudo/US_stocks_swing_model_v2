@@ -31,11 +31,6 @@ from us_stocks_swing_model_v2.exchange_calendar import (
     publish_xnys_calendar_release,
 )
 from us_stocks_swing_model_v2.gates import IndependentGatePolicy, SleeveMetric
-from us_stocks_swing_model_v2.governance import (
-    AuthorizationAuthority,
-    load_external_authority,
-    sign_authorization_receipt,
-)
 from us_stocks_swing_model_v2.identity import BitemporalIdentityLedger, merge_identity_snapshot, parse_alpaca_assets
 from us_stocks_swing_model_v2.ledger import PredictionLedger
 from us_stocks_swing_model_v2.migration import execute_copy_plan, load_migration_config, plan_migration
@@ -509,67 +504,6 @@ def test_environment_lock_rejects_boolean_schema_version(tmp_path: Path) -> None
     lock_path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ContractError, match="Python runtime differs"):
         validate_environment_lock(lock_path)
-
-
-def test_external_authority_is_fail_closed_and_repository_cannot_self_authorize(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(EvaluationAuthorizationError, match="not pinned and active"):
-        load_external_authority(
-            REPO / "config" / "authorization_authorities.json",
-            key_id="user-key",
-            verification_key=b"user-secret",
-        )
-
-    key = b"external-user-controlled-key"
-    registry = {
-        "schema_version": 1,
-        "project": "US_stocks_swing_model_v2",
-        "status": "ACTIVE",
-        "authorities": [
-            {
-                "key_id": "user-key",
-                "key_sha256": sha256_bytes(key),
-                "authorization_class": "EXTERNAL_USER_AUTHORITY",
-                "signature_algorithm": "RSASSA_PKCS1_V1_5_SHA256",
-            }
-        ],
-    }
-    registry_path = tmp_path / "authorities.json"
-    registry_path.write_text(json.dumps(registry), encoding="utf-8")
-    with pytest.raises(
-        EvaluationAuthorizationError,
-        match="reviewed project registry",
-    ):
-        load_external_authority(
-            registry_path,
-            key_id="user-key",
-            verification_key=key,
-        )
-
-    synthetic_authority = AuthorizationAuthority.synthetic(
-        key_id="synthetic-key",
-        verification_key=b"synthetic-key",
-        permit=SyntheticOnlyPermit.create(
-            fixture_id="m2a-self-authorization",
-            scope="SYNTHETIC_AUTHORIZATION_AUTHORITY",
-        ),
-    )
-    synthetic_receipt = sign_authorization_receipt(
-        scope="AUTHORIZE_OUTER_SCREEN",
-        subject_id="1" * 64,
-        bindings={"evidence": "2" * 64},
-        issued_at="2026-07-15T19:00:00Z",
-        expires_at="2026-07-15T21:00:00Z",
-        authority=synthetic_authority,
-    )
-    synthetic_receipt.validate(
-        authority=synthetic_authority,
-        expected_scope="AUTHORIZE_OUTER_SCREEN",
-        expected_subject_id="1" * 64,
-        required_bindings={"evidence": "2" * 64},
-        clock=_clock(NOW),
-    )
 
 
 def test_gate_policy_and_metrics_reject_nonfinite_values() -> None:

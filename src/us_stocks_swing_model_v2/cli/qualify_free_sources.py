@@ -22,9 +22,9 @@ from ..providers.alpaca import (
 )
 from ..providers.nasdaq import NASDAQ_TRADED_URL, parse_nasdaq_traded
 from ..providers.http import open_without_redirects
-from ..providers.network_authorization import (
+from ..providers.network_execution import (
     NetworkRequestPlan,
-    _bind_authorized_network_response,
+    _bind_network_response,
     assert_local_network_request,
     start_local_network_execution,
 )
@@ -293,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             raise NetworkGuardError("Nasdaq response redirected away from the exact approved URL")
         if len(raw) > MAX_NASDAQ_RESPONSE_BYTES:
             raise ValueError("Nasdaq response exceeded the bounded byte limit")
-        transport_evidence = _bind_authorized_network_response(
+        transport_evidence = _bind_network_response(
             request_attempt,
             requested_url=url,
             response_url=response_url,
