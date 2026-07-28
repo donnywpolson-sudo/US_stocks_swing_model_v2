@@ -23,12 +23,16 @@
   `5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a`
   advanced the embedded file time and passed the offline pair assessment
   `f0de05e20e85b4a13322ff7debfb3efb1f1768d575082a3fd23bc912df282978`;
-  its 13,064 count is only a non-active baseline candidate.
-- The guarded bootstrap receipt publisher is implemented in the working tree.
-  It is plan-only by default, has no provider transport, requires a clean
-  one-commit successor plus an exact approved runtime plan and owner
-  confirmation, and can publish only one non-active qualification-evidence
-  release. It cannot activate identity data or rewrite the old receipt.
+  its 13,064 count is now bound by accepted non-active baseline release
+  `bae68471507697128071d04a32eff38489c599ce878b486365cf3eeb2d49d9c8`
+  and receipt
+  `dc5bb207375e8a0f3e2563a8f5c0e6607fb0a174d6e6fade4ce518441eb7e787`.
+- Guarded identity-readiness tooling is plan-only by default. It can plan one
+  bounded Alpaca asset capture, use the accepted baseline for continuity checks
+  on a strictly newer Nasdaq snapshot, assess the offline join, and emit a
+  content-addressed identity-release publication plan. Network capture,
+  publication, source configuration mutation, and activation each remain
+  separate gates.
 - No real-history WFA, alpha, candidate, provider, or live operation is authorized.
 - Owner actions are bound to schema-v2 content-addressed local integrity records.
 - Network execution remains plan-only unless both `--execute-network` and
@@ -71,8 +75,8 @@
 
 ## Next Gate
 
-Stop before receipt publication. After the publisher implementation is
-committed and the clean-commit plan-only command emits its exact publication
-plan ID, seek a separate approval for one non-active accepted receipt release.
-Source activation and any `config/sources.json` change remain later independent
-gates.
+Stop after the identity-readiness implementation commit. The next gate is one
+separately approved Alpaca asset capture using the exact plan-only request ID.
+A fresh Nasdaq snapshot newer than snapshot B is another bounded provider gate.
+Offline pair assessment, accepted identity-release publication, and any
+`config/sources.json` activation change remain later independent gates.

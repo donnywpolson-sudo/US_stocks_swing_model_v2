@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "authorization_plan": {
+    "schema_version": 1,
+    "plan_type": "NASDAQ_IDENTITY_RELEASE_READINESS_IMPLEMENTATION",
+    "base_commit": "ac5c9142172736e820427024be6ddb902cd9c177",
+    "baseline": {
+      "release_id": "bae68471507697128071d04a32eff38489c599ce878b486365cf3eeb2d49d9c8",
+      "receipt_id": "dc5bb207375e8a0f3e2563a8f5c0e6607fb0a174d6e6fade4ce518441eb7e787",
+      "snapshot_b_id": "5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a",
+      "record_count": 13064
+    },
+    "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
+    "implementation_scope": [
+      "guarded_plan_only_alpaca_assets_capture",
+      "trusted_nasdaq_baseline_loader_and_fresh_snapshot_continuity_verification",
+      "offline_alpaca_nasdaq_identity_join_assessor",
+      "plan_only_by_default_atomic_identity_release_publisher",
+      "frozen_policy_cli_tests_documentation"
+    ],
+    "alpaca_assets_future_capture_contract": {
+      "url": "https://paper-api.alpaca.markets/v2/assets",
+      "max_requests": 1,
+      "max_pages": 1,
+      "max_response_bytes": 33554432,
+      "timeout_seconds": 30
+    },
+    "verification": [
+      "complete_synthetic_suite",
+      "git_diff_check"
+    ],
+    "preserve": [
+      "published_bootstrap_release",
+      "snapshot_a",
+      "snapshot_b",
+      "preserved_historical_receipt"
+    ],
+    "prohibitions": [
+      "network_calls",
+      "identity_release_publication",
+      "config_sources_mutation",
+      "source_activation",
+      "model_or_research_execution",
+      "secret_read_or_logging"
+    ],
+    "commit_message": "Implement Nasdaq identity release readiness",
+    "stop_after_commit": true
+  },
+  "authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
+  "base_tree": "ebf85be7b58183afdf88b99a9a6a38d60c82feb2",
+  "baseline_contract": {
+    "accepted_root": "data/vault/accepted",
+    "dataset": "nasdaq_bootstrap_baseline",
+    "release_id": "bae68471507697128071d04a32eff38489c599ce878b486365cf3eeb2d49d9c8",
+    "receipt_id": "dc5bb207375e8a0f3e2563a8f5c0e6607fb0a174d6e6fade4ce518441eb7e787",
+    "snapshot_b_id": "5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a",
+    "record_count": 13064,
+    "snapshot_b_retrieved_at": "2026-07-28T11:16:14.774539Z",
+    "snapshot_b_file_created_at": "2026-07-28T11:01:00Z"
+  },
+  "identity_release_contract": {
+    "dataset": "identity",
+    "source_epoch": "nasdaq_alpaca_identity_v1",
+    "role": "prospective_as_received",
+    "quality_state": "PASS",
+    "payload_filename": "identity_snapshots.json",
+    "receipt_filename": "identity_publication_receipt.json",
+    "accepted_root": "data/vault/accepted",
+    "work_root": "data/w/nasdaq_identity",
+    "publication_count": 1
+  },
+  "execution_contract": {
+    "default_mode": "PLAN_ONLY_NO_WRITES",
+    "alpaca_assets_execute_flag": "--execute-network",
+    "identity_publish_execute_flag": "--execute",
+    "network_calls_during_implementation": 0,
+    "identity_releases_during_implementation": 0,
+    "source_config_mutations": 0,
+    "activation": false,
+    "require_fresh_nasdaq_after_baseline": true,
+    "require_fresh_alpaca_assets_after_baseline": true,
+    "require_clean_one_commit_successor": true,
+    "require_production_system_utc": true,
+    "atomic_content_addressed_publication": true,
+    "idempotent_same_release_only": true
+  },
+  "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
+  "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
+  "policy_id": "09c3d8a213c60024f71c6aae13d1e1b34a3c8a6e7f8e16463eb70c9f35661be2"
+}

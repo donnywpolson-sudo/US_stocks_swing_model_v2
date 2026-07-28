@@ -133,3 +133,49 @@ The release contains `nasdaq_bootstrap_receipt.json` and
 establish snapshot B's count as a routine continuity baseline. It does not make
 the Nasdaq source active, modify `config/sources.json`, relabel the historical
 receipt, establish historical membership, or authorize models or research.
+
+## Prospective identity-release readiness
+
+The published bootstrap release supplies only the trusted prior count for the
+next normal Nasdaq parse. Snapshot B is not reused as the first active identity
+snapshot. A prospective merged identity input requires:
+
+- one separately approved, as-received Alpaca `/v2/assets` capture;
+- one separately approved Nasdaq capture with a later retrieval and embedded
+  file-creation time than snapshot B;
+- a normal Nasdaq continuity parse against the accepted count of 13,064; and
+- an offline merge that remains `NETWORK_AS_RECEIVED`.
+
+The Alpaca asset command is plan-only by default and performs no write:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_identity_sources
+```
+
+Its future execution is limited to one request, one page, 32 MiB, and 30
+seconds. Execution requires `--execute-network`, the exact separately approved
+request plan ID, `FREE_SOURCE_QUALIFICATION_APPROVED=YES`, credentials supplied
+only through the process environment, and production system UTC. Credentials
+are never included in the request plan, snapshot, output, or logs.
+
+After both captures exist, the join assessment is offline and no-write:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_identity_sources `
+  --assess-pair <alpaca-assets-snapshot> <fresh-nasdaq-snapshot>
+```
+
+The identity publisher also defaults to a no-write plan:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.publish_identity_release `
+  --alpaca-assets-snapshot <alpaca-assets-snapshot> `
+  --nasdaq-snapshot <fresh-nasdaq-snapshot>
+```
+
+Publication requires its own exact plan approval, `--execute`, and
+`NASDAQ_IDENTITY_RELEASE_PUBLICATION_APPROVED=YES`. It may create only one
+atomic accepted `identity` release containing `identity_snapshots.json` and
+`identity_publication_receipt.json`. It performs no network call and does not
+modify `config/sources.json` or activate any source. Activation remains a later
+independent review and execution gate.
