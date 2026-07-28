@@ -140,6 +140,59 @@ def test_local_network_execution_is_exact_ordered_and_unforgeable(
         )
 
 
+def test_post_preflight_failure_spends_attempt_and_requires_new_session(
+    tmp_path: Path,
+) -> None:
+    registry = _registry(tmp_path)
+    plan = _plan(registry)
+    clock = TrustedClock.production()
+    failed_session = start_local_network_execution(
+        plan,
+        registry=registry,
+        clock=clock,
+    )
+    failed_attempt = assert_local_network_request(
+        failed_session,
+        source="fixture",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=clock,
+    )
+    # No response is bound or landed, modeling failure immediately after preflight.
+    with pytest.raises(EvaluationAuthorizationError, match="reused or is out of sequence"):
+        assert_local_network_request(
+            failed_session,
+            source="fixture",
+            url=plan.initial_url,
+            timeout_seconds=30,
+            max_response_bytes=1024,
+            page_index=0,
+            expected_page_token=None,
+            clock=clock,
+        )
+
+    retry_session = start_local_network_execution(
+        plan,
+        registry=registry,
+        clock=clock,
+    )
+    retry_attempt = assert_local_network_request(
+        retry_session,
+        source="fixture",
+        url=plan.initial_url,
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        page_index=0,
+        expected_page_token=None,
+        clock=clock,
+    )
+    assert retry_attempt.attempt_id != failed_attempt.attempt_id
+    assert retry_attempt.session_id != failed_attempt.session_id
+
+
 def test_network_plan_rejects_duplicate_query_keys_and_registry_drift(
     tmp_path: Path,
 ) -> None:

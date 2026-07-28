@@ -30,8 +30,11 @@ Before transport, the CLI builds and validates an exact request plan against
 - ordered, single-use request attempts.
 
 The session exists only in memory. It is not transferable between processes and
-cannot be reconstructed from a file. A failed or interrupted attempt is spent;
-retry by starting a new explicit invocation.
+cannot be reconstructed from a file. Preflight spends the ordered page attempt
+before transport begins. A transport, response-binding, landing, or interruption
+failure therefore spends that attempt; same-session retry is intentionally
+rejected. Retry requires a new explicit invocation and a new local session.
+This favors fail-closed replay and ordering safety over in-session availability.
 
 ## Landed evidence
 

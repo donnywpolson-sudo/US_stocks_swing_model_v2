@@ -606,6 +606,10 @@ class ProspectiveMonitoringLedger:
                         envelope["recorded_at"],
                         "monitoring.recorded_at",
                     ),
+                    expected_clock_mode=envelope["time_authority"],
+                    expected_synthetic_permit_id=(
+                        envelope["synthetic_clock_permit_id"]
+                    ),
                 )
             elif record.recovery_authorization is not None:
                 raise IntegrityError(

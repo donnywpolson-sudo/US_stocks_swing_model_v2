@@ -20,8 +20,12 @@
   `FREE_SOURCE_QUALIFICATION_APPROVED=YES` are supplied for the exact bounded plan.
 - Mechanical-readiness receipt schema v2 embeds and revalidates the exact local
   publication record; unbound legacy receipts fail closed.
-- Latest full local validation after the post-simplification assessment fixes:
-  586 passed, 3 platform skips. Reconfirm on the merged tree.
+- Local integrity validation binds production versus synthetic clock authority,
+  and synthetic records require the exact creating clock permit.
+- Network preflight attempts are intentionally spent before transport; failures
+  require a new explicit invocation and session.
+- Latest full local validation after the clock/VWAP assessment fixes: 594
+  passed, 3 platform skips. Reconfirm on the merged tree.
 
 ## Accepted Assurance Boundaries
 

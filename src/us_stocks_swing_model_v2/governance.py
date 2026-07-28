@@ -191,11 +191,14 @@ class LocalIntegrityRecord:
         required_bindings: Mapping[str, str],
         clock: TrustedClock,
     ) -> None:
+        trusted_clock = require_trusted_clock(clock)
         self.validate_at(
             expected_scope=expected_scope,
             expected_subject_id=expected_subject_id,
             required_bindings=required_bindings,
-            observed_at=require_trusted_clock(clock).now(),
+            observed_at=trusted_clock.now(),
+            expected_clock_mode=trusted_clock.mode,
+            expected_synthetic_permit_id=trusted_clock.synthetic_permit_id,
         )
 
     def validate_at(
@@ -205,6 +208,8 @@ class LocalIntegrityRecord:
         expected_subject_id: str,
         required_bindings: Mapping[str, str],
         observed_at: object,
+        expected_clock_mode: str,
+        expected_synthetic_permit_id: str | None,
     ) -> None:
         self.validate_content()
         if self.scope != expected_scope:
@@ -214,6 +219,13 @@ class LocalIntegrityRecord:
         if dict(self.bindings) != dict(required_bindings):
             raise EvaluationAuthorizationError(
                 "local integrity bindings differ from governed evidence"
+            )
+        if (
+            self.clock_mode != expected_clock_mode
+            or self.synthetic_permit_id != expected_synthetic_permit_id
+        ):
+            raise EvaluationAuthorizationError(
+                "local integrity clock authority differs"
             )
         if not isinstance(observed_at, datetime):
             raise EvaluationAuthorizationError(
