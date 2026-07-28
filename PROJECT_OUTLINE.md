@@ -191,7 +191,7 @@ permission to rerun or rescue a retired hypothesis.
 | HF Data Library | `legacy_discovery` only, physically separated into pre-2022-03-04 PiTrading-consolidated and later IEX-only epochs |
 | Existing Alpaca SIP capsule and probe | Failed source-qualification evidence only; never an active feed |
 | Alpaca Basic | Guarded prospective candidate OHLCV lane; SIP and IEX remain unqualified until a bounded receipt proves one |
-| Nasdaq Trader | Preserved public snapshot evidence only; not trust-eligible until a fresh bounded capture is locally integrity-verified and separately shown fit for its intended identity role |
+| Nasdaq Trader | Preserved public snapshot is comparison-only; fresh snapshot A is locally verified and frozen for a two-capture bootstrap, while snapshot B, bootstrap publication, and activation remain separately gated |
 | Alpha Vantage | Excluded |
 | Options data | Excluded from model inputs, outputs, training, evaluation, and validation |
 
@@ -236,7 +236,10 @@ Milestone state:
    physical HFDL epochs, deterministic offline canonicalization, pinned XNYS
    calendar, separate feature/outcome bridges, aggregate non-active release,
    and bitemporal identity mechanics. The preserved Nasdaq snapshot is not
-   qualified identity evidence pending authenticated acquisition provenance.
+   qualified identity evidence. A two-fresh-capture bootstrap is implemented
+   without a normal-parser bypass: snapshot A is frozen, snapshot B must be
+   newer and separately authorized, and any baseline publication or activation
+   remains a later gate.
    Alpaca remains a guarded prospective lane. Further foundation publication
    is plan-only by default. The exact checked-in one-shot successor-refresh
    authorization is the only non-synthetic exception; it cannot create more

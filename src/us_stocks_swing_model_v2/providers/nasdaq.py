@@ -190,13 +190,12 @@ def _unambiguous_eastern_wall_time(value: str) -> datetime:
     return distinct.pop()
 
 
-def parse_nasdaq_traded(
+def _parse_nasdaq_traded_absolute(
     snapshot: LandedSnapshot,
     *,
     policy: NasdaqCompletenessPolicy | None = None,
-    prior_accepted_record_count: int | None = None,
 ) -> tuple[IdentityRecord, ...]:
-    """Parse only an atomically landed comprehensive Nasdaq Trader snapshot."""
+    """Apply absolute structure and provenance checks without continuity."""
     if snapshot.source != "nasdaqtraded" or snapshot.url != NASDAQ_TRADED_URL:
         raise ContractError("snapshot is not the contracted comprehensive Nasdaq file")
     if snapshot.http_status != 200 or snapshot.raw_sha256 == "" or not snapshot.headers:
@@ -217,10 +216,6 @@ def parse_nasdaq_traded(
                     *(value for value in (snapshot.synthetic_permit_id,) if value is not None),
                 }
             )
-        )
-    if completeness.synthetic_permit is None and prior_accepted_record_count is None:
-        raise ContractError(
-            "production Nasdaq parse requires a trusted prior accepted record count"
         )
     raw = snapshot.read_verified_bytes()
     if not completeness.minimum_bytes <= len(raw) <= completeness.maximum_bytes:
@@ -308,16 +303,40 @@ def parse_nasdaq_traded(
         )
     if not completeness.minimum_records <= len(records) <= completeness.maximum_records:
         raise ContractError("nasdaqtraded.txt record count fails the completeness policy")
+    return tuple(records)
+
+
+def parse_nasdaq_traded(
+    snapshot: LandedSnapshot,
+    *,
+    policy: NasdaqCompletenessPolicy | None = None,
+    prior_accepted_record_count: int | None = None,
+) -> tuple[IdentityRecord, ...]:
+    """Parse one snapshot using the normal trusted-prior continuity gate."""
+
+    completeness = policy or NasdaqCompletenessPolicy()
+    completeness.validate()
+    if snapshot.source != "nasdaqtraded" or snapshot.url != NASDAQ_TRADED_URL:
+        raise ContractError("snapshot is not the contracted comprehensive Nasdaq file")
+    if snapshot.http_status != 200 or snapshot.raw_sha256 == "" or not snapshot.headers:
+        raise ContractError("as-received bytes and HTTP headers must be preserved before parse")
+    if completeness.synthetic_permit is None and not snapshot.trust_eligible:
+        raise ContractError("production Nasdaq parse requires a network as-received snapshot")
+    if completeness.synthetic_permit is None and prior_accepted_record_count is None:
+        raise ContractError(
+            "production Nasdaq parse requires a trusted prior accepted record count"
+        )
+    if prior_accepted_record_count is not None and (
+        isinstance(prior_accepted_record_count, bool)
+        or not isinstance(prior_accepted_record_count, int)
+        or prior_accepted_record_count < 1
+    ):
+        raise ContractError("prior Nasdaq accepted count must be a positive integer")
+    records = _parse_nasdaq_traded_absolute(snapshot, policy=completeness)
     if prior_accepted_record_count is not None:
-        if (
-            isinstance(prior_accepted_record_count, bool)
-            or not isinstance(prior_accepted_record_count, int)
-            or prior_accepted_record_count < 1
-        ):
-            raise ContractError("prior Nasdaq accepted count must be a positive integer")
         delta = (len(records) - prior_accepted_record_count) / prior_accepted_record_count
         if delta < -completeness.maximum_drop_fraction:
             raise ContractError("Nasdaq membership count drop exceeds the accepted policy")
         if abs(delta) > completeness.maximum_count_change_fraction:
             raise ContractError("Nasdaq membership count change exceeds the accepted policy")
-    return tuple(records)
+    return records

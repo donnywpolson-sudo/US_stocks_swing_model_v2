@@ -21,6 +21,10 @@ from ..providers.alpaca import (
     qualify_landed_pages,
 )
 from ..providers.nasdaq import NASDAQ_TRADED_URL, parse_nasdaq_traded
+from ..providers.nasdaq_bootstrap import (
+    load_nasdaq_bootstrap_policy,
+    verify_nasdaq_bootstrap_pair,
+)
 from ..providers.http import open_without_redirects
 from ..providers.network_execution import (
     NetworkRequestPlan,
@@ -54,6 +58,13 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="verify one already captured Nasdaq snapshot and its local integrity receipt",
     )
+    mode.add_argument(
+        "--verify-nasdaq-bootstrap-pair",
+        nargs=2,
+        type=Path,
+        metavar=("SNAPSHOT_A", "SNAPSHOT_B"),
+        help="offline-only verification of the frozen two-capture bootstrap pair",
+    )
     selection = value.add_mutually_exclusive_group()
     selection.add_argument("--nasdaq-only", action="store_true")
     selection.add_argument("--alpaca-only", action="store_true")
@@ -81,9 +92,14 @@ def _load_source_config(repo_root: Path) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     supplied_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(supplied_argv)
-    verify_nasdaq = args.verify_nasdaq_snapshot is not None
+    verify_nasdaq_pair = args.verify_nasdaq_bootstrap_pair is not None
+    verify_nasdaq = args.verify_nasdaq_snapshot is not None or verify_nasdaq_pair
     if verify_nasdaq and args.alpaca_only:
         raise NetworkGuardError("Nasdaq snapshot verification cannot select Alpaca")
+    if verify_nasdaq_pair and args.prior_nasdaq_accepted_record_count is not None:
+        raise NetworkGuardError(
+            "Nasdaq bootstrap pair verification does not accept a historical prior count"
+        )
     requested_at = datetime.now(timezone.utc)
     symbols = tuple(sorted(set(item.strip().upper() for item in args.symbols.split(",") if item.strip())))
     alpaca_request = AlpacaBarsRequest(symbols, _parse_time(args.start), _parse_time(args.end), requested_at)
@@ -122,12 +138,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     plan: dict[str, object] = {
         "mode": (
-            "verify_local_nasdaq_snapshot"
-            if verify_nasdaq
+            "verify_local_nasdaq_bootstrap_pair"
+            if verify_nasdaq_pair
             else (
-                "network_capture"
-                if args.execute_network
-                else "plan_only"
+                "verify_local_nasdaq_snapshot"
+                if verify_nasdaq
+                else (
+                    "network_capture"
+                    if args.execute_network
+                    else "plan_only"
+                )
             )
         ),
         "alpaca": {
@@ -188,6 +208,19 @@ def main(argv: list[str] | None = None) -> int:
                 clock=trusted_clock,
             )
     result: dict[str, object] = {}
+    if verify_nasdaq_pair:
+        snapshot_a_path, snapshot_b_path = args.verify_nasdaq_bootstrap_pair
+        snapshot_a = store.load(snapshot_a_path)
+        snapshot_b = store.load(snapshot_b_path)
+        bootstrap_policy = load_nasdaq_bootstrap_policy(repo_root)
+        result["nasdaq_bootstrap"] = verify_nasdaq_bootstrap_pair(
+            snapshot_a,
+            snapshot_b,
+            policy=bootstrap_policy,
+        )
+        plan["result"] = result
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
     if verify_nasdaq:
         snapshot = store.load(args.verify_nasdaq_snapshot)
         if not snapshot.local_integrity_verified:

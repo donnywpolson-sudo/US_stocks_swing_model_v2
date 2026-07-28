@@ -98,7 +98,7 @@ and API.
 | Existing HF Data Library parquet | Historical discovery input only, split into separate PiTrading and IEX epochs; non-PIT |
 | Existing 780-symbol Alpaca SIP capsule and 30-symbol probe | Failed qualification evidence only; native/checkpoint/snapshot/audit evidence may migrate, while derived Parquet must be regenerated |
 | Alpaca Basic | Guarded prospective candidate lane; SIP and IEX are both unqualified until a bounded accepted receipt proves one |
-| Nasdaq Trader symbol directory | Preserved public snapshot evidence only; self-hashed acquisition receipts are not trust-eligible, so requalification awaits authenticated provenance |
+| Nasdaq Trader symbol directory | Preserved public snapshot remains comparison-only; snapshot A is locally verified and frozen for a two-fresh-capture bootstrap, while snapshot B, publication, and activation remain pending separate authorization |
 | Alpha Vantage | Excluded |
 | Options data | Excluded from model inputs, outputs, research, and validation |
 
@@ -227,6 +227,8 @@ python -m pytest -q <targeted-test-path>
 python -m us_stocks_swing_model_v2.cli.hash_copy --config config/migration_allowlist.json
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only
 python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only --nasdaq-only
+# After separately authorized snapshot B capture:
+python -m us_stocks_swing_model_v2.cli.qualify_free_sources --verify-nasdaq-bootstrap-pair <snapshot-A> <snapshot-B>
 python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
 python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
 ```

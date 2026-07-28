@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "project": "US_stocks_swing_model_v2",
+  "status": "IMPLEMENTED_NOT_EXECUTED_STOP_BEFORE_SNAPSHOT_B_CAPTURE",
+  "bootstrap_class": "TWO_FRESH_LOCALLY_INTEGRITY_VERIFIED_CAPTURES",
+  "source": "nasdaqtraded",
+  "url": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt",
+  "required_capture_count": 2,
+  "snapshot_a": {
+    "snapshot_id": "b47b40cf912eccc49260d091c92d2435eaf23c630aac78d23a1ac44182df2e7b",
+    "raw_sha256": "4ad35c455e05d653d3dc62d67fdb9b4692bdf12b9be8521289f66405447a7fba",
+    "retrieved_at": "2026-07-28T06:06:57.628031Z"
+  },
+  "snapshot_b_requirements": {
+    "distinct_snapshot_id": true,
+    "distinct_raw_sha256": true,
+    "retrieved_after_snapshot_a": true,
+    "file_created_after_snapshot_a": true
+  },
+  "completeness_policy": {
+    "minimum_bytes": 100000,
+    "maximum_bytes": 33554432,
+    "minimum_records": 1000,
+    "maximum_records": 50000,
+    "maximum_drop_fraction": 0.1,
+    "maximum_count_change_fraction": 0.25
+  },
+  "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
+  "preserved_historical_receipt": {
+    "path": "config/nasdaq_qualification_receipt.json",
+    "file_sha256": "918a8ded82f7d11d0ed967163868bc1f00695df1016fef831ebb73b439ff14c2",
+    "receipt_id": "3163ace9f5a71e403f1c030e1d06ef8bc42ea77cb03c71a1b63436882d87feca",
+    "record_count": 13050,
+    "role": "COMPARISON_ONLY_NOT_TRUSTED_NOT_GATE_INPUT"
+  },
+  "authorities": {
+    "network_calls": false,
+    "receipt_publication": false,
+    "source_activation": false,
+    "historical_relabel": false
+  },
+  "prohibitions": [
+    "network_capture",
+    "receipt_publication",
+    "source_activation",
+    "historical_receipt_relabel",
+    "model_fit",
+    "research_execution"
+  ],
+  "policy_id": "743d30b7394493cbd636d6badc06fa9e15437aafc44153a5576eec440add4f7b"
+}

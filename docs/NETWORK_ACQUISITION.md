@@ -75,3 +75,32 @@ The checked-in `config/nasdaq_qualification_receipt.json` predates this mode and
 remains preserved historical negative evidence. Its `NOT_ACTIVE` state and
 stale identities must not be rewritten or relabeled. A future qualification is
 a new acquisition and a new receipt.
+
+## First trusted Nasdaq count bootstrap
+
+The normal single-snapshot parser still has no first-run bypass. The separately
+implemented bootstrap requires exactly two fresh locally integrity-verified
+captures:
+
+- snapshot A is frozen in `config/nasdaq_bootstrap_policy.json`;
+- snapshot B must have different raw bytes, a later retrieval time, and a
+  strictly later embedded Nasdaq file-creation time;
+- both captures must pass the full absolute structure and completeness checks
+  under the same pinned network registry; and
+- the A-to-B count change must stay within the normal 10% drop and 25% absolute
+  change limits.
+
+After snapshot B is separately captured, the pair can be assessed offline:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
+  --verify-nasdaq-bootstrap-pair `
+  <absolute-snapshot-A-directory> `
+  <absolute-snapshot-B-directory>
+```
+
+This command performs no network call and writes no receipt. A pass identifies
+snapshot B's count only as a non-active baseline candidate. Publication and
+activation each remain separately unauthorized. The preserved historical count
+is emitted only as comparison metadata and cannot affect pass/fail. Owner-run
+local integrity is reproducibility evidence, not independent provenance.

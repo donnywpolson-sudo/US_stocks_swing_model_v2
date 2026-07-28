@@ -38,10 +38,15 @@ The operative source status in `config/sources.json` is
 The preserved receipt therefore grants no current capability and cannot
 activate identity evidence.
 
-A future bounded acquisition must create a new independently authenticated
-receipt. It must not overwrite or cosmetically refresh the preserved receipt.
-Until then, staleness is an enforced provenance fact and a release limitation,
-not a remediable integrity defect.
+A future bounded acquisition must create new owner-operated, locally
+integrity-verified evidence. The first trusted count requires the frozen
+two-fresh-capture bootstrap in `config/nasdaq_bootstrap_policy.json`; the old
+count is comparison-only and is never a bootstrap gate input. The bootstrap
+assessment cannot overwrite or cosmetically refresh the preserved receipt and
+cannot publish or activate a source. Until a separately authorized snapshot B
+capture, offline pair assessment, and later publication are complete, staleness
+is an enforced provenance fact and a release limitation, not a remediable
+integrity defect. Local integrity does not claim independent provenance.
 
 ## Assessment gate
 
