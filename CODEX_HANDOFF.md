@@ -18,8 +18,10 @@
 - Owner actions are bound to schema-v2 content-addressed local integrity records.
 - Network execution remains plan-only unless both `--execute-network` and
   `FREE_SOURCE_QUALIFICATION_APPROVED=YES` are supplied for the exact bounded plan.
-- Latest full local validation during the authority-removal cleanup: 585 passed,
-  3 platform skips. Reconfirm on the merged tree.
+- Mechanical-readiness receipt schema v2 embeds and revalidates the exact local
+  publication record; unbound legacy receipts fail closed.
+- Latest full local validation after the post-simplification assessment fixes:
+  586 passed, 3 platform skips. Reconfirm on the merged tree.
 
 ## Accepted Assurance Boundaries
 

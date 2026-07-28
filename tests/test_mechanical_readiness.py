@@ -13,6 +13,7 @@ import pytest
 import test_foundation_orchestrator as foundation_support
 import us_stocks_swing_model_v2.mechanical_readiness as readiness_module
 from us_stocks_swing_model_v2.bundle import BLOCKED_READINESS_RECEIPT_ID
+from us_stocks_swing_model_v2.clock import TrustedClock
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import IntegrityError
 from us_stocks_swing_model_v2.mechanical_readiness import (
@@ -114,6 +115,8 @@ def test_assessment_and_two_receipts_are_mechanical_only_and_idempotent(
     assert rebuild["readiness_state"] == historical["readiness_state"] == READINESS_STATE
     assert rebuild["receipt_id"] != BLOCKED_READINESS_RECEIPT_ID
     for receipt in (rebuild, historical):
+        assert receipt["schema_version"] == 2
+        assert receipt["local_integrity_record"] is None
         assert receipt["authority_and_claims"] == readiness_module._AUTHORITY_AND_CLAIMS
         assert receipt["pit_guard"]["historical_pit_identity_evidence"] == (
             "UNRESOLVED_NOT_FABRICATED"
@@ -206,6 +209,108 @@ def test_production_publication_requires_production_clock_before_mutation(
             created_at=CREATED_AT,
         )
     assert not work_root.exists()
+
+    result = publish_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        readiness_work_root=work_root,
+        created_at=CREATED_AT,
+        clock=TrustedClock.production(),
+    )
+    assert result.local_action_record is not None
+    record = result.local_action_record
+    assert record.scope == MECHANICAL_READINESS_PUBLICATION_AUTHORIZATION_SCOPE
+    assert record.subject_id == assessment.assessment_id
+    assert dict(record.bindings) == bindings
+    rebuild, historical = _receipts(result)
+    assert rebuild["schema_version"] == historical["schema_version"] == 2
+    assert rebuild["local_integrity_record"] == historical["local_integrity_record"]
+    assert rebuild["local_integrity_record"] == record.as_dict()
+
+    verified = verify_stock_mechanical_readiness_publication(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        rebuild_complete_release_directory=(
+            result.rebuild_complete_release_directory
+        ),
+        historical_research_ready_release_directory=(
+            result.historical_research_ready_release_directory
+        ),
+    )
+    assert verified.local_action_record == record
+
+    repeated = publish_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        readiness_work_root=work_root,
+        created_at=CREATED_AT,
+        clock=TrustedClock.production(),
+    )
+    assert repeated == result
+
+
+def test_production_readiness_legacy_record_omission_and_mismatch_fail_closed(
+    readiness_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permit, accepted, foundation = _foundation(readiness_tmp)
+    assessment = assess_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        synthetic_permit=permit,
+    )
+    data_root = readiness_tmp / "data"
+    data_root.mkdir(exist_ok=True)
+    work_root = (data_root / "readiness" / "bound-output").resolve(strict=False)
+    monkeypatch.setattr(readiness_module, "_repo_root", lambda: readiness_tmp)
+    monkeypatch.setattr(
+        readiness_module,
+        "assess_stock_mechanical_readiness",
+        lambda **_kwargs: assessment,
+    )
+    result = publish_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
+        readiness_work_root=work_root,
+        created_at=CREATED_AT,
+        clock=TrustedClock.production(),
+    )
+    receipt_path = (
+        result.rebuild_complete_release_directory / "rebuild_complete.json"
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["schema_version"] = 1
+    receipt.pop("local_integrity_record")
+    unsigned_receipt = dict(receipt)
+    unsigned_receipt.pop("receipt_id")
+    receipt["receipt_id"] = sha256_bytes(canonical_json_bytes(unsigned_receipt))
+    receipt_path.write_bytes(canonical_json_bytes(receipt))
+    with pytest.raises(IntegrityError, match="lacks its local action record"):
+        verify_stock_mechanical_readiness_publication(
+            foundation_release_directory=foundation,
+            accepted_release_root=accepted,
+            rebuild_complete_release_directory=(
+                result.rebuild_complete_release_directory
+            ),
+            historical_research_ready_release_directory=(
+                result.historical_research_ready_release_directory
+            ),
+        )
+
+    record_path = next(work_root.rglob("local_action_record.json"))
+    persisted = json.loads(record_path.read_text(encoding="utf-8"))
+    persisted["scope"] = "WRONG_LOCAL_SCOPE"
+    unsigned_record = dict(persisted)
+    unsigned_record.pop("record_id")
+    persisted["record_id"] = sha256_bytes(canonical_json_bytes(unsigned_record))
+    record_path.write_bytes(canonical_json_bytes(persisted))
+    with pytest.raises(IntegrityError, match="local action record differs"):
+        publish_stock_mechanical_readiness(
+            foundation_release_directory=foundation,
+            accepted_release_root=accepted,
+            readiness_work_root=work_root,
+            created_at=CREATED_AT,
+            clock=TrustedClock.production(),
+        )
 
 
 @pytest.mark.parametrize(
