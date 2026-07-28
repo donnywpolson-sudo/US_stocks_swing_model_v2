@@ -104,3 +104,32 @@ snapshot B's count only as a non-active baseline candidate. Publication and
 activation each remain separately unauthorized. The preserved historical count
 is emitted only as comparison metadata and cannot affect pass/fail. Owner-run
 local integrity is reproducibility evidence, not independent provenance.
+
+## Non-active bootstrap receipt publisher
+
+The dedicated publisher is plan-only by default:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.publish_nasdaq_bootstrap
+```
+
+Plan generation performs no writes and revalidates the clean committed Git
+closure, frozen implementation plan, current registry and environment, both
+snapshot receipts and raw bytes, the A/B assessment, preserved historical
+receipt, exact accepted/work roots, and inactive source configuration. It emits
+a content-addressed publication plan ID.
+
+Execution is a separate gate. It additionally requires `--execute`, the exact
+approved plan ID, `NASDAQ_BOOTSTRAP_PUBLICATION_APPROVED=YES`, production system
+UTC, and the clean one-commit successor to the reviewed base. The only permitted
+output is one atomic, idempotent release at:
+
+```text
+data/vault/accepted/nasdaq_bootstrap_baseline/<release_id>/
+```
+
+The release contains `nasdaq_bootstrap_receipt.json` and
+`release_manifest.json`, is labeled `qualification_evidence_only`, and may
+establish snapshot B's count as a routine continuity baseline. It does not make
+the Nasdaq source active, modify `config/sources.json`, relabel the historical
+receipt, establish historical membership, or authorize models or research.

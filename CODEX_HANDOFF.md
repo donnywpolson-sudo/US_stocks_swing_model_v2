@@ -19,9 +19,16 @@
   `b47b40cf912eccc49260d091c92d2435eaf23c630aac78d23a1ac44182df2e7b`
   is locally integrity-verified. The preserved historical receipt remains
   comparison-only and unchanged.
-- The offline two-fresh-capture Nasdaq bootstrap mechanics and frozen policy
-  are implemented in the working tree. They do not call the network, publish a
-  receipt, activate identity data, or bypass the normal trusted-prior parser.
+- Fresh snapshot B
+  `5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a`
+  advanced the embedded file time and passed the offline pair assessment
+  `f0de05e20e85b4a13322ff7debfb3efb1f1768d575082a3fd23bc912df282978`;
+  its 13,064 count is only a non-active baseline candidate.
+- The guarded bootstrap receipt publisher is implemented in the working tree.
+  It is plan-only by default, has no provider transport, requires a clean
+  one-commit successor plus an exact approved runtime plan and owner
+  confirmation, and can publish only one non-active qualification-evidence
+  release. It cannot activate identity data or rewrite the old receipt.
 - No real-history WFA, alpha, candidate, provider, or live operation is authorized.
 - Owner actions are bound to schema-v2 content-addressed local integrity records.
 - Network execution remains plan-only unless both `--execute-network` and
@@ -64,7 +71,8 @@
 
 ## Next Gate
 
-Stop before snapshot B capture. The next gate is a separate exact authorization
-for one bounded Nasdaq snapshot B network capture after its embedded file time
-has advanced beyond snapshot A. Offline pair assessment, receipt publication,
-and activation remain separate later gates.
+Stop before receipt publication. After the publisher implementation is
+committed and the clean-commit plan-only command emits its exact publication
+plan ID, seek a separate approval for one non-active accepted receipt release.
+Source activation and any `config/sources.json` change remain later independent
+gates.

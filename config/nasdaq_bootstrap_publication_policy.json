@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "project": "US_stocks_swing_model_v2",
+  "plan_type": "NASDAQ_BOOTSTRAP_BASELINE_PUBLISHER_IMPLEMENTATION_ONLY",
+  "base_commit": "40b467caf831261f8657986432294dccc23516e8",
+  "base_tree": "fd3778aabe92be66cd0ae2c16ebd5cb345ee240d",
+  "bootstrap_policy_id": "743d30b7394493cbd636d6badc06fa9e15437aafc44153a5576eec440add4f7b",
+  "assessment_id": "f0de05e20e85b4a13322ff7debfb3efb1f1768d575082a3fd23bc912df282978",
+  "snapshot_a": {
+    "snapshot_id": "b47b40cf912eccc49260d091c92d2435eaf23c630aac78d23a1ac44182df2e7b",
+    "raw_sha256": "4ad35c455e05d653d3dc62d67fdb9b4692bdf12b9be8521289f66405447a7fba",
+    "receipt_file_sha256": "3568e8ec9b48923203ea402a25606c73bc587e5c59a50c9c271881361e1aa608",
+    "file_created_at": "2026-07-28T01:33:00Z",
+    "retrieved_at": "2026-07-28T06:06:57.628031Z",
+    "record_count": 13062
+  },
+  "snapshot_b": {
+    "snapshot_id": "5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a",
+    "raw_sha256": "a912a6bbaa83f0f35d725bf8a49e6cae09e2d88eaa2737e12fea59fb6a070867",
+    "receipt_file_sha256": "b37717a11a2320a681c45e3695286287897e419e9a78bd5b87a0764f0cf52ab7",
+    "file_created_at": "2026-07-28T11:01:00Z",
+    "retrieved_at": "2026-07-28T11:16:14.774539Z",
+    "record_count": 13064
+  },
+  "preserved_historical_receipt": {
+    "path": "config/nasdaq_qualification_receipt.json",
+    "file_sha256": "918a8ded82f7d11d0ed967163868bc1f00695df1016fef831ebb73b439ff14c2",
+    "receipt_id": "3163ace9f5a71e403f1c030e1d06ef8bc42ea77cb03c71a1b63436882d87feca",
+    "role": "COMPARISON_ONLY_NOT_TRUSTED_NOT_GATE_INPUT"
+  },
+  "destination": {
+    "accepted_root": "data/vault/accepted",
+    "dataset": "nasdaq_bootstrap_baseline",
+    "source_epoch": "nasdaqtraded_two_capture_bootstrap_20260728",
+    "role": "qualification_evidence_only",
+    "quality_state": "QUALIFICATION_EVIDENCE",
+    "payload_filename": "nasdaq_bootstrap_receipt.json",
+    "work_root": "data/w/nasdaq_bootstrap",
+    "publication_count": 1
+  },
+  "receipt_contract": {
+    "schema_version": 2,
+    "receipt_class": "NASDAQ_TWO_CAPTURE_BOOTSTRAP_BASELINE",
+    "status": "PASS_BOOTSTRAP_BASELINE_PUBLISHED_NOT_ACTIVE",
+    "baseline_record_count": 13064,
+    "baseline_snapshot_id": "5551138f91ac5700c9106188ca8f1385499afbdd4adb06b2c0c5a38d6596bd7a",
+    "continuity_baseline_eligible": true,
+    "source_active": false,
+    "provenance": "OWNER_OPERATED_LOCAL_INTEGRITY_NOT_INDEPENDENT_PROVENANCE",
+    "local_integrity_scope": "NASDAQ_BOOTSTRAP_BASELINE_RECEIPT_PUBLICATION",
+    "receipt_fields": [
+      "assessment_code_commit",
+      "assessment_id",
+      "authorities",
+      "baseline",
+      "bootstrap_policy_id",
+      "created_at",
+      "environment_id",
+      "local_integrity_record",
+      "network_registry_id",
+      "preserved_historical_comparison",
+      "prohibitions",
+      "project",
+      "provenance",
+      "publication_plan_id",
+      "publisher_code_commit",
+      "receipt_class",
+      "receipt_id",
+      "schema_version",
+      "snapshot_a",
+      "snapshot_b",
+      "status"
+    ]
+  },
+  "implementation_changes": [
+    "config/nasdaq_bootstrap_publication_policy.json",
+    "src/us_stocks_swing_model_v2/providers/nasdaq_bootstrap_publisher.py",
+    "src/us_stocks_swing_model_v2/cli/publish_nasdaq_bootstrap.py",
+    "tests/test_nasdaq_bootstrap_publication.py",
+    "pyproject.toml",
+    "README.md",
+    "PROJECT_OUTLINE.md",
+    "CODEX_HANDOFF.md",
+    "docs/NETWORK_ACQUISITION.md"
+  ],
+  "execution_contract": {
+    "default_mode": "PLAN_ONLY_NO_WRITES",
+    "execute_flag": "--execute",
+    "network_calls": 0,
+    "accepted_release_publications": 1,
+    "source_config_mutations": 0,
+    "activation": false,
+    "historical_receipt_relabel": false,
+    "model_or_research_authority": false,
+    "require_clean_successor_commit": true,
+    "require_production_system_utc": true,
+    "atomic_content_addressed_publication": true,
+    "idempotent_same_release_only": true
+  },
+  "validation": {
+    "targeted_tests": [
+      "tests/test_nasdaq_bootstrap_publication.py",
+      "tests/test_nasdaq_bootstrap.py",
+      "tests/test_source_contracts.py",
+      "tests/test_releases_and_locking.py",
+      "tests/test_local_integrity_records.py"
+    ],
+    "full_synthetic_suite_before_commit": true,
+    "git_diff_check": true,
+    "offline_reverify_both_snapshots": true
+  },
+  "current_environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
+  "current_network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
+  "plan_id": "48f5b555b8294b0777e02ea94610836f08f2e4b5333babe0b25e5b762995a6d6"
+}
