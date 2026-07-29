@@ -6,12 +6,10 @@
 - Root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `5139ece5b97ba8629e00dbc26e449110d5f5547d`
+  `ee55d25291aff94ddbbfc177b1e40c83ff25ccf2`
 - State-base tree:
-  `5e7ea3b6d6ef7e0e3e5fd158a54bb46dc65eb6e6`
-- Expected worktree: modified only `AGENTS.md`, `CODEX_HANDOFF.md`,
-  `src/us_stocks_swing_model_v2/master_audit_runner.py`, and
-  `tests/test_master_audit_runner.py`.
+  `b98622a9c50a5560bb4caa503fbe0934197c699b`
+- Expected worktree: modified only `CODEX_HANDOFF.md`.
 
 This is coordination context, not evidence or execution authority. Repository
 authorities, current implementation/tests, and accepted manifests remain
@@ -28,19 +26,19 @@ binding.
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
 - The migration, XNYS, foundation, rebuild, historical-ready, Nasdaq baseline,
   identity, Meta-review, and eleven component identities remain unchanged.
-- User-owned `AGENTS.md` adds 23 lines under
-  `Larger-goal planning and continuation`; it is preserved unchanged.
+- `AGENTS.md` now commits the larger-goal completion workflow at the state
+  base.
 - Invocation
   `c033fb394ca8d9bb2b8a08240cd2e0bb4cbf011a8e0876709e7ac839f446db89`
   with manifest ID
   `f028505ecb16d773ae7628af52d113ae6f51ac9efc9e1e8a5d8a2d8625e7ca77`
-  passed validation-only against the state base with preflight timeout 120
-  seconds. It is stale after the current tracked changes.
+  passed validation-only against its prior state with preflight timeout 120
+  seconds. It is stale after the committed runner and workflow changes.
 - Its sole calibration completed steps 1–4, then timed out at
   `mechanical_readiness_verification` after 600.110 seconds. Pytest and steps
   6–9 did not run; no report or pending artifact was created; no retry occurred.
-- Root cause was a redundant full mechanical-readiness assessment. The runner
-  now uses the publication verifier's single assessment result. Focused
+- The redundant full mechanical-readiness pre-pass is removed and committed.
+  The runner uses the publication verifier's single assessment result; focused
   regression coverage forbids a separate pre-pass.
 - Targeted synthetic verification passed once: `68 passed` for
   `tests/test_master_audit_runner.py`,
@@ -49,12 +47,13 @@ binding.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: review, stage, and commit exactly the four expected modified
-paths. A later manifest must bind the resulting clean commit before calibration.
+`UNAUTHORIZED`: generate and validation-check one new content-addressed
+invocation manifest bound to the resulting clean coordination commit. Preserve
+prior manifests and the admitted evidence census unchanged.
 
-No manifest generation, calibration, audit execution, report publication,
-provider/network request, secret-byte read, data mutation, activation, research,
-training, evaluation, prediction, push, or trading is authorized.
+No calibration, audit execution, report publication, provider/network request,
+secret-byte read, data mutation, activation, research, training, evaluation,
+prediction, push, or trading is authorized.
 
 ## Invalidation
 
