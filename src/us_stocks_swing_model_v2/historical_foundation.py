@@ -433,7 +433,7 @@ def _caveats(epoch: str, calendar_release_id: str) -> dict[str, object]:
     }
 
 
-def _derive_symbol_tables(
+def _derive_causal_bars(
     *,
     source_series_id: str,
     symbol: str,
@@ -442,8 +442,8 @@ def _derive_symbol_tables(
     calendar_sessions: tuple[date, ...],
     calendar_rows: Mapping[date, Mapping[str, Any]],
     calendar_release_id: str,
-) -> dict[str, pa.Table]:
-    """Derive features/outcome inputs strictly from the canonical causal table."""
+) -> pa.Table:
+    """Derive one canonical causal-bar table from one tagged source table."""
 
     require_sha256(source_series_id, "historical_foundation.source_series_id")
     require_sha256(calendar_release_id, "historical_foundation.calendar_release_id")
@@ -530,6 +530,30 @@ def _derive_symbol_tables(
         pa.Table.from_pylist(causal, schema=CAUSAL_BAR_SCHEMA),
         CAUSAL_BAR_SCHEMA,
         SORT_KEYS["causal_bars"],
+    )
+    return causal_table
+
+
+def _derive_symbol_tables(
+    *,
+    source_series_id: str,
+    symbol: str,
+    source: pa.Table,
+    epoch: str,
+    calendar_sessions: tuple[date, ...],
+    calendar_rows: Mapping[date, Mapping[str, Any]],
+    calendar_release_id: str,
+) -> dict[str, pa.Table]:
+    """Derive features/outcome inputs strictly from the canonical causal table."""
+
+    causal_table = _derive_causal_bars(
+        source_series_id=source_series_id,
+        symbol=symbol,
+        source=source,
+        epoch=epoch,
+        calendar_sessions=calendar_sessions,
+        calendar_rows=calendar_rows,
+        calendar_release_id=calendar_release_id,
     )
     derived = _derive_feature_and_outcome_inputs(
         causal=causal_table,
@@ -1199,6 +1223,7 @@ def load_hfdl_historical_foundation(
     *,
     accepted_release_root: Path,
     hfdl_synthetic_permit: SyntheticOnlyPermit | None = None,
+    expected_hfdl_epoch_set_release_directory: Path | None = None,
 ) -> HistoricalFoundationResult:
     """Verify all six physical releases and recompute them from accepted inputs."""
 
@@ -1295,6 +1320,18 @@ def load_hfdl_historical_foundation(
         accepted_release_root=accepted,
         synthetic_permit=hfdl_synthetic_permit,
     )
+    if expected_hfdl_epoch_set_release_directory is not None:
+        expected_hfdl_directory = require_contained_path(
+            Path(expected_hfdl_epoch_set_release_directory),
+            accepted,
+        )
+        if (
+            hfdl.epoch_set_release_directory.resolve(strict=True)
+            != expected_hfdl_directory.resolve(strict=True)
+        ):
+            raise IntegrityError(
+                "historical-foundation HFDL release differs from the expected binding"
+            )
     calendar = load_xnys_calendar_release(
         accepted / calendar_binding["dataset"] / calendar_binding["release_id"],
         accepted_release_root=accepted,
@@ -1375,7 +1412,7 @@ def load_hfdl_historical_foundation(
                 session not in calendar_rows
                 for session in source_table.column("session").to_pylist()
             )
-            expected = _derive_symbol_tables(
+            expected_causal = _derive_causal_bars(
                 source_series_id=index["pair_id"],
                 symbol=index["symbol"],
                 source=source_table,
@@ -1388,7 +1425,7 @@ def load_hfdl_historical_foundation(
             observed_causal = pq.read_table(directories["causal_bars"] / relative)
             if (
                 observed_causal.schema.remove_metadata() != CAUSAL_BAR_SCHEMA
-                or not observed_causal.equals(expected["causal_bars"])
+                or not observed_causal.equals(expected_causal)
             ):
                 raise IntegrityError("historical-foundation causal bars differ from source recomputation")
             expected_downstream = _derive_feature_and_outcome_inputs(

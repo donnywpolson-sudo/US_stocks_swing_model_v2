@@ -22,7 +22,6 @@ from .clock import TrustedClock, require_trusted_clock
 from .canonical.hfdl_legacy_publisher import (
     HFDL_EPOCHS,
     SYNTHETIC_CONTRACT_SCOPE,
-    verify_hfdl_legacy_publication,
 )
 from .common import (
     assert_exact_tree,
@@ -901,21 +900,16 @@ def _verify_foundation(
     load_xnys_calendar_release(calendar_dir, accepted_release_root=accepted_root)
     hfdl_binding = receipt["hfdl"]["epoch_set"]
     hfdl_dir = accepted_root / hfdl_binding["dataset"] / hfdl_binding["release_id"]
-    hfdl = verify_hfdl_legacy_publication(
-        hfdl_dir,
-        accepted_release_root=accepted_root,
-        synthetic_permit=synthetic_permit,
-    )
     bridge_binding = receipt["historical_foundation"]["bridge_set"]
     bridge_dir = accepted_root / bridge_binding["dataset"] / bridge_binding["release_id"]
     bridge = load_hfdl_historical_foundation(
         bridge_dir,
         accepted_release_root=accepted_root,
         hfdl_synthetic_permit=synthetic_permit,
+        expected_hfdl_epoch_set_release_directory=hfdl_dir,
     )
     if (
-        hfdl.epoch_set_release_directory.resolve(strict=True) != hfdl_dir.resolve(strict=True)
-        or bridge.bridge_set_release_directory.resolve(strict=True)
+        bridge.bridge_set_release_directory.resolve(strict=True)
         != bridge_dir.resolve(strict=True)
         or receipt.get("migration", {}).get("manifest_schema_version") != 2
         or receipt.get("migration", {}).get("payload_layout_version")

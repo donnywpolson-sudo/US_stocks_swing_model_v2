@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import test_hfdl_legacy_publisher as hfdl_support
+import us_stocks_swing_model_v2.historical_foundation as foundation_module
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.canonical.hfdl import HFDL_TAGGED_SCHEMA
 from us_stocks_swing_model_v2.canonical.hfdl_legacy_publisher import (
@@ -211,6 +212,47 @@ def test_bridge_publishes_six_unpooled_legacy_releases_with_exact_censuses(
         hfdl_synthetic_permit=permit,
     )
     assert rerun == result
+
+
+def test_bridge_loader_verifies_one_hfdl_binding_and_derives_downstream_once_per_pair(
+    bridge_tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    accepted, hfdl, _calendar, permit, result = _publish(bridge_tmp)
+    wrong_hfdl_directory = hfdl.epoch_release_directories[HFDL_EPOCHS[0]]
+    with pytest.raises(IntegrityError, match="differs from the expected binding"):
+        load_hfdl_historical_foundation(
+            result.bridge_set_release_directory,
+            accepted_release_root=accepted,
+            hfdl_synthetic_permit=permit,
+            expected_hfdl_epoch_set_release_directory=wrong_hfdl_directory,
+        )
+
+    original = foundation_module._derive_feature_and_outcome_inputs
+    downstream_calls = 0
+
+    def counted_downstream_derivation(**kwargs):
+        nonlocal downstream_calls
+        downstream_calls += 1
+        return original(**kwargs)
+
+    monkeypatch.setattr(
+        foundation_module,
+        "_derive_feature_and_outcome_inputs",
+        counted_downstream_derivation,
+    )
+    verified = load_hfdl_historical_foundation(
+        result.bridge_set_release_directory,
+        accepted_release_root=accepted,
+        hfdl_synthetic_permit=permit,
+        expected_hfdl_epoch_set_release_directory=hfdl.epoch_set_release_directory,
+    )
+    expected_pairs = sum(
+        len(tuple((directory / "data").glob("*.parquet")))
+        for directory in hfdl.epoch_release_directories.values()
+    )
+    assert verified == result
+    assert downstream_calls == expected_pairs
 
 
 @pytest.mark.parametrize(

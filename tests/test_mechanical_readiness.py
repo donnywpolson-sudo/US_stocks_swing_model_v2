@@ -11,6 +11,7 @@ from typing import Iterator
 import pytest
 
 import test_foundation_orchestrator as foundation_support
+import us_stocks_swing_model_v2.historical_foundation as foundation_module
 import us_stocks_swing_model_v2.mechanical_readiness as readiness_module
 from us_stocks_swing_model_v2.bundle import BLOCKED_READINESS_RECEIPT_ID
 from us_stocks_swing_model_v2.clock import TrustedClock
@@ -155,6 +156,31 @@ def test_publication_reuses_the_verified_assessment_once(
         accepted_release_root=accepted,
         readiness_work_root=readiness_tmp / "ready-work-single-assessment",
         created_at=CREATED_AT,
+        synthetic_permit=permit,
+    )
+    assert calls == 1
+
+
+def test_assessment_verifies_hfdl_once(
+    readiness_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    permit, accepted, foundation = _foundation(readiness_tmp)
+    original = foundation_module.verify_hfdl_legacy_publication
+    calls = 0
+
+    def counted_hfdl_verification(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        foundation_module,
+        "verify_hfdl_legacy_publication",
+        counted_hfdl_verification,
+    )
+    assess_stock_mechanical_readiness(
+        foundation_release_directory=foundation,
+        accepted_release_root=accepted,
         synthetic_permit=permit,
     )
     assert calls == 1
