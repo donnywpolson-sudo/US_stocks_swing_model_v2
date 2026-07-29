@@ -60,7 +60,9 @@ def _unsigned_manifest(root: Path) -> dict[str, object]:
         else:
             binding = _write(root, f"scan/{surface}/evidence.txt")
             files = [binding]
-        secret_surfaces.append({"surface": surface, "files": files})
+        secret_surfaces.append(
+            {"surface": surface, "files": files, "empty_roots": []}
+        )
     commands = [
         {
             "step": step,
@@ -206,6 +208,35 @@ def test_forbidden_secret_filename_is_preflighted_without_hashing_bytes(
     monkeypatch.setattr(runner, "sha256_file", guarded)
     resolved = runner._verify_secret_binding(tmp_path, forbidden)
     assert resolved.name == "api.env"
+
+
+def test_manifest_accepts_explicit_empty_roots_and_rejects_omitted_surface_proof(
+    tmp_path: Path,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    logs = unsigned["secret_surfaces"][1]  # type: ignore[index]
+    logs["files"] = []
+    logs["empty_roots"] = ["logs"]
+    invocation = MasterAuditInvocation.from_dict(build_invocation_payload(unsigned))
+    assert invocation.secret_surfaces["logs"] == ()
+    assert invocation.empty_surface_roots["logs"] == ("logs",)
+
+    omitted = deepcopy(unsigned)
+    omitted["secret_surfaces"][1]["empty_roots"] = []  # type: ignore[index]
+    with pytest.raises(
+        ContractError,
+        match="either files or explicit empty roots",
+    ):
+        MasterAuditInvocation.from_dict(build_invocation_payload(omitted))
+
+
+def test_empty_surface_preflight_rejects_unexpected_files(tmp_path: Path) -> None:
+    empty = tmp_path / "logs"
+    empty.mkdir()
+    assert runner._verify_empty_surface_root(tmp_path, "logs") == "EMPTY_DIRECTORY"
+    (empty / "unexpected.log").write_text("unexpected", encoding="utf-8")
+    with pytest.raises(ContractError, match="unexpected file"):
+        runner._verify_empty_surface_root(tmp_path, "logs")
 
 
 def test_process_timeout_and_exit_policy_are_fail_closed(tmp_path: Path) -> None:

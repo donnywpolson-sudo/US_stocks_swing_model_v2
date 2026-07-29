@@ -106,6 +106,60 @@ def test_secret_filename_is_flagged_without_reading_its_bytes(
     assert result.findings[0].file_sha256 is None
 
 
+def test_secret_scan_proves_absent_and_empty_surfaces_and_rejects_unexpected_files(
+    tmp_path: Path,
+) -> None:
+    surfaces = _surface_census(tmp_path)
+    (tmp_path / surfaces["logs"][0]).unlink()
+    (tmp_path / "logs").rmdir()
+    (tmp_path / surfaces["artifacts"][0]).unlink()
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
+    surfaces["logs"] = ()
+    surfaces["artifacts"] = ()
+    empty_roots = {
+        surface: (
+            (surface,)
+            if surface in {"logs", "artifacts"}
+            else ()
+        )
+        for surface in AUDIT_SURFACES
+    }
+
+    result = scan_declared_audit_surfaces(
+        tmp_path,
+        surfaces,
+        empty_surface_roots=empty_roots,
+    )
+    assert result.passed is True
+    assert dict(result.surface_counts)["logs"] == 0
+    assert dict(result.surface_counts)["artifacts"] == 0
+    states = {
+        (root.surface, root.relative_path): root.state
+        for root in result.empty_surface_roots
+    }
+    assert states[("logs", "logs")] == "ABSENT"
+    assert states[("artifacts", "artifacts")] == "EMPTY_DIRECTORY"
+
+    (tmp_path / "artifacts" / "unexpected.txt").write_text(
+        "unexpected",
+        encoding="utf-8",
+    )
+    with pytest.raises(ContractError, match="unexpected file"):
+        scan_declared_audit_surfaces(
+            tmp_path,
+            surfaces,
+            empty_surface_roots=empty_roots,
+        )
+
+
+def test_secret_scan_rejects_omitted_empty_surface_proof(tmp_path: Path) -> None:
+    surfaces = _surface_census(tmp_path)
+    (tmp_path / surfaces["logs"][0]).unlink()
+    surfaces["logs"] = ()
+    with pytest.raises(ContractError, match="either files or explicit empty roots"):
+        scan_declared_audit_surfaces(tmp_path, surfaces)
+
+
 def _traceability_row(
     requirement_id: str,
     threat_id: str,

@@ -84,6 +84,12 @@ def _exact_list(value: object, field: str) -> list[object]:
     return list(value)
 
 
+def _exact_array(value: object, field: str) -> list[object]:
+    if type(value) is not list:
+        raise ContractError(f"{field} must be an exact list")
+    return list(value)
+
+
 def _exact_text(value: object, field: str) -> str:
     if type(value) is not str or not value or value != value.strip():
         raise ContractError(f"{field} must be nonempty exact text")
@@ -417,6 +423,7 @@ class MasterAuditInvocation:
     component_manifests: tuple[FileBinding, ...]
     mechanical_readiness: MechanicalReadinessBinding
     secret_surfaces: Mapping[str, tuple[SecretFileBinding, ...]]
+    empty_surface_roots: Mapping[str, tuple[str, ...]]
     commands: tuple[CommandBinding, ...]
     report: ReportBinding
 
@@ -481,7 +488,11 @@ class MasterAuditInvocation:
 
         raw_surfaces = _exact_list(item["secret_surfaces"], "secret_surfaces")
         parsed_surfaces = [
-            _exact_dict(entry, {"surface", "files"}, f"secret_surfaces[{index}]")
+            _exact_dict(
+                entry,
+                {"surface", "files", "empty_roots"},
+                f"secret_surfaces[{index}]",
+            )
             for index, entry in enumerate(raw_surfaces)
         ]
         surface_names = tuple(
@@ -491,14 +502,27 @@ class MasterAuditInvocation:
         if surface_names != AUDIT_SURFACES:
             raise ContractError("secret_surfaces must use the exact six-surface order")
         secret_surfaces: dict[str, tuple[SecretFileBinding, ...]] = {}
+        empty_surface_roots: dict[str, tuple[str, ...]] = {}
         seen_secret_paths: set[str] = set()
+        seen_empty_roots: set[str] = set()
         for surface, surface_item in zip(AUDIT_SURFACES, parsed_surfaces, strict=True):
+            raw_files = _exact_array(
+                surface_item["files"], f"secret_surfaces.{surface}.files"
+            )
+            raw_empty_roots = _exact_array(
+                surface_item["empty_roots"],
+                f"secret_surfaces.{surface}.empty_roots",
+            )
+            if bool(raw_files) is bool(raw_empty_roots):
+                raise ContractError(
+                    "each secret surface requires either files or explicit empty roots"
+                )
             entries = tuple(
                 SecretFileBinding.from_dict(
                     entry, f"secret_surfaces.{surface}[{index}]"
                 )
                 for index, entry in enumerate(
-                    _exact_list(surface_item["files"], f"secret_surfaces.{surface}")
+                    raw_files
                 )
             )
             for entry in entries:
@@ -508,6 +532,17 @@ class MasterAuditInvocation:
                     )
                 seen_secret_paths.add(entry.path)
             secret_surfaces[surface] = entries
+            roots = tuple(
+                _relative_path(
+                    entry, f"secret_surfaces.{surface}.empty_roots[{index}]"
+                )
+                for index, entry in enumerate(raw_empty_roots)
+            )
+            for root in roots:
+                if root in seen_empty_roots:
+                    raise ContractError("empty-surface roots must be unique")
+                seen_empty_roots.add(root)
+            empty_surface_roots[surface] = roots
 
         commands = tuple(
             CommandBinding.from_dict(entry, f"commands[{index}]")
@@ -535,6 +570,7 @@ class MasterAuditInvocation:
                 item["mechanical_readiness"]
             ),
             secret_surfaces=secret_surfaces,
+            empty_surface_roots=empty_surface_roots,
             commands=commands,
             report=ReportBinding.from_dict(item["report"]),
         )
@@ -573,6 +609,7 @@ class MasterAuditInvocation:
                     "files": [
                         entry.as_dict() for entry in self.secret_surfaces[surface]
                     ],
+                    "empty_roots": list(self.empty_surface_roots[surface]),
                 }
                 for surface in AUDIT_SURFACES
             ],
@@ -691,6 +728,22 @@ def _verify_secret_binding(root: Path, binding: SecretFileBinding) -> Path:
     return path
 
 
+def _verify_empty_surface_root(root: Path, relative: str) -> str:
+    path = _bound_path(root, relative, must_exist=False)
+    if not path.exists():
+        return "ABSENT"
+    reject_link(path)
+    if not path.is_dir():
+        raise ContractError("empty-surface root must be absent or a directory")
+    for child in path.rglob("*"):
+        reject_link(child)
+        if child.is_file():
+            raise ContractError("empty-surface root contains an unexpected file")
+        if not child.is_dir():
+            raise ContractError("empty-surface root contains an unsupported entry")
+    return "EMPTY_DIRECTORY"
+
+
 def validate_repository_preflight(
     invocation: MasterAuditInvocation,
     *,
@@ -762,6 +815,16 @@ def validate_repository_preflight(
     for entries in invocation.secret_surfaces.values():
         for binding in entries:
             _verify_secret_binding(root, binding)
+    empty_root_states: list[dict[str, str]] = []
+    for surface in AUDIT_SURFACES:
+        for relative in invocation.empty_surface_roots[surface]:
+            empty_root_states.append(
+                {
+                    "surface": surface,
+                    "relative_path": relative,
+                    "state": _verify_empty_surface_root(root, relative),
+                }
+            )
     for release in invocation.accepted_releases:
         directory = _bound_path(root, release.directory)
         manifest_path = _bound_path(root, f"{release.directory}/release_manifest.json")
@@ -776,6 +839,7 @@ def validate_repository_preflight(
         "tree": invocation.repository.tree,
         "bound_file_count": len(bindings),
         "accepted_release_count": len(invocation.accepted_releases),
+        "empty_surface_roots": empty_root_states,
     }
 
 
@@ -869,7 +933,11 @@ def _scan_secrets(invocation: MasterAuditInvocation) -> tuple[dict[str, object],
         surface: tuple(binding.path for binding in invocation.secret_surfaces[surface])
         for surface in AUDIT_SURFACES
     }
-    result = scan_declared_audit_surfaces(root, surfaces)
+    result = scan_declared_audit_surfaces(
+        root,
+        surfaces,
+        empty_surface_roots=dict(invocation.empty_surface_roots),
+    )
     return (
         {
             "step": "secret_scan",

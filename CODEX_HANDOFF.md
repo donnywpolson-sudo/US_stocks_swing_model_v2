@@ -6,51 +6,51 @@
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `2aed8e534d1c1c9fc51a260602695d522b0e5699`
+  `1e1a1e747470cc0598edecd072012465804ea795`
 - State-base tree:
-  `983f189b3217242057013373afdf841290a7c2e7`
+  `dd2ac8ec502bdad1e4a51ae576f8c83c84f8e78d`
 - Expected worktree:
   - modified `CODEX_HANDOFF.md`;
-  - untracked `src/us_stocks_swing_model_v2/master_audit_runner.py`;
-  - untracked `src/us_stocks_swing_model_v2/cli/run_master_audit.py`;
-  - untracked `tests/test_master_audit_runner.py`;
+  - modified `src/us_stocks_swing_model_v2/audit_controls.py`;
+  - modified `src/us_stocks_swing_model_v2/master_audit_runner.py`;
+  - modified `tests/test_master_audit_runner.py`;
+  - modified `tests/test_meta_audit_remediation.py`;
   - no other changes.
 
-`AGENTS.md`, the Constitution, Harness, current implementation/configuration,
-and accepted manifests remain authoritative. This handoff is context only and
-grants no execution authority.
+This handoff is coordination context only. `AGENTS.md`, the Constitution,
+Harness, current code/configuration/tests, and accepted manifests remain
+authoritative.
 
 ## Verified Current State
 
 - Highest documented milestone remains
   `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`, mapping to the
   cumulative Master target `HISTORICAL_RESEARCH_READY`.
-- `MASTER_AUDIT.md` remains unchanged at SHA-256
+- `MASTER_AUDIT.md` remains at SHA-256
   `9dc6826c4a3a2e5abef8e650c630a094c7f99625b54a0cbea52cc21f20fac64a`.
-- `META_MASTER_AUDIT.md` remains unchanged at SHA-256
+- `META_MASTER_AUDIT.md` remains at SHA-256
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
-- An uncommitted deterministic Master Audit runner and CLI now require one
-  canonical, hash-bound invocation manifest with exact file, release, command,
-  and six-surface secret-scan censuses. Default mode validates only and writes
-  nothing; report publication is separately gated.
-- Targeted synthetic validation passed:
-  `38 passed` for `tests/test_master_audit_runner.py`,
-  `tests/test_meta_audit_remediation.py`, and
+- The committed deterministic runner is at the state base.
+- The current uncommitted remediation permits a six-surface census to declare
+  exact empty roots. It records each as `ABSENT` or `EMPTY_DIRECTORY`, rejects
+  an omitted surface, and fails if an unexpected file or unsupported entry
+  appears.
+- Targeted synthetic validation passed: `42 passed` for
+  `tests/test_meta_audit_remediation.py`,
+  `tests/test_master_audit_runner.py`, and
   `tests/test_research_governance_contract.py`.
-- No definitive Master Audit ran and no audit report was created.
+- No invocation manifest, Master Audit, or audit report was created.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: review, stage, and commit the exact four-path runner closure.
-Only after that clean reviewed commit may a separate authorization create and
-validate one real hash-bound invocation manifest. That later manifest must bind
-the clean commit, exact admitted evidence, explicit two-lockfile list, six
-explicit secret-scan surfaces, fixed commands, timeouts, and report policy. It
-must not execute the audit.
+`UNAUTHORIZED`: review, stage, and commit the exact five-path empty-surface
+remediation. Only after that clean commit may a separate authorization create
+and validation-check one exact content-addressed invocation manifest. Manifest
+validation must remain no-write and must not execute audit steps.
 
-No audit execution, report publication, provider/network request, data
-mutation, activation, research, training, evaluation, prediction, staging,
-commit, push, or trading is authorized.
+No audit execution, report publication, provider/network request, secret-byte
+read, data mutation, activation, research, training, evaluation, prediction,
+push, or trading is authorized.
 
 ## Invalidation
 

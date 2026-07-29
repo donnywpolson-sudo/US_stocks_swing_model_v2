@@ -14,6 +14,7 @@ from typing import Mapping
 
 from .common import (
     canonical_json_bytes,
+    reject_link,
     require_contained_path,
     require_sha256,
     safe_relative_path,
@@ -141,8 +142,30 @@ class SecretFinding:
 
 
 @dataclass(frozen=True)
+class EmptySurfaceRoot:
+    surface: str
+    relative_path: str
+    state: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "surface": self.surface,
+            "relative_path": self.relative_path,
+            "state": self.state,
+        }
+
+    def validate(self) -> None:
+        if self.surface not in AUDIT_SURFACES:
+            raise ContractError("empty-surface root surface is invalid")
+        safe_relative_path(self.relative_path)
+        if self.state not in {"ABSENT", "EMPTY_DIRECTORY"}:
+            raise ContractError("empty-surface root state is invalid")
+
+
+@dataclass(frozen=True)
 class SecretScanResult:
     surface_counts: tuple[tuple[str, int], ...]
+    empty_surface_roots: tuple[EmptySurfaceRoot, ...]
     findings: tuple[SecretFinding, ...]
     passed: bool
     mechanics_only: bool
@@ -154,6 +177,9 @@ class SecretScanResult:
                 {"surface": surface, "file_count": count}
                 for surface, count in self.surface_counts
             ],
+            "empty_surface_roots": [
+                root.as_dict() for root in self.empty_surface_roots
+            ],
             "findings": [finding.unsigned_dict() | {"finding_id": finding.finding_id} for finding in self.findings],
             "passed": self.passed,
             "mechanics_only": self.mechanics_only,
@@ -162,8 +188,30 @@ class SecretScanResult:
     def validate(self) -> None:
         if tuple(surface for surface, _ in self.surface_counts) != AUDIT_SURFACES:
             raise ContractError("secret scan does not cover every required surface")
-        if any(type(count) is not int or count < 1 for _, count in self.surface_counts):
-            raise ContractError("each secret scan surface requires at least one declared file")
+        if any(type(count) is not int or count < 0 for _, count in self.surface_counts):
+            raise ContractError("secret scan surface counts must be nonnegative integers")
+        for root in self.empty_surface_roots:
+            if type(root) is not EmptySurfaceRoot:
+                raise ContractError("empty-surface roots must be exact values")
+            root.validate()
+        root_pairs = [
+            (root.surface, root.relative_path) for root in self.empty_surface_roots
+        ]
+        if len(set(root_pairs)) != len(root_pairs):
+            raise ContractError("empty-surface roots must be unique")
+        roots_by_surface = {
+            surface: tuple(
+                root
+                for root in self.empty_surface_roots
+                if root.surface == surface
+            )
+            for surface in AUDIT_SURFACES
+        }
+        for surface, count in self.surface_counts:
+            if (count == 0) is (len(roots_by_surface[surface]) == 0):
+                raise ContractError(
+                    "each empty surface requires roots and nonempty surfaces prohibit them"
+                )
         for finding in self.findings:
             if type(finding) is not SecretFinding:
                 raise ContractError("secret scan findings must be exact SecretFinding values")
@@ -181,6 +229,7 @@ def scan_declared_audit_surfaces(
     root: Path,
     surfaces: Mapping[str, tuple[str, ...]],
     *,
+    empty_surface_roots: Mapping[str, tuple[str, ...]] | None = None,
     maximum_file_bytes: int = 33_554_432,
 ) -> SecretScanResult:
     """Scan an exact declared output/evidence census without exposing matches."""
@@ -191,17 +240,67 @@ def scan_declared_audit_surfaces(
     base = require_contained_path(base, base)
     if type(surfaces) is not dict or tuple(surfaces) != AUDIT_SURFACES:
         raise ContractError("secret scan surfaces must use the exact required order")
+    if empty_surface_roots is None:
+        empty_surface_roots = {surface: () for surface in AUDIT_SURFACES}
+    if (
+        type(empty_surface_roots) is not dict
+        or tuple(empty_surface_roots) != AUDIT_SURFACES
+    ):
+        raise ContractError(
+            "empty-surface roots must use the exact required surface order"
+        )
     if type(maximum_file_bytes) is not int or maximum_file_bytes <= 0:
         raise ContractError("secret scan maximum_file_bytes must be a positive integer")
 
     findings: list[SecretFinding] = []
     counts: list[tuple[str, int]] = []
+    empty_roots: list[EmptySurfaceRoot] = []
     seen: set[str] = set()
+    seen_empty_roots: set[str] = set()
     for surface in AUDIT_SURFACES:
         relative_paths = surfaces[surface]
-        if type(relative_paths) is not tuple or not relative_paths:
-            raise ContractError("each secret scan surface requires an exact nonempty tuple")
+        raw_empty_roots = empty_surface_roots[surface]
+        if type(relative_paths) is not tuple or type(raw_empty_roots) is not tuple:
+            raise ContractError("secret scan files and empty roots must be exact tuples")
+        if bool(relative_paths) is bool(raw_empty_roots):
+            raise ContractError(
+                "each surface requires either files or explicit empty roots"
+            )
         counts.append((surface, len(relative_paths)))
+        for raw_root in raw_empty_roots:
+            relative_root = safe_relative_path(raw_root).as_posix()
+            if relative_root in seen_empty_roots:
+                raise ContractError("empty-surface roots must be unique")
+            seen_empty_roots.add(relative_root)
+            candidate_root = require_contained_path(
+                base.joinpath(*safe_relative_path(relative_root).parts),
+                base,
+                must_exist=False,
+            )
+            if not candidate_root.exists():
+                state = "ABSENT"
+            else:
+                reject_link(candidate_root)
+                if not candidate_root.is_dir():
+                    raise ContractError("empty-surface root must be absent or a directory")
+                for child in candidate_root.rglob("*"):
+                    reject_link(child)
+                    if child.is_file():
+                        raise ContractError(
+                            "empty-surface root contains an unexpected file"
+                        )
+                    if not child.is_dir():
+                        raise ContractError(
+                            "empty-surface root contains an unsupported entry"
+                        )
+                state = "EMPTY_DIRECTORY"
+            empty_roots.append(
+                EmptySurfaceRoot(
+                    surface=surface,
+                    relative_path=relative_root,
+                    state=state,
+                )
+            )
         for raw_relative in relative_paths:
             relative = safe_relative_path(raw_relative).as_posix()
             if relative in seen:
@@ -247,12 +346,14 @@ def scan_declared_audit_surfaces(
         "surface_counts": [
             {"surface": surface, "file_count": count} for surface, count in counts
         ],
+        "empty_surface_roots": [root.as_dict() for root in empty_roots],
         "findings": [finding.unsigned_dict() | {"finding_id": finding.finding_id} for finding in findings],
         "passed": not findings,
         "mechanics_only": True,
     }
     result = SecretScanResult(
         surface_counts=tuple(counts),
+        empty_surface_roots=tuple(empty_roots),
         findings=tuple(findings),
         passed=not findings,
         mechanics_only=True,
