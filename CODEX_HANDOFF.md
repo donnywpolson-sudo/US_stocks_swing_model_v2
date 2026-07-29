@@ -6,11 +6,13 @@
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `843f6b813cb82c367acac3a4d9f3f72e7c0979df`
+  `60ab4b838aecf91113d19af39a1cdbae7e61cbd7`
 - State-base tree:
-  `4d4399db9b2e43a94db4d33878f9b5652b63b9ec`
-- Expected worktree before this coordination commit: modified only
-  `CODEX_HANDOFF.md`.
+  `131f1fe94d02a9993e219926089cf86d784a0e86`
+- Expected worktree: modified only `CODEX_HANDOFF.md`,
+  `src/us_stocks_swing_model_v2/master_audit_runner.py`,
+  `src/us_stocks_swing_model_v2/cli/master_audit_internal_worker.py`, and
+  `tests/test_master_audit_runner.py`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -42,7 +44,11 @@ authoritative.
   preserves the 4,937 audit-input evidence bindings separately from the 15,597
   admitted secret-scan bindings, rejects baseline tampering, and normalizes the
   current command-exit contract.
-- Targeted synthetic validation passed: `65 passed` for
+- Windows worker-transport remediation is validated but uncommitted. Internal
+  steps now use a bounded canonical-JSON subprocess under the manifest-bound
+  Python instead of multiprocessing Pipe/spawn. Real launch, timeout, failure,
+  stderr rejection, and canonical-output contracts are covered.
+- Targeted synthetic validation passed: `67 passed` for
   `tests/test_master_audit_runner.py`,
   `tests/test_meta_audit_remediation.py`, and
   `tests/test_research_governance_contract.py`.
@@ -53,15 +59,23 @@ authoritative.
   with manifest ID
   `163c51a5539703565727ca6d71f9bb325155b5680da493b9c7a69c17d083bb76`
   remains preserved historical evidence and is not reusable after runner changes.
-- The latest generation attempt stopped before writing because its one-off
-  script conflated the two admitted-evidence contracts. No validation ran.
+- Invocation
+  `23bc8ad98cb8f1cd2b0376313c3bd4ecadaf58723c27166c365e5efee9122842`
+  with manifest ID
+  `6aad9a88cf612c4717b5aa5a5e3c819e0ac9aa2c7a7afed96091c916d48109ac`
+  passed validation-only against the state base but becomes stale when the
+  worker remediation is committed.
+- Its sole calibration stopped at Step 1 with `PermissionError`; telemetry was
+  canonical and chain-valid, no pytest or report ran, and no retry occurred.
+- Validation-only preflight took about 49 seconds. The next manifest must bind
+  all nine timeouts explicitly, setting preflight to 120 seconds and preserving
+  the other reviewed limits.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: generate one new content-addressed Master Audit invocation
-manifest against the resulting clean coordination-only successor, using the
-committed rebinding helper, then perform one validation-only, no-write
-invocation.
+`UNAUTHORIZED`: review, stage, and commit exactly the four expected modified
+paths. Any manifest generation or calibration remains separately gated and must
+bind the resulting clean commit.
 
 No manifest generation, calibration, audit execution, report publication,
 provider/network request, secret-byte read, data mutation, activation, research,

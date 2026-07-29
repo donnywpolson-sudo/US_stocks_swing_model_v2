@@ -8,10 +8,10 @@ publication is a separate, explicit option and is the runner's only write.
 
 from __future__ import annotations
 
+import base64
 from copy import deepcopy
 from dataclasses import dataclass
 import json
-import multiprocessing
 import os
 from pathlib import Path, PureWindowsPath
 import platform
@@ -65,6 +65,10 @@ SECRET_SURFACE_ASSIGNMENT_PRECEDENCE = (
     "artifacts",
 )
 _MAX_INTERNAL_RESULT_BYTES = 33_554_432
+_MAX_INTERNAL_REQUEST_BYTES = 50_331_648
+_INTERNAL_WORKER_MODULE = (
+    "us_stocks_swing_model_v2.cli.master_audit_internal_worker"
+)
 _PROCESS_STEPS = frozenset({"contract_discovery", "pytest"})
 _INTERNAL_STEPS = frozenset(COMMAND_ORDER) - _PROCESS_STEPS
 _FORBIDDEN_SECRET_FILENAMES = {
@@ -876,6 +880,7 @@ def build_rebound_invocation_payload(
     dynamic_surface_candidates: Mapping[
         str, Sequence[Mapping[str, object]]
     ],
+    command_timeouts: Mapping[str, int] | None = None,
 ) -> dict[str, object]:
     """Rebind a prior invocation without conflating its evidence contracts.
 
@@ -1037,6 +1042,13 @@ def build_rebound_invocation_payload(
         {"authorities", "configuration", "lockfiles", "evidence"},
         "baseline.file_census",
     )
+    if command_timeouts is not None:
+        if set(command_timeouts) != set(COMMAND_ORDER):
+            raise ContractError(
+                "command timeout overrides must enumerate all nine steps"
+            )
+        for step, timeout in command_timeouts.items():
+            _bounded_positive_int(timeout, f"command_timeouts.{step}")
     commands: list[dict[str, object]] = []
     for index, raw_command in enumerate(
         _exact_list(baseline_item["commands"], "baseline.commands")
@@ -1063,6 +1075,8 @@ def build_rebound_invocation_payload(
                 f"baseline.commands[{index}].expected_exit conflicts"
             )
         command["expected_exit"] = expected_exit
+        if command_timeouts is not None:
+            command["timeout_seconds"] = command_timeouts[step]
         commands.append(command)
 
     unsigned = {
@@ -1523,94 +1537,79 @@ def _execute_internal_step_direct(
     raise ContractError(f"unsupported internal audit step: {step}")
 
 
-def _internal_step_worker(
-    connection: object,
-    invocation_payload: dict[str, object],
-    step: str,
-    report_bytes: bytes | None,
-    publish_report: bool,
-    deadline_monotonic: float,
-) -> None:
-    payload: dict[str, object]
-    try:
-        invocation = MasterAuditInvocation.from_dict(invocation_payload)
-        outcome = _execute_internal_step_direct(
-            invocation,
-            step=step,
-            report_bytes=report_bytes,
-            publish_report=publish_report,
-            deadline_monotonic=deadline_monotonic,
-        )
-        payload = {"ok": True, "outcome": outcome.as_dict(), "error_type": None}
-    except Exception as exc:  # pragma: no cover - exercised through parent contract
-        payload = {
-            "ok": False,
-            "outcome": None,
-            "error_type": type(exc).__name__,
-        }
-    try:
-        connection.send_bytes(canonical_json_bytes(payload))  # type: ignore[attr-defined]
-    finally:
-        connection.close()  # type: ignore[attr-defined]
-
-
-def _stop_worker_process(process: multiprocessing.Process) -> None:
-    if process.is_alive():
-        process.terminate()
-        process.join(timeout=5)
-    if process.is_alive():
-        process.kill()
-        process.join(timeout=5)
-
-
 def _run_internal_step_isolated(
     invocation: MasterAuditInvocation,
     *,
     command: CommandBinding,
     report_bytes: bytes | None,
     publish_report: bool,
-    worker_target: Callable[..., None] = _internal_step_worker,
+    process_runner: _ProcessRunner = subprocess.run,
 ) -> _InternalStepOutcome:
     if command.step not in _INTERNAL_STEPS:
         raise ContractError("isolated worker received a process step")
-    deadline_monotonic = time.monotonic() + command.timeout_seconds
-    context = multiprocessing.get_context("spawn")
-    receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(
-        target=worker_target,
-        args=(
-            sender,
-            invocation.as_dict(),
-            command.step,
-            report_bytes if command.step == "report_publication" else None,
-            publish_report if command.step == "report_publication" else False,
-            deadline_monotonic,
-        ),
-        name=f"master-audit-{command.step}",
+    worker_report = (
+        report_bytes if command.step == "report_publication" else None
     )
-    process.start()
-    sender.close()
+    request = canonical_json_bytes(
+        {
+            "schema_version": 1,
+            "invocation": invocation.as_dict(),
+            "step": command.step,
+            "timeout_seconds": command.timeout_seconds,
+            "publish_report": (
+                publish_report
+                if command.step == "report_publication"
+                else False
+            ),
+            "report_bytes_base64": (
+                None
+                if worker_report is None
+                else base64.b64encode(worker_report).decode("ascii")
+            ),
+        }
+    )
+    if len(request) > _MAX_INTERNAL_REQUEST_BYTES:
+        raise ContractError("isolated worker request exceeds the bounded limit")
+    worker_argv = [
+        str(invocation.repository.python_executable),
+        "-B",
+        "-m",
+        _INTERNAL_WORKER_MODULE,
+    ]
+    worker_environment = os.environ.copy()
+    package_root = str(Path(__file__).resolve().parents[1])
+    worker_environment["PYTHONPATH"] = package_root
+    process_options: dict[str, object] = {"env": worker_environment}
+    if os.name == "nt":
+        process_options["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        remaining = deadline_monotonic - time.monotonic()
-        if remaining <= 0 or not receiver.poll(remaining):
-            _stop_worker_process(process)
-            raise AuditStepTimeoutError(f"{command.step} timed out")
-        try:
-            raw = receiver.recv_bytes(_MAX_INTERNAL_RESULT_BYTES)
-        except (EOFError, OSError) as exc:
-            _stop_worker_process(process)
-            raise AuditProcessError(
-                f"{command.step} worker returned no valid result"
-            ) from exc
-    finally:
-        receiver.close()
-    process.join(timeout=5)
-    if process.is_alive():
-        _stop_worker_process(process)
-        raise AuditProcessError(f"{command.step} worker failed to exit")
-    if process.exitcode != 0:
+        completed = process_runner(
+            worker_argv,
+            cwd=invocation.repository.root,
+            input=request,
+            capture_output=True,
+            timeout=command.timeout_seconds,
+            check=False,
+            **process_options,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AuditStepTimeoutError(f"{command.step} timed out") from exc
+    except OSError as exc:
         raise AuditProcessError(
-            f"{command.step} worker exited {process.exitcode}"
+            f"{command.step} worker failed to launch"
+        ) from exc
+    if completed.returncode != 0:
+        raise AuditProcessError(
+            f"{command.step} worker exited {completed.returncode}"
+        )
+    if completed.stderr:
+        raise AuditProcessError(
+            f"{command.step} worker emitted unexpected stderr"
+        )
+    raw = completed.stdout
+    if not raw or len(raw) > _MAX_INTERNAL_RESULT_BYTES:
+        raise AuditProcessError(
+            f"{command.step} worker returned no bounded result"
         )
     try:
         payload = json.loads(raw)

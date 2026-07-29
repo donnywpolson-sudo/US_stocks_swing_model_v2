@@ -7,7 +7,6 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
-import time
 
 import pytest
 
@@ -144,23 +143,6 @@ class _FlushCountingBuffer(io.BytesIO):
     def flush(self) -> None:
         self.flush_count += 1
         super().flush()
-
-
-def _sleeping_internal_worker(*args: object) -> None:
-    time.sleep(10)
-
-
-def _failing_internal_worker(connection: object, *args: object) -> None:
-    connection.send_bytes(  # type: ignore[attr-defined]
-        canonical_json_bytes(
-            {
-                "ok": False,
-                "outcome": None,
-                "error_type": "SyntheticChildFailure",
-            }
-        )
-    )
-    connection.close()  # type: ignore[attr-defined]
 
 
 def test_windows_ancestor_chain_preserves_drive_root() -> None:
@@ -408,6 +390,12 @@ def test_rebound_manifest_preserves_full_admitted_scan_surface_separately(
     for command in unsigned["commands"]:  # type: ignore[index]
         command.pop("expected_exit")
     baseline = build_invocation_payload(unsigned)
+    command_timeouts = {
+        command["step"]: (
+            120 if command["step"] == "preflight" else command["timeout_seconds"]
+        )
+        for command in unsigned["commands"]  # type: ignore[index]
+    }
 
     rebound = runner.build_rebound_invocation_payload(
         baseline,
@@ -423,6 +411,7 @@ def test_rebound_manifest_preserves_full_admitted_scan_surface_separately(
             "reports": [admitted_report, ordinary_report],
             "caches": [cache],
         },
+        command_timeouts=command_timeouts,
     )
 
     assert rebound["file_census"]["evidence"] == unsigned["file_census"]["evidence"]  # type: ignore[index]
@@ -443,6 +432,11 @@ def test_rebound_manifest_preserves_full_admitted_scan_surface_separately(
     }
     assert commands["pytest"] == "REPORTABLE_NONZERO"
     assert commands["preflight"] == "REQUIRED_SUCCESS"
+    assert next(
+        entry["timeout_seconds"]
+        for entry in rebound["commands"]  # type: ignore[index]
+        if entry["step"] == "preflight"
+    ) == 120
     assert MasterAuditInvocation.from_dict(rebound).manifest_id == rebound["manifest_id"]
 
 
@@ -669,20 +663,42 @@ def test_isolated_internal_step_enforces_timeout_and_reports_child_failure(
         expected_exit=original.expected_exit,
         argv=original.argv,
     )
-    started = time.monotonic()
+
+    def timed_out(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=1)
+
     with pytest.raises(runner.AuditStepTimeoutError, match="preflight timed out"):
         runner._run_internal_step_isolated(
             invocation,
             command=one_second,
             report_bytes=None,
             publish_report=False,
-            worker_target=_sleeping_internal_worker,
+            process_runner=timed_out,
         )
-    assert time.monotonic() - started < 8
 
     master_command = invocation.commands[
         runner.COMMAND_ORDER.index("master_classification")
     ]
+
+    def failed(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        assert kwargs["timeout"] == master_command.timeout_seconds
+        assert kwargs["env"]["PYTHONPATH"] == str(  # type: ignore[index]
+            Path(runner.__file__).resolve().parents[1]
+        )
+        assert b"must never be read" not in kwargs["input"]  # type: ignore[operator]
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=canonical_json_bytes(
+                {
+                    "ok": False,
+                    "outcome": None,
+                    "error_type": "SyntheticChildFailure",
+                }
+            ),
+            stderr=b"",
+        )
+
     with pytest.raises(
         AuditProcessError,
         match=(
@@ -695,7 +711,88 @@ def test_isolated_internal_step_enforces_timeout_and_reports_child_failure(
             command=master_command,
             report_bytes=None,
             publish_report=False,
-            worker_target=_failing_internal_worker,
+            process_runner=failed,
+        )
+
+
+def test_internal_step_subprocess_worker_launches_for_real(
+    tmp_path: Path,
+) -> None:
+    invocation = _invocation(tmp_path)
+    command = invocation.commands[
+        runner.COMMAND_ORDER.index("master_classification")
+    ]
+    outcome = runner._run_internal_step_isolated(
+        invocation,
+        command=command,
+        report_bytes=None,
+        publish_report=False,
+    )
+    assert outcome.result == {
+        "step": "master_classification",
+        "status": "EVIDENCE_READY_FOR_INDEPENDENT_REVIEW",
+    }
+    assert outcome.report_path is None
+    assert outcome.report_sha256 is None
+
+
+def test_internal_step_subprocess_rejects_stderr_and_noncanonical_output(
+    tmp_path: Path,
+) -> None:
+    invocation = _invocation(tmp_path)
+    command = invocation.commands[
+        runner.COMMAND_ORDER.index("master_classification")
+    ]
+
+    def emitted_stderr(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=canonical_json_bytes(
+                {
+                    "ok": True,
+                    "outcome": {
+                        "result": {
+                            "step": "master_classification",
+                            "status": "PASSED",
+                        },
+                        "report_path": None,
+                        "report_sha256": None,
+                    },
+                    "error_type": None,
+                }
+            ),
+            stderr=b"unexpected",
+        )
+
+    with pytest.raises(AuditProcessError, match="unexpected stderr"):
+        runner._run_internal_step_isolated(
+            invocation,
+            command=command,
+            report_bytes=None,
+            publish_report=False,
+            process_runner=emitted_stderr,
+        )
+
+    def noncanonical(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=b'{\"ok\":true,\"outcome\":null,\"error_type\":null}',
+            stderr=b"",
+        )
+
+    with pytest.raises(AuditProcessError, match="noncanonical evidence"):
+        runner._run_internal_step_isolated(
+            invocation,
+            command=command,
+            report_bytes=None,
+            publish_report=False,
+            process_runner=noncanonical,
         )
 
 
