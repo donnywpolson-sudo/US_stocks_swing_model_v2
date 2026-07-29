@@ -279,6 +279,18 @@ def test_forbidden_secret_filename_is_preflighted_without_hashing_bytes(
     assert resolved.name == "api.env"
 
 
+def test_forbidden_secret_cannot_enter_a_hashed_file_census(
+    tmp_path: Path,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    unsigned["file_census"]["authorities"][0] = {  # type: ignore[index]
+        "path": "scan/admitted_evidence/api.env",
+        "sha256": "1" * 64,
+    }
+    with pytest.raises(ContractError, match="forbidden secret"):
+        MasterAuditInvocation.from_dict(build_invocation_payload(unsigned))
+
+
 def test_manifest_accepts_explicit_empty_roots_and_rejects_omitted_surface_proof(
     tmp_path: Path,
 ) -> None:
@@ -297,6 +309,99 @@ def test_manifest_accepts_explicit_empty_roots_and_rejects_omitted_surface_proof
         match="either files or explicit empty roots",
     ):
         MasterAuditInvocation.from_dict(build_invocation_payload(omitted))
+
+
+def test_secret_surface_partition_is_disjoint_and_precedence_is_explicit() -> None:
+    candidates = {
+        "git": [
+            {"path": "src/tracked.py", "sha256": "1" * 64},
+        ],
+        "logs": [],
+        "reports": [
+            {"path": "reports/generated/admitted.md", "sha256": "2" * 64},
+            {"path": "reports/generated/ordinary.md", "sha256": "3" * 64},
+        ],
+        "caches": [
+            {"path": "src/tracked.py", "sha256": "1" * 64},
+            {"path": ".pytest_cache/new-cache", "sha256": "4" * 64},
+        ],
+        "artifacts": [],
+        "admitted_evidence": [
+            {"path": "reports/generated/admitted.md", "sha256": "2" * 64},
+        ],
+    }
+    empty_roots = {
+        surface: (
+            [surface]
+            if surface in {"logs", "artifacts"}
+            else []
+        )
+        for surface in AUDIT_SURFACES
+    }
+    partitioned = runner.partition_secret_surface_candidates(
+        candidates,
+        empty_roots=empty_roots,
+    )
+    files = {
+        entry["surface"]: [item["path"] for item in entry["files"]]
+        for entry in partitioned
+    }
+    assert files["admitted_evidence"] == ["reports/generated/admitted.md"]
+    assert files["reports"] == ["reports/generated/ordinary.md"]
+    assert files["git"] == ["src/tracked.py"]
+    assert files["caches"] == [".pytest_cache/new-cache"]
+    assigned = [
+        path
+        for surface_paths in files.values()
+        for path in surface_paths
+    ]
+    assert len(assigned) == len(set(assigned))
+
+
+def test_secret_surface_partition_rejects_conflicting_identities() -> None:
+    candidates = {
+        surface: [] for surface in AUDIT_SURFACES
+    }
+    candidates["git"] = [{"path": "shared.txt", "sha256": "1" * 64}]
+    candidates["reports"] = [{"path": "shared.txt", "sha256": "2" * 64}]
+    empty_roots = {
+        surface: [surface]
+        for surface in AUDIT_SURFACES
+    }
+    empty_roots["git"] = []
+    empty_roots["reports"] = []
+    with pytest.raises(ContractError, match="conflicting file identities"):
+        runner.partition_secret_surface_candidates(
+            candidates,
+            empty_roots=empty_roots,
+        )
+
+
+def test_preflight_hashes_duplicate_logical_bindings_only_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    authority = deepcopy(unsigned["file_census"]["authorities"][0])  # type: ignore[index]
+    unsigned["secret_surfaces"][0]["files"] = [authority]  # type: ignore[index]
+    invocation = MasterAuditInvocation.from_dict(
+        build_invocation_payload(unsigned)
+    )
+    original = runner.sha256_file
+    counts: dict[str, int] = {}
+
+    def counted(path: Path) -> str:
+        relative = path.relative_to(tmp_path).as_posix()
+        counts[relative] = counts.get(relative, 0) + 1
+        return original(path)
+
+    monkeypatch.setattr(runner, "sha256_file", counted)
+    logical_count, unique_count = runner._verify_preflight_file_census(
+        invocation
+    )
+    assert logical_count == 8
+    assert unique_count == 13
+    assert counts["AGENTS.md"] == 1
 
 
 def test_empty_surface_preflight_rejects_unexpected_files(tmp_path: Path) -> None:

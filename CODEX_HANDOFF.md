@@ -9,8 +9,9 @@
   `ffea8badce435342d3ce7b16e46e21c42c52dabd`
 - State-base tree:
   `d54a3ecfbbda801818fca5f3b3215ea24a86ae05`
-- Expected worktree before this coordination commit: modified only
-  `CODEX_HANDOFF.md`.
+- Expected worktree: modified only `CODEX_HANDOFF.md`,
+  `src/us_stocks_swing_model_v2/master_audit_runner.py`, and
+  `tests/test_master_audit_runner.py`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -32,7 +33,12 @@ authoritative.
   declared timeouts. JSON stdout and validation-only behavior remain preserved.
 - Definitive pytest scope remains exact `python -m pytest -q`, explicitly
   including the three `local_evidence` migration tests.
-- Targeted synthetic validation passed once: `59 passed` for
+- Manifest-generation remediation is validated but uncommitted. Secret-scan
+  candidates now receive deterministic, disjoint surface ownership with
+  admitted evidence taking precedence; conflicting identities fail closed.
+  Preflight hashes each physical file once across duplicate logical bindings,
+  and forbidden secret filenames cannot enter an ordinary hashed census.
+- Targeted synthetic validation passed once: `63 passed` for
   `tests/test_master_audit_runner.py`,
   `tests/test_meta_audit_remediation.py`, and
   `tests/test_research_governance_contract.py`.
@@ -41,9 +47,9 @@ authoritative.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: generate one newly bound content-addressed Master Audit
-invocation manifest against the clean committed state, then perform one
-validation-only, no-write invocation.
+`UNAUTHORIZED`: review, stage, and commit exactly the three expected modified
+paths. A new manifest-generation authorization must bind the resulting clean
+commit and use the committed surface-partition helper.
 
 No manifest generation, calibration, audit execution, report publication,
 provider/network request, secret-byte read, data mutation, activation, research,

@@ -55,6 +55,14 @@ EXPECTED_EXIT_POLICIES = {"REQUIRED_SUCCESS", "REPORTABLE_NONZERO"}
 REPORT_OUTCOMES = ("SUPPORTABLE", "BLOCKED", "INSUFFICIENT_EVIDENCE")
 PYTEST_SCOPE = "FULL_CONFIGURED_SUITE_INCLUDING_LOCAL_EVIDENCE"
 STEP_EVIDENCE_SCHEMA_VERSION = 1
+SECRET_SURFACE_ASSIGNMENT_PRECEDENCE = (
+    "admitted_evidence",
+    "git",
+    "reports",
+    "caches",
+    "logs",
+    "artifacts",
+)
 _MAX_INTERNAL_RESULT_BYTES = 33_554_432
 _PROCESS_STEPS = frozenset({"contract_discovery", "pytest"})
 _INTERNAL_STEPS = frozenset(COMMAND_ORDER) - _PROCESS_STEPS
@@ -263,8 +271,13 @@ class FileBinding:
     @classmethod
     def from_dict(cls, value: object, field: str) -> FileBinding:
         item = _exact_dict(value, {"path", "sha256"}, field)
+        path = _relative_path(item["path"], f"{field}.path")
+        if _is_forbidden_secret_filename(Path(path).name):
+            raise ContractError(
+                f"{field}.path cannot place a forbidden secret in a hashed census"
+            )
         return cls(
-            path=_relative_path(item["path"], f"{field}.path"),
+            path=path,
             sha256=require_sha256(item["sha256"], f"{field}.sha256"),
         )
 
@@ -294,6 +307,91 @@ class SecretFileBinding:
 
     def as_dict(self) -> dict[str, object]:
         return {"path": self.path, "sha256": self.sha256}
+
+
+def partition_secret_surface_candidates(
+    candidates: Mapping[str, Sequence[Mapping[str, object]]],
+    *,
+    empty_roots: Mapping[str, Sequence[str]],
+) -> list[dict[str, object]]:
+    """Assign every candidate path to exactly one deterministic audit surface.
+
+    Admitted evidence has first claim, followed by tracked Git content, reports,
+    caches, logs, and artifacts. Conflicting identities fail closed. A surface
+    that becomes empty still requires an explicit empty-root declaration.
+    """
+
+    if set(candidates) != set(AUDIT_SURFACES):
+        raise ContractError("secret-surface candidate names differ")
+    if set(empty_roots) != set(AUDIT_SURFACES):
+        raise ContractError("secret-surface empty-root names differ")
+    if (
+        set(SECRET_SURFACE_ASSIGNMENT_PRECEDENCE) != set(AUDIT_SURFACES)
+        or len(SECRET_SURFACE_ASSIGNMENT_PRECEDENCE) != len(AUDIT_SURFACES)
+    ):
+        raise ContractError("secret-surface assignment precedence is invalid")
+
+    parsed: dict[str, dict[str, SecretFileBinding]] = {}
+    identities: dict[str, str | None] = {}
+    for surface in AUDIT_SURFACES:
+        entries: dict[str, SecretFileBinding] = {}
+        for index, candidate in enumerate(candidates[surface]):
+            binding = SecretFileBinding.from_dict(
+                dict(candidate), f"secret_surface_candidates.{surface}[{index}]"
+            )
+            if binding.path in entries:
+                raise ContractError(
+                    f"secret-surface candidates repeat a path within {surface}"
+                )
+            known = identities.get(binding.path, binding.sha256)
+            if binding.path in identities and known != binding.sha256:
+                raise ContractError(
+                    "secret-surface candidates bind conflicting file identities"
+                )
+            identities[binding.path] = binding.sha256
+            entries[binding.path] = binding
+        parsed[surface] = entries
+
+    owner_by_path: dict[str, str] = {}
+    for surface in SECRET_SURFACE_ASSIGNMENT_PRECEDENCE:
+        for path in parsed[surface]:
+            owner_by_path.setdefault(path, surface)
+
+    result: list[dict[str, object]] = []
+    seen_empty_roots: set[str] = set()
+    for surface in AUDIT_SURFACES:
+        files = [
+            parsed[surface][path].as_dict()
+            for path in sorted(parsed[surface])
+            if owner_by_path[path] == surface
+        ]
+        roots = [
+            _relative_path(
+                root,
+                f"secret_surface_empty_roots.{surface}[{index}]",
+            )
+            for index, root in enumerate(empty_roots[surface])
+        ]
+        _require_unique(roots, f"secret_surface_empty_roots.{surface}")
+        if seen_empty_roots.intersection(roots):
+            raise ContractError("secret-surface empty roots overlap")
+        seen_empty_roots.update(roots)
+        if files and roots:
+            raise ContractError(
+                "a partitioned secret surface cannot declare files and empty roots"
+            )
+        if not files and not roots:
+            raise ContractError(
+                f"partitioned secret surface {surface} requires explicit empty roots"
+            )
+        result.append(
+            {
+                "surface": surface,
+                "files": files,
+                "empty_roots": roots,
+            }
+        )
+    return result
 
 
 @dataclass(frozen=True)
@@ -842,6 +940,43 @@ def _verify_empty_surface_root(root: Path, relative: str) -> str:
     return "EMPTY_DIRECTORY"
 
 
+def _verify_preflight_file_census(
+    invocation: MasterAuditInvocation,
+) -> tuple[int, int]:
+    """Verify every logical binding while hashing each physical file once."""
+
+    root = invocation.repository.root
+    bindings = (
+        (invocation.master, invocation.meta)
+        + invocation.authorities
+        + invocation.configuration
+        + invocation.lockfiles
+        + invocation.evidence_files
+        + invocation.component_manifests
+    )
+    verified: dict[str, str | None] = {}
+    for binding in bindings:
+        if binding.path in verified:
+            if verified[binding.path] != binding.sha256:
+                raise IntegrityError(
+                    f"preflight bindings conflict for {binding.path}"
+                )
+            continue
+        _verify_file_binding(root, binding)
+        verified[binding.path] = binding.sha256
+    for entries in invocation.secret_surfaces.values():
+        for binding in entries:
+            if binding.path in verified:
+                if verified[binding.path] != binding.sha256:
+                    raise IntegrityError(
+                        f"preflight bindings conflict for {binding.path}"
+                    )
+                continue
+            _verify_secret_binding(root, binding)
+            verified[binding.path] = binding.sha256
+    return len(bindings), len(verified)
+
+
 def validate_repository_preflight(
     invocation: MasterAuditInvocation,
     *,
@@ -900,19 +1035,9 @@ def validate_repository_preflight(
     if platform.python_version() != invocation.repository.python_version:
         raise IntegrityError("selected Python version differs from the manifest")
 
-    bindings = (
-        (invocation.master, invocation.meta)
-        + invocation.authorities
-        + invocation.configuration
-        + invocation.lockfiles
-        + invocation.evidence_files
-        + invocation.component_manifests
+    bound_file_count, unique_bound_file_count = _verify_preflight_file_census(
+        invocation
     )
-    for binding in bindings:
-        _verify_file_binding(root, binding)
-    for entries in invocation.secret_surfaces.values():
-        for binding in entries:
-            _verify_secret_binding(root, binding)
     empty_root_states: list[dict[str, str]] = []
     for surface in AUDIT_SURFACES:
         for relative in invocation.empty_surface_roots[surface]:
@@ -935,7 +1060,8 @@ def validate_repository_preflight(
         "status": "PASSED",
         "commit": invocation.repository.commit,
         "tree": invocation.repository.tree,
-        "bound_file_count": len(bindings),
+        "bound_file_count": bound_file_count,
+        "unique_bound_file_count": unique_bound_file_count,
         "accepted_release_count": len(invocation.accepted_releases),
         "empty_surface_roots": empty_root_states,
     }
