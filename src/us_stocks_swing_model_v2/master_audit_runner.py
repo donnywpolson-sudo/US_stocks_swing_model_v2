@@ -8,6 +8,7 @@ publication is a separate, explicit option and is the runner's only write.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 import multiprocessing
@@ -860,6 +861,237 @@ def build_invocation_payload(unsigned: Mapping[str, object]) -> dict[str, object
     if "manifest_id" in value:
         raise ContractError("unsigned invocation cannot already contain manifest_id")
     return {**value, "manifest_id": sha256_bytes(canonical_json_bytes(value))}
+
+
+def build_rebound_invocation_payload(
+    baseline: Mapping[str, object],
+    *,
+    repository_commit: str,
+    repository_tree: str,
+    master_sha256: str,
+    meta_sha256: str,
+    authorities: Sequence[Mapping[str, object]],
+    configuration: Sequence[Mapping[str, object]],
+    lockfiles: Sequence[Mapping[str, object]],
+    dynamic_surface_candidates: Mapping[
+        str, Sequence[Mapping[str, object]]
+    ],
+) -> dict[str, object]:
+    """Rebind a prior invocation without conflating its evidence contracts.
+
+    ``file_census.evidence`` is the exact audit-input binding, while the
+    ``admitted_evidence`` secret surface may intentionally contain a larger
+    recursive scanner census. The latter is always preserved from the baseline;
+    callers may rebuild only the dynamic Git, report, and cache surfaces.
+    """
+
+    baseline_item = _exact_dict(
+        baseline,
+        {
+            "schema_version",
+            "manifest_id",
+            "target_state",
+            "repository",
+            "specifications",
+            "file_census",
+            "accepted_release_root",
+            "accepted_releases",
+            "component_manifests",
+            "mechanical_readiness",
+            "secret_surfaces",
+            "commands",
+            "report",
+        },
+        "baseline",
+    )
+    baseline_id = require_sha256(
+        baseline_item["manifest_id"], "baseline.manifest_id"
+    )
+    baseline_unsigned = {
+        key: deepcopy(value)
+        for key, value in baseline_item.items()
+        if key != "manifest_id"
+    }
+    if sha256_bytes(canonical_json_bytes(baseline_unsigned)) != baseline_id:
+        raise IntegrityError(
+            "baseline manifest_id differs from its canonical unsigned content"
+        )
+
+    dynamic_names = {"git", "reports", "caches"}
+    if set(dynamic_surface_candidates) != dynamic_names:
+        raise ContractError(
+            "dynamic surface candidates must enumerate git, reports, and caches"
+        )
+    raw_surfaces = _exact_list(
+        baseline_item["secret_surfaces"], "baseline.secret_surfaces"
+    )
+    if len(raw_surfaces) != len(AUDIT_SURFACES):
+        raise ContractError("baseline secret surfaces differ")
+    surface_items = [
+        _exact_dict(
+            entry,
+            {"surface", "files", "empty_roots"},
+            f"baseline.secret_surfaces[{index}]",
+        )
+        for index, entry in enumerate(raw_surfaces)
+    ]
+    surface_names = tuple(
+        _exact_text(entry["surface"], "baseline.secret_surfaces.surface")
+        for entry in surface_items
+    )
+    if surface_names != AUDIT_SURFACES:
+        raise ContractError("baseline secret surfaces use the wrong order")
+    surfaces = dict(zip(AUDIT_SURFACES, surface_items, strict=True))
+    admitted_files = deepcopy(
+        _exact_array(
+            surfaces["admitted_evidence"]["files"],
+            "baseline.secret_surfaces.admitted_evidence.files",
+        )
+    )
+    if not admitted_files:
+        raise ContractError(
+            "baseline admitted_evidence surface must enumerate files"
+        )
+    if _exact_array(
+        surfaces["admitted_evidence"]["empty_roots"],
+        "baseline.secret_surfaces.admitted_evidence.empty_roots",
+    ):
+        raise ContractError(
+            "baseline admitted_evidence surface cannot use empty roots"
+        )
+
+    empty_roots = {surface: [] for surface in AUDIT_SURFACES}
+    for surface in ("logs", "artifacts"):
+        if _exact_array(
+            surfaces[surface]["files"],
+            f"baseline.secret_surfaces.{surface}.files",
+        ):
+            raise ContractError(
+                f"baseline {surface} surface must remain explicitly empty"
+            )
+        roots = deepcopy(
+            _exact_array(
+                surfaces[surface]["empty_roots"],
+                f"baseline.secret_surfaces.{surface}.empty_roots",
+            )
+        )
+        if not roots:
+            raise ContractError(
+                f"baseline {surface} surface requires explicit empty roots"
+            )
+        empty_roots[surface] = roots
+
+    candidates: dict[str, Sequence[Mapping[str, object]]] = {
+        "git": dynamic_surface_candidates["git"],
+        "logs": (),
+        "reports": dynamic_surface_candidates["reports"],
+        "caches": dynamic_surface_candidates["caches"],
+        "artifacts": (),
+        "admitted_evidence": admitted_files,
+    }
+    partitioned_surfaces = partition_secret_surface_candidates(
+        candidates,
+        empty_roots=empty_roots,
+    )
+
+    repository = deepcopy(
+        _exact_dict(
+            baseline_item["repository"],
+            {
+                "root",
+                "git_directory",
+                "commit",
+                "tree",
+                "require_clean",
+                "python_executable",
+                "python_version",
+            },
+            "baseline.repository",
+        )
+    )
+    repository["commit"] = _require_git_sha1(
+        repository_commit, "repository_commit"
+    )
+    repository["tree"] = _require_git_sha1(repository_tree, "repository_tree")
+
+    specifications = _exact_dict(
+        baseline_item["specifications"],
+        {"master", "meta"},
+        "baseline.specifications",
+    )
+    master = deepcopy(
+        _exact_dict(
+            specifications["master"], {"path", "sha256"}, "baseline.master"
+        )
+    )
+    meta = deepcopy(
+        _exact_dict(
+            specifications["meta"], {"path", "sha256"}, "baseline.meta"
+        )
+    )
+    master["sha256"] = require_sha256(master_sha256, "master_sha256")
+    meta["sha256"] = require_sha256(meta_sha256, "meta_sha256")
+
+    census = _exact_dict(
+        baseline_item["file_census"],
+        {"authorities", "configuration", "lockfiles", "evidence"},
+        "baseline.file_census",
+    )
+    commands: list[dict[str, object]] = []
+    for index, raw_command in enumerate(
+        _exact_list(baseline_item["commands"], "baseline.commands")
+    ):
+        command = dict(raw_command)
+        required = {"step", "timeout_seconds", "run_limit", "argv"}
+        if not required.issubset(command) or not set(command).issubset(
+            required | {"expected_exit"}
+        ):
+            raise ContractError(
+                f"baseline.commands[{index}] has unsupported fields"
+            )
+        step = _exact_text(
+            command["step"], f"baseline.commands[{index}].step"
+        )
+        expected_exit = (
+            "REPORTABLE_NONZERO" if step == "pytest" else "REQUIRED_SUCCESS"
+        )
+        if (
+            "expected_exit" in command
+            and command["expected_exit"] != expected_exit
+        ):
+            raise ContractError(
+                f"baseline.commands[{index}].expected_exit conflicts"
+            )
+        command["expected_exit"] = expected_exit
+        commands.append(command)
+
+    unsigned = {
+        "schema_version": baseline_item["schema_version"],
+        "target_state": deepcopy(baseline_item["target_state"]),
+        "repository": repository,
+        "specifications": {"master": master, "meta": meta},
+        "file_census": {
+            "authorities": deepcopy(list(authorities)),
+            "configuration": deepcopy(list(configuration)),
+            "lockfiles": deepcopy(list(lockfiles)),
+            "evidence": deepcopy(census["evidence"]),
+        },
+        "accepted_release_root": deepcopy(
+            baseline_item["accepted_release_root"]
+        ),
+        "accepted_releases": deepcopy(baseline_item["accepted_releases"]),
+        "component_manifests": deepcopy(
+            baseline_item["component_manifests"]
+        ),
+        "mechanical_readiness": deepcopy(
+            baseline_item["mechanical_readiness"]
+        ),
+        "secret_surfaces": partitioned_surfaces,
+        "commands": commands,
+        "report": deepcopy(baseline_item["report"]),
+    }
+    payload = build_invocation_payload(unsigned)
+    return MasterAuditInvocation.from_dict(payload).as_dict()
 
 
 def load_invocation_manifest(

@@ -377,6 +377,99 @@ def test_secret_surface_partition_rejects_conflicting_identities() -> None:
         )
 
 
+def test_rebound_manifest_preserves_full_admitted_scan_surface_separately(
+    tmp_path: Path,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    admitted_one = _write(
+        tmp_path,
+        "accepted/component/abc/data/one.parquet",
+        b"one\n",
+    )
+    admitted_report = _write(
+        tmp_path,
+        "reports/generated/meta_master_spec_review/report.md",
+        b"report\n",
+    )
+    ordinary_report = _write(
+        tmp_path,
+        "reports/generated/meta_master_audit/report.md",
+        b"ordinary\n",
+    )
+    tracked = _write(tmp_path, "src/tracked.py", b"tracked\n")
+    cache = _write(tmp_path, ".pytest_cache/v/cache/nodeids", b"[]\n")
+    for entry in unsigned["secret_surfaces"]:  # type: ignore[index]
+        if entry["surface"] == "admitted_evidence":
+            entry["files"] = [admitted_one, admitted_report]
+            entry["empty_roots"] = []
+        elif entry["surface"] in {"logs", "artifacts"}:
+            entry["files"] = []
+            entry["empty_roots"] = [entry["surface"]]
+    for command in unsigned["commands"]:  # type: ignore[index]
+        command.pop("expected_exit")
+    baseline = build_invocation_payload(unsigned)
+
+    rebound = runner.build_rebound_invocation_payload(
+        baseline,
+        repository_commit="3" * 40,
+        repository_tree="4" * 40,
+        master_sha256=unsigned["specifications"]["master"]["sha256"],  # type: ignore[index]
+        meta_sha256=unsigned["specifications"]["meta"]["sha256"],  # type: ignore[index]
+        authorities=unsigned["file_census"]["authorities"],  # type: ignore[index]
+        configuration=unsigned["file_census"]["configuration"],  # type: ignore[index]
+        lockfiles=unsigned["file_census"]["lockfiles"],  # type: ignore[index]
+        dynamic_surface_candidates={
+            "git": [tracked],
+            "reports": [admitted_report, ordinary_report],
+            "caches": [cache],
+        },
+    )
+
+    assert rebound["file_census"]["evidence"] == unsigned["file_census"]["evidence"]  # type: ignore[index]
+    surfaces = {
+        entry["surface"]: entry["files"]
+        for entry in rebound["secret_surfaces"]  # type: ignore[index]
+    }
+    assert [entry["path"] for entry in surfaces["admitted_evidence"]] == [
+        admitted_one["path"],
+        admitted_report["path"],
+    ]
+    assert [entry["path"] for entry in surfaces["reports"]] == [
+        ordinary_report["path"]
+    ]
+    commands = {
+        entry["step"]: entry["expected_exit"]
+        for entry in rebound["commands"]  # type: ignore[index]
+    }
+    assert commands["pytest"] == "REPORTABLE_NONZERO"
+    assert commands["preflight"] == "REQUIRED_SUCCESS"
+    assert MasterAuditInvocation.from_dict(rebound).manifest_id == rebound["manifest_id"]
+
+
+def test_rebound_manifest_rejects_tampered_baseline(
+    tmp_path: Path,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    baseline = build_invocation_payload(unsigned)
+    baseline["target_state"] = "CANDIDATE_SEALED"
+    with pytest.raises(IntegrityError, match="baseline manifest_id"):
+        runner.build_rebound_invocation_payload(
+            baseline,
+            repository_commit="3" * 40,
+            repository_tree="4" * 40,
+            master_sha256=unsigned["specifications"]["master"]["sha256"],  # type: ignore[index]
+            meta_sha256=unsigned["specifications"]["meta"]["sha256"],  # type: ignore[index]
+            authorities=unsigned["file_census"]["authorities"],  # type: ignore[index]
+            configuration=unsigned["file_census"]["configuration"],  # type: ignore[index]
+            lockfiles=unsigned["file_census"]["lockfiles"],  # type: ignore[index]
+            dynamic_surface_candidates={
+                "git": [{"path": "git.txt", "sha256": "1" * 64}],
+                "reports": [{"path": "report.txt", "sha256": "2" * 64}],
+                "caches": [{"path": "cache.txt", "sha256": "3" * 64}],
+            },
+        )
+
+
 def test_preflight_hashes_duplicate_logical_bindings_only_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -9,8 +9,9 @@
   `648bf1ffd1d42cd5479f791918634e0ec31a5b62`
 - State-base tree:
   `84540b2133388bffbdbd027a40442a42036a6a9f`
-- Expected worktree before this coordination commit: modified only
-  `CODEX_HANDOFF.md`.
+- Expected worktree: modified only `CODEX_HANDOFF.md`,
+  `src/us_stocks_swing_model_v2/master_audit_runner.py`, and
+  `tests/test_master_audit_runner.py`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -38,7 +39,11 @@ authoritative.
   admitted evidence taking precedence; conflicting identities fail closed.
   Preflight hashes each physical file once across duplicate logical bindings,
   and forbidden secret filenames cannot enter an ordinary hashed census.
-- Targeted synthetic validation passed once: `63 passed` for
+- Prior-manifest rebinding remediation is validated but uncommitted. It
+  preserves the 4,937 audit-input evidence bindings separately from the 15,597
+  admitted secret-scan bindings, rejects baseline tampering, and normalizes the
+  current command-exit contract.
+- Targeted synthetic validation passed: `65 passed` for
   `tests/test_master_audit_runner.py`,
   `tests/test_meta_audit_remediation.py`, and
   `tests/test_research_governance_contract.py`.
@@ -49,13 +54,14 @@ authoritative.
   with manifest ID
   `163c51a5539703565727ca6d71f9bb325155b5680da493b9c7a69c17d083bb76`
   remains preserved historical evidence and is not reusable after runner changes.
+- The latest generation attempt stopped before writing because its one-off
+  script conflated the two admitted-evidence contracts. No validation ran.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: generate one new content-addressed Master Audit invocation
-manifest against the resulting clean coordination-only successor, then perform
-one validation-only, no-write invocation using the committed surface-partition
-helper.
+`UNAUTHORIZED`: review, stage, and commit exactly the three expected modified
+paths. Manifest generation remains separately gated and must bind the resulting
+clean commit.
 
 No manifest generation, calibration, audit execution, report publication,
 provider/network request, secret-byte read, data mutation, activation, research,
