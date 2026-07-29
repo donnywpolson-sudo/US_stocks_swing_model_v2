@@ -6,10 +6,12 @@
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `e438e9f710fc4eee36d837357789533d0bac2a5f`
+  `b098e84062c6f11f87668bf388acd1975b49fd82`
 - State-base tree:
-  `e3c33f1b8db9b76d603d2e8d54f55e472e755f9f`
-- Expected worktree: only this coordination update to `CODEX_HANDOFF.md`.
+  `1006bf523ab83c19124d9b82b9088a12906319b6`
+- Expected worktree: exactly this coordination update plus modifications to
+  `src/us_stocks_swing_model_v2/master_audit_runner.py` and
+  `tests/test_master_audit_runner.py`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -24,28 +26,29 @@ authoritative.
   `9dc6826c4a3a2e5abef8e650c630a094c7f99625b54a0cbea52cc21f20fac64a`.
 - `META_MASTER_AUDIT.md` remains at SHA-256
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
-- The deterministic runner and empty-surface remediation are committed at the
-  state base. A six-surface census may declare exact empty roots, records each
-  as `ABSENT` or `EMPTY_DIRECTORY`, rejects an omitted surface, and fails if an
-  unexpected file or unsupported entry appears.
-- Targeted synthetic validation passed: `42 passed` for
-  `tests/test_meta_audit_remediation.py`,
-  `tests/test_master_audit_runner.py`, and
+- The failed manifest-generation attempt exposed a contract defect before any
+  output was written: repository commit and tree values were incorrectly
+  routed through the SHA-256 validator.
+- The uncommitted remediation requires commit and tree to be exact lowercase
+  40-character Git SHA-1 object IDs. All specification, manifest, evidence,
+  file-content, and report identities remain exact lowercase SHA-256.
+- Focused rejection tests cover empty, uppercase, non-hexadecimal, wrong-length,
+  and 64-character Git object IDs while preserving SHA-256 file bindings.
+- Targeted synthetic validation passed: `55 passed` for
+  `tests/test_master_audit_runner.py`,
+  `tests/test_meta_audit_remediation.py`, and
   `tests/test_research_governance_contract.py`.
 - No invocation manifest, Master Audit, or audit report was created.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: create and validation-check one exact content-addressed Master
-Audit invocation manifest against the clean state base. The manifest must bind
-the exact authorities, two lockfiles, admitted releases and component
-manifests, six secret-scan surfaces including explicit empty roots, commands,
-timeouts, and report policy. Validation must remain no-write and must not
-execute audit steps.
+`UNAUTHORIZED`: review, stage, and commit exactly the three expected modified
+paths. Manifest generation remains blocked until that closure is committed and
+the clean successor state is verified.
 
-No audit execution, report publication, provider/network request, secret-byte
-read, data mutation, activation, research, training, evaluation, prediction,
-push, or trading is authorized.
+No manifest generation or validation, audit execution, report publication,
+provider/network request, secret-byte read, data mutation, activation,
+research, training, evaluation, prediction, push, or trading is authorized.
 
 ## Invalidation
 

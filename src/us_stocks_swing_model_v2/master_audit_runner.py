@@ -135,6 +135,15 @@ def _require_unique(values: Sequence[str], field: str) -> None:
         raise ContractError(f"{field} entries must be unique")
 
 
+def _require_git_sha1(value: object, field: str) -> str:
+    raw = _exact_text(value, field)
+    if len(raw) != 40 or any(character not in "0123456789abcdef" for character in raw):
+        raise ContractError(
+            f"{field} must be an exact lowercase 40-character Git SHA-1 object ID"
+        )
+    return raw
+
+
 def windows_ancestor_chain(value: str) -> tuple[str, ...]:
     """Return ancestors through the volume root without degrading ``C:\\`` to ``C:``."""
 
@@ -309,8 +318,8 @@ class RepositoryBinding:
         return cls(
             root=root,
             git_directory=git_directory,
-            commit=require_sha256(item["commit"], "repository.commit"),
-            tree=require_sha256(item["tree"], "repository.tree"),
+            commit=_require_git_sha1(item["commit"], "repository.commit"),
+            tree=_require_git_sha1(item["tree"], "repository.tree"),
             require_clean=_exact_bool(item["require_clean"], "repository.require_clean"),
             python_executable=python_executable,
             python_version=_exact_text(

@@ -87,8 +87,8 @@ def _unsigned_manifest(root: Path) -> dict[str, object]:
         "repository": {
             "root": str(root),
             "git_directory": str(root / ".git"),
-            "commit": "1" * 64,
-            "tree": "2" * 64,
+            "commit": "1" * 40,
+            "tree": "2" * 40,
             "require_clean": True,
             "python_executable": sys.executable,
             "python_version": platform.python_version(),
@@ -140,6 +140,45 @@ def test_windows_ancestor_chain_preserves_drive_root() -> None:
     assert chain[0] == r"C:\Users\donny\Desktop\US_stocks_swing_model_v2"
     assert chain[-1] == "C:\\"
     assert "C:" not in chain
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("commit", ""),
+        ("commit", "A" * 40),
+        ("commit", "g" * 40),
+        ("commit", "1" * 39),
+        ("commit", "1" * 41),
+        ("commit", "1" * 64),
+        ("tree", ""),
+        ("tree", "B" * 40),
+        ("tree", "z" * 40),
+        ("tree", "2" * 39),
+        ("tree", "2" * 41),
+        ("tree", "2" * 64),
+    ],
+)
+def test_repository_requires_exact_lowercase_git_sha1_object_ids(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    unsigned["repository"][field] = value  # type: ignore[index]
+    with pytest.raises(ContractError, match=rf"repository\.{field}"):
+        MasterAuditInvocation.from_dict(build_invocation_payload(unsigned))
+
+
+def test_repository_git_ids_do_not_weaken_sha256_file_bindings(
+    tmp_path: Path,
+) -> None:
+    unsigned = _unsigned_manifest(tmp_path)
+    unsigned["repository"]["commit"] = "a" * 40  # type: ignore[index]
+    unsigned["repository"]["tree"] = "b" * 40  # type: ignore[index]
+    unsigned["specifications"]["master"]["sha256"] = "c" * 40  # type: ignore[index]
+    with pytest.raises(
+        ContractError, match=r"specifications\.master\.sha256.*SHA-256"
+    ):
+        MasterAuditInvocation.from_dict(build_invocation_payload(unsigned))
 
 
 def test_manifest_requires_exact_two_lockfiles_and_command_order(tmp_path: Path) -> None:
