@@ -6,12 +6,11 @@
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `ffea8badce435342d3ce7b16e46e21c42c52dabd`
+  `648bf1ffd1d42cd5479f791918634e0ec31a5b62`
 - State-base tree:
-  `d54a3ecfbbda801818fca5f3b3215ea24a86ae05`
-- Expected worktree: modified only `CODEX_HANDOFF.md`,
-  `src/us_stocks_swing_model_v2/master_audit_runner.py`, and
-  `tests/test_master_audit_runner.py`.
+  `84540b2133388bffbdbd027a40442a42036a6a9f`
+- Expected worktree before this coordination commit: modified only
+  `CODEX_HANDOFF.md`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -33,7 +32,8 @@ authoritative.
   declared timeouts. JSON stdout and validation-only behavior remain preserved.
 - Definitive pytest scope remains exact `python -m pytest -q`, explicitly
   including the three `local_evidence` migration tests.
-- Manifest-generation remediation is validated but uncommitted. Secret-scan
+- Manifest-generation remediation is committed at the state base and validated.
+  Secret-scan
   candidates now receive deterministic, disjoint surface ownership with
   admitted evidence taking precedence; conflicting identities fail closed.
   Preflight hashes each physical file once across duplicate logical bindings,
@@ -44,12 +44,18 @@ authoritative.
   `tests/test_research_governance_contract.py`.
 - The migration, XNYS, foundation, rebuild, historical-ready, Nasdaq baseline,
   identity, Meta review, and eleven component identities remain unchanged.
+- Prior invocation
+  `21266a7df41be1f6e093ab3b4a9b714859fc47135cc30c5d54bdcd7695714511`
+  with manifest ID
+  `163c51a5539703565727ca6d71f9bb325155b5680da493b9c7a69c17d083bb76`
+  remains preserved historical evidence and is not reusable after runner changes.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: review, stage, and commit exactly the three expected modified
-paths. A new manifest-generation authorization must bind the resulting clean
-commit and use the committed surface-partition helper.
+`UNAUTHORIZED`: generate one new content-addressed Master Audit invocation
+manifest against the resulting clean coordination-only successor, then perform
+one validation-only, no-write invocation using the committed surface-partition
+helper.
 
 No manifest generation, calibration, audit execution, report publication,
 provider/network request, secret-byte read, data mutation, activation, research,
