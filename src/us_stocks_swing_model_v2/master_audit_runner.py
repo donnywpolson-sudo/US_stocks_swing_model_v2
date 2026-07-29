@@ -33,10 +33,7 @@ from .common import (
     sha256_file,
 )
 from .errors import ContractError, IntegrityError
-from .mechanical_readiness import (
-    assess_stock_mechanical_readiness,
-    verify_stock_mechanical_readiness_publication,
-)
+from .mechanical_readiness import verify_stock_mechanical_readiness_publication
 from .releases import verify_accepted_release
 
 
@@ -1380,22 +1377,16 @@ def _verify_mechanical_readiness(
     historical = _bound_path(
         root, binding.historical_research_ready_release_directory
     )
-    assessment = assess_stock_mechanical_readiness(
-        foundation_release_directory=foundation,
-        accepted_release_root=accepted_root,
-    )
     verified = verify_stock_mechanical_readiness_publication(
         foundation_release_directory=foundation,
         accepted_release_root=accepted_root,
         rebuild_complete_release_directory=rebuild,
         historical_research_ready_release_directory=historical,
     )
-    if verified.assessment_id != assessment.assessment_id:
-        raise IntegrityError("mechanical-readiness assessment IDs differ")
     return {
         "step": "mechanical_readiness_verification",
         "status": "PASSED",
-        "assessment_id": assessment.assessment_id,
+        "assessment_id": verified.assessment_id,
     }
 
 

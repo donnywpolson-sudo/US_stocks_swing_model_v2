@@ -7,6 +7,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -540,6 +541,65 @@ def test_process_timeout_and_exit_policy_are_fail_closed(tmp_path: Path) -> None
     assert result["stderr_sha256"] == sha256_bytes(b"y")
     assert result["stdout_bytes"] == 1
     assert result["stderr_bytes"] == 1
+
+
+def test_mechanical_readiness_verification_uses_one_assessment_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    invocation = _invocation(tmp_path)
+    for relative in (
+        invocation.accepted_release_root,
+        invocation.mechanical_readiness.foundation_release_directory,
+        invocation.mechanical_readiness.rebuild_complete_release_directory,
+        invocation.mechanical_readiness.historical_research_ready_release_directory,
+    ):
+        (tmp_path / relative).mkdir(parents=True, exist_ok=True)
+
+    calls: list[dict[str, Path]] = []
+
+    def verify_once(**kwargs: Path) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(assessment_id="a" * 64)
+
+    def duplicate_assessment_forbidden(**kwargs: Path) -> None:
+        raise AssertionError("mechanical readiness must not be assessed twice")
+
+    monkeypatch.setattr(
+        runner,
+        "assess_stock_mechanical_readiness",
+        duplicate_assessment_forbidden,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        runner,
+        "verify_stock_mechanical_readiness_publication",
+        verify_once,
+    )
+
+    result = runner._verify_mechanical_readiness(invocation)
+
+    assert result == {
+        "step": "mechanical_readiness_verification",
+        "status": "PASSED",
+        "assessment_id": "a" * 64,
+    }
+    assert calls == [
+        {
+            "foundation_release_directory": (
+                tmp_path
+                / invocation.mechanical_readiness.foundation_release_directory
+            ),
+            "accepted_release_root": tmp_path / invocation.accepted_release_root,
+            "rebuild_complete_release_directory": (
+                tmp_path
+                / invocation.mechanical_readiness.rebuild_complete_release_directory
+            ),
+            "historical_research_ready_release_directory": (
+                tmp_path
+                / invocation.mechanical_readiness.historical_research_ready_release_directory
+            ),
+        }
+    ]
 
 
 def test_full_execution_emits_flushed_hash_chained_step_evidence(

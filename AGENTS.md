@@ -46,6 +46,29 @@
   independent sleeve gates, sealed bundles, and prospective monitoring remain
   binding.
 
+## Larger-goal planning and continuation
+
+- For non-trivial work, identify the current larger goal from the user's latest
+  request and verified repository state. State that goal plainly and create or
+  update one bounded end-to-end plan from the current state to its completion.
+  The plan must distinguish executable steps from approval gates, user-owned
+  decisions, stop conditions, and completion evidence.
+- Keep the plan current as evidence changes, and work through every safe,
+  in-scope, already-authorized step without asking the user to paste back the
+  previous response's suggested next action. A plan organizes authorized work;
+  it never supplies missing authority or weakens any project gate.
+- Do not end a turn merely because another routine next step can be described.
+  Perform that step when it is safe and authorized. Yield to the user only when
+  the larger goal is complete, a binding gate or material blocker requires
+  user action, or continuing would exceed the authorized scope.
+- At a real user-owned boundary, request only the exact approval, decision, or
+  missing evidence needed to resume the plan. Do not ask the user to copy and
+  paste a generic next-action prompt.
+- If continuation in a fresh thread is genuinely necessary, provide one
+  self-contained goal-completion prompt covering the whole remaining objective,
+  verified current state, remaining plan, constraints, active gate, and done
+  criteria. Do not create a serial chain of one-step continuation prompts.
+
 ## Document authority and required reading
 
 - `AGENTS.md` governs agent workflow, repository safety, validation, and

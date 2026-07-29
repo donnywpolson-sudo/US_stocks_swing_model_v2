@@ -3,81 +3,58 @@
 ## Freshness and Authority
 
 - Updated: `2026-07-29`
-- Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
+- Root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `61feb2ae16728c45faed7d2288a52f7cc587a857`
+  `5139ece5b97ba8629e00dbc26e449110d5f5547d`
 - State-base tree:
-  `8054a15e93308cbbe7454e6c776fac5b3c919aa3`
-- Expected worktree: modified only `CODEX_HANDOFF.md`.
+  `5e7ea3b6d6ef7e0e3e5fd158a54bb46dc65eb6e6`
+- Expected worktree: modified only `AGENTS.md`, `CODEX_HANDOFF.md`,
+  `src/us_stocks_swing_model_v2/master_audit_runner.py`, and
+  `tests/test_master_audit_runner.py`.
 
-This handoff is coordination context only. `AGENTS.md`, the Constitution,
-Harness, current code/configuration/tests, and accepted manifests remain
-authoritative.
+This is coordination context, not evidence or execution authority. Repository
+authorities, current implementation/tests, and accepted manifests remain
+binding.
 
 ## Verified Current State
 
 - Highest documented milestone remains
   `HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`, mapping to Master target
   `HISTORICAL_RESEARCH_READY`.
-- `MASTER_AUDIT.md` SHA-256 remains
+- Master SHA-256:
   `9dc6826c4a3a2e5abef8e650c630a094c7f99625b54a0cbea52cc21f20fac64a`.
-- `META_MASTER_AUDIT.md` SHA-256 remains
+- Meta SHA-256:
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
-- The observable, timeout-bounded runner remediation is committed at the state
-  base and validated. It emits flushed, hash-chained start/terminal JSONL
-  evidence for all nine steps. Internal steps run in isolated, timeout-bounded
-  workers. JSON stdout and validation-only behavior are preserved.
-- Definitive pytest scope remains exact `python -m pytest -q`, explicitly
-  including the three `local_evidence` migration tests.
-- Manifest-generation remediation is committed and validated. Secret-scan
-  candidates receive disjoint ownership with admitted evidence taking
-  precedence; conflicting identities fail closed.
-  Preflight hashes each physical file once across duplicate logical bindings,
-  and forbidden secret filenames cannot enter an ordinary hashed census.
-- Prior-manifest rebinding remediation is committed at the state base and
-  validated. It
-  preserves the 4,937 audit-input evidence bindings separately from the 15,597
-  admitted secret-scan bindings, rejects baseline tampering, and normalizes the
-  current command-exit contract.
-- Windows worker-transport remediation is committed at the state base and
-  validated. Internal steps use a bounded canonical-JSON subprocess under the
-  manifest-bound Python instead of multiprocessing Pipe/spawn. Real launch,
-  timeout, failure, stderr rejection, and canonical-output contracts are
-  covered.
-- Targeted synthetic validation passed: `67 passed` for
+- The migration, XNYS, foundation, rebuild, historical-ready, Nasdaq baseline,
+  identity, Meta-review, and eleven component identities remain unchanged.
+- User-owned `AGENTS.md` adds 23 lines under
+  `Larger-goal planning and continuation`; it is preserved unchanged.
+- Invocation
+  `c033fb394ca8d9bb2b8a08240cd2e0bb4cbf011a8e0876709e7ac839f446db89`
+  with manifest ID
+  `f028505ecb16d773ae7628af52d113ae6f51ac9efc9e1e8a5d8a2d8625e7ca77`
+  passed validation-only against the state base with preflight timeout 120
+  seconds. It is stale after the current tracked changes.
+- Its sole calibration completed steps 1–4, then timed out at
+  `mechanical_readiness_verification` after 600.110 seconds. Pytest and steps
+  6–9 did not run; no report or pending artifact was created; no retry occurred.
+- Root cause was a redundant full mechanical-readiness assessment. The runner
+  now uses the publication verifier's single assessment result. Focused
+  regression coverage forbids a separate pre-pass.
+- Targeted synthetic verification passed once: `68 passed` for
   `tests/test_master_audit_runner.py`,
   `tests/test_meta_audit_remediation.py`, and
   `tests/test_research_governance_contract.py`.
-- The migration, XNYS, foundation, rebuild, historical-ready, Nasdaq baseline,
-  identity, Meta review, and eleven component identities remain unchanged.
-- Prior invocation
-  `21266a7df41be1f6e093ab3b4a9b714859fc47135cc30c5d54bdcd7695714511`
-  with manifest ID
-  `163c51a5539703565727ca6d71f9bb325155b5680da493b9c7a69c17d083bb76`
-  remains preserved historical evidence and is not reusable after runner changes.
-- Invocation
-  `23bc8ad98cb8f1cd2b0376313c3bd4ecadaf58723c27166c365e5efee9122842`
-  with manifest ID
-  `6aad9a88cf612c4717b5aa5a5e3c819e0ac9aa2c7a7afed96091c916d48109ac`
-  passed validation-only against the prior state but is stale after the worker
-  remediation commit.
-- Its sole calibration stopped at Step 1 with `PermissionError`; telemetry was
-  canonical and chain-valid, no pytest or report ran, and no retry occurred.
-- Validation-only preflight took about 49 seconds. The next manifest must bind
-  all nine timeouts explicitly, setting preflight to 120 seconds and preserving
-  the other reviewed limits.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: generate and validation-check one new content-addressed
-invocation manifest bound to the resulting clean coordination commit. It must
-bind all nine timeouts explicitly, set preflight to 120 seconds, preserve the
-other reviewed limits, and preserve prior manifests unchanged.
+`UNAUTHORIZED`: review, stage, and commit exactly the four expected modified
+paths. A later manifest must bind the resulting clean commit before calibration.
 
-No calibration, audit execution, report publication, provider/network request,
-secret-byte read, data mutation, activation, research, training, evaluation,
-prediction, push, or trading is authorized.
+No manifest generation, calibration, audit execution, report publication,
+provider/network request, secret-byte read, data mutation, activation, research,
+training, evaluation, prediction, push, or trading is authorized.
 
 ## Invalidation
 
