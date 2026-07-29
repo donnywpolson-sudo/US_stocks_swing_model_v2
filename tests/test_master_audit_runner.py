@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import io
 import json
 from pathlib import Path
 import platform
 import subprocess
 import sys
+import time
 
 import pytest
 
+import us_stocks_swing_model_v2.cli.run_master_audit as run_master_audit_cli
 import us_stocks_swing_model_v2.master_audit_runner as runner
 from us_stocks_swing_model_v2.audit_controls import AUDIT_SURFACES
 from us_stocks_swing_model_v2.common import (
@@ -131,6 +134,33 @@ def _invocation(root: Path) -> MasterAuditInvocation:
     return MasterAuditInvocation.from_dict(
         build_invocation_payload(_unsigned_manifest(root))
     )
+
+
+class _FlushCountingBuffer(io.BytesIO):
+    def __init__(self) -> None:
+        super().__init__()
+        self.flush_count = 0
+
+    def flush(self) -> None:
+        self.flush_count += 1
+        super().flush()
+
+
+def _sleeping_internal_worker(*args: object) -> None:
+    time.sleep(10)
+
+
+def _failing_internal_worker(connection: object, *args: object) -> None:
+    connection.send_bytes(  # type: ignore[attr-defined]
+        canonical_json_bytes(
+            {
+                "ok": False,
+                "outcome": None,
+                "error_type": "SyntheticChildFailure",
+            }
+        )
+    )
+    connection.close()  # type: ignore[attr-defined]
 
 
 def test_windows_ancestor_chain_preserves_drive_root() -> None:
@@ -311,12 +341,196 @@ def test_process_timeout_and_exit_policy_are_fail_closed(tmp_path: Path) -> None
         reportable, cwd=tmp_path, process_runner=failed
     )
     assert result["status"] == "REPORTABLE_TEST_FAILURE"
+    assert result["pytest_scope"] == runner.PYTEST_SCOPE
     assert "stdout" not in result
     assert "stderr" not in result
     assert result["stdout_sha256"] == sha256_bytes(b"x")
     assert result["stderr_sha256"] == sha256_bytes(b"y")
     assert result["stdout_bytes"] == 1
     assert result["stderr_bytes"] == 1
+
+
+def test_full_execution_emits_flushed_hash_chained_step_evidence(
+    tmp_path: Path,
+) -> None:
+    invocation = _invocation(tmp_path)
+    stream = _FlushCountingBuffer()
+    emitter = runner.StepEvidenceEmitter(
+        manifest_id=invocation.manifest_id,
+        execution_id="e" * 64,
+        stream=stream,
+    )
+
+    def process_runner(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=b"safe stdout",
+            stderr=b"safe stderr",
+        )
+
+    def internal_step_runner(
+        invocation: MasterAuditInvocation,
+        *,
+        command: CommandBinding,
+        report_bytes: bytes | None,
+        publish_report: bool,
+    ) -> runner._InternalStepOutcome:
+        return runner._InternalStepOutcome(
+            {
+                "step": command.step,
+                "status": (
+                    "NOT_REQUESTED"
+                    if command.step == "report_publication"
+                    else "PASSED"
+                ),
+                "report_sha256": (
+                    None if command.step == "report_publication" else None
+                ),
+            }
+        )
+
+    result = runner.execute_invocation(
+        invocation,
+        process_runner=process_runner,
+        internal_step_runner=internal_step_runner,
+        evidence_emitter=emitter,
+    )
+    lines = stream.getvalue().splitlines()
+    assert len(lines) == len(runner.COMMAND_ORDER) * 2
+    assert stream.flush_count == len(lines)
+    envelopes = [json.loads(line) for line in lines]
+    previous: str | None = None
+    phases_by_step: dict[str, list[str]] = {}
+    result_by_step = {entry["step"]: entry for entry in result.step_results}
+    for sequence, envelope in enumerate(envelopes, start=1):
+        assert set(envelope) == {"record", "record_sha256"}
+        record = envelope["record"]
+        assert envelope["record_sha256"] == sha256_bytes(
+            canonical_json_bytes(record)
+        )
+        assert record["sequence"] == sequence
+        assert record["manifest_id"] == invocation.manifest_id
+        assert record["execution_id"] == "e" * 64
+        assert record["previous_record_sha256"] == previous
+        previous = envelope["record_sha256"]
+        phases_by_step.setdefault(record["step"], []).append(record["phase"])
+        if record["phase"] == "COMPLETED":
+            assert record["result_sha256"] == sha256_bytes(
+                canonical_json_bytes(result_by_step[record["step"]])
+            )
+    assert list(phases_by_step) == list(runner.COMMAND_ORDER)
+    assert all(phases == ["STARTED", "COMPLETED"] for phases in phases_by_step.values())
+    pytest_result = result_by_step["pytest"]
+    assert pytest_result["pytest_scope"] == (
+        "FULL_CONFIGURED_SUITE_INCLUDING_LOCAL_EVIDENCE"
+    )
+    assert "stdout" not in pytest_result
+    assert "stderr" not in pytest_result
+
+
+def test_timeout_emits_terminal_evidence_and_stops_the_step(
+    tmp_path: Path,
+) -> None:
+    invocation = _invocation(tmp_path)
+    command = invocation.commands[0]
+    stream = _FlushCountingBuffer()
+    emitter = runner.StepEvidenceEmitter(
+        manifest_id=invocation.manifest_id,
+        execution_id="f" * 64,
+        stream=stream,
+    )
+
+    def timed_out() -> runner._InternalStepOutcome:
+        raise runner.AuditStepTimeoutError("synthetic timeout")
+
+    with pytest.raises(runner.AuditStepTimeoutError, match="synthetic timeout"):
+        runner._run_step_with_evidence(
+            command=command,
+            step_ordinal=1,
+            action=timed_out,
+            evidence_emitter=emitter,
+        )
+    records = [json.loads(line)["record"] for line in stream.getvalue().splitlines()]
+    assert [record["phase"] for record in records] == ["STARTED", "TIMED_OUT"]
+    assert records[-1]["failure_class"] == "AuditStepTimeoutError"
+    assert stream.flush_count == 2
+
+
+def test_isolated_internal_step_enforces_timeout_and_reports_child_failure(
+    tmp_path: Path,
+) -> None:
+    invocation = _invocation(tmp_path)
+    original = invocation.commands[0]
+    one_second = CommandBinding(
+        step=original.step,
+        timeout_seconds=1,
+        run_limit=1,
+        expected_exit=original.expected_exit,
+        argv=original.argv,
+    )
+    started = time.monotonic()
+    with pytest.raises(runner.AuditStepTimeoutError, match="preflight timed out"):
+        runner._run_internal_step_isolated(
+            invocation,
+            command=one_second,
+            report_bytes=None,
+            publish_report=False,
+            worker_target=_sleeping_internal_worker,
+        )
+    assert time.monotonic() - started < 8
+
+    master_command = invocation.commands[
+        runner.COMMAND_ORDER.index("master_classification")
+    ]
+    with pytest.raises(
+        AuditProcessError,
+        match=(
+            "master_classification failed in isolated worker: "
+            "SyntheticChildFailure"
+        ),
+    ):
+        runner._run_internal_step_isolated(
+            invocation,
+            command=master_command,
+            report_bytes=None,
+            publish_report=False,
+            worker_target=_failing_internal_worker,
+        )
+
+
+def test_validation_only_cli_preserves_json_stdout_without_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    invocation = _invocation(tmp_path)
+    monkeypatch.setattr(
+        run_master_audit_cli,
+        "load_invocation_manifest",
+        lambda *args, **kwargs: invocation,
+    )
+    monkeypatch.setattr(
+        run_master_audit_cli,
+        "validate_repository_preflight",
+        lambda *args, **kwargs: {"step": "preflight", "status": "PASSED"},
+    )
+    exit_code = run_master_audit_cli.main(
+        [
+            "--manifest",
+            str(tmp_path / "ignored.json"),
+            "--manifest-sha256",
+            "a" * 64,
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""
+    output = json.loads(captured.out)
+    assert output["mode"] == "VALIDATION_ONLY_NO_WRITES"
+    assert output["publication_enabled"] is False
 
 
 def test_content_addressed_report_is_atomic_and_never_overwrites(

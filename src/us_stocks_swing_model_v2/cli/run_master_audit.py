@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from ..common import (
     reject_link,
@@ -11,6 +12,7 @@ from ..common import (
     sha256_bytes,
 )
 from ..master_audit_runner import (
+    StepEvidenceEmitter,
     execute_invocation,
     load_invocation_manifest,
     validate_repository_preflight,
@@ -88,11 +90,19 @@ def main(argv: list[str] | None = None) -> int:
             parser().error("report source arguments require --publish-report")
         report_bytes = None
 
-    result = execute_invocation(
-        invocation,
-        report_bytes=report_bytes,
-        publish_report=args.publish_report,
+    evidence_emitter = StepEvidenceEmitter(
+        manifest_id=invocation.manifest_id,
+        stream=sys.stderr.buffer,
     )
+    try:
+        result = execute_invocation(
+            invocation,
+            evidence_emitter=evidence_emitter,
+            report_bytes=report_bytes,
+            publish_report=args.publish_report,
+        )
+    except Exception:
+        return 1
     print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
     return 0
 

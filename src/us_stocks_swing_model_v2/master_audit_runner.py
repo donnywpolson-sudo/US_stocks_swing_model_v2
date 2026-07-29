@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import multiprocessing
 import os
 from pathlib import Path, PureWindowsPath
 import platform
+import secrets
 import subprocess
 import sys
-from typing import Callable, Mapping, Sequence
+import time
+from typing import BinaryIO, Callable, Mapping, Sequence
 
 from .audit_controls import AUDIT_SURFACES, SecretScanResult, scan_declared_audit_surfaces
 from .common import (
@@ -50,6 +53,11 @@ COMMAND_ORDER = (
 )
 EXPECTED_EXIT_POLICIES = {"REQUIRED_SUCCESS", "REPORTABLE_NONZERO"}
 REPORT_OUTCOMES = ("SUPPORTABLE", "BLOCKED", "INSUFFICIENT_EVIDENCE")
+PYTEST_SCOPE = "FULL_CONFIGURED_SUITE_INCLUDING_LOCAL_EVIDENCE"
+STEP_EVIDENCE_SCHEMA_VERSION = 1
+_MAX_INTERNAL_RESULT_BYTES = 33_554_432
+_PROCESS_STEPS = frozenset({"contract_discovery", "pytest"})
+_INTERNAL_STEPS = frozenset(COMMAND_ORDER) - _PROCESS_STEPS
 _FORBIDDEN_SECRET_FILENAMES = {
     ".env",
     "api.env",
@@ -64,6 +72,87 @@ _ProcessRunner = Callable[..., subprocess.CompletedProcess[bytes]]
 
 class AuditProcessError(RuntimeError):
     """A declared audit process failed in a non-reportable way."""
+
+
+class AuditStepTimeoutError(AuditProcessError):
+    """A declared internal audit step exceeded its exact timeout."""
+
+
+class StepEvidenceEmitter:
+    """Emit immediately flushed, content-addressed step evidence as JSONL."""
+
+    def __init__(
+        self,
+        *,
+        manifest_id: str,
+        stream: BinaryIO,
+        execution_id: str | None = None,
+        monotonic_ns: Callable[[], int] = time.monotonic_ns,
+    ) -> None:
+        self.manifest_id = require_sha256(manifest_id, "manifest_id")
+        self.stream = stream
+        self.execution_id = (
+            require_sha256(execution_id, "execution_id")
+            if execution_id is not None
+            else sha256_bytes(
+                self.manifest_id.encode("ascii") + secrets.token_bytes(32)
+            )
+        )
+        self._monotonic_ns = monotonic_ns
+        self._run_started_ns = monotonic_ns()
+        self._sequence = 0
+        self._previous_record_sha256: str | None = None
+
+    def now_ns(self) -> int:
+        return self._monotonic_ns()
+
+    def emit(
+        self,
+        *,
+        command: CommandBinding,
+        step_ordinal: int,
+        phase: str,
+        observed_ns: int,
+        step_started_ns: int,
+        result_sha256: str | None = None,
+        failure_class: str | None = None,
+    ) -> str:
+        if phase not in {"STARTED", "COMPLETED", "FAILED", "TIMED_OUT"}:
+            raise ContractError("step evidence phase is not supported")
+        if result_sha256 is not None:
+            result_sha256 = require_sha256(result_sha256, "result_sha256")
+        self._sequence += 1
+        step_elapsed_ms = (
+            None
+            if phase == "STARTED"
+            else max(0, (observed_ns - step_started_ns) // 1_000_000)
+        )
+        record: dict[str, object] = {
+            "schema_version": STEP_EVIDENCE_SCHEMA_VERSION,
+            "manifest_id": self.manifest_id,
+            "execution_id": self.execution_id,
+            "sequence": self._sequence,
+            "step_ordinal": step_ordinal,
+            "step": command.step,
+            "phase": phase,
+            "declared_timeout_seconds": command.timeout_seconds,
+            "elapsed_milliseconds": max(
+                0, (observed_ns - self._run_started_ns) // 1_000_000
+            ),
+            "step_elapsed_milliseconds": step_elapsed_ms,
+            "previous_record_sha256": self._previous_record_sha256,
+            "result_sha256": result_sha256,
+            "failure_class": failure_class,
+        }
+        record_sha256 = sha256_bytes(canonical_json_bytes(record))
+        self.stream.write(
+            canonical_json_bytes(
+                {"record": record, "record_sha256": record_sha256}
+            )
+        )
+        self.stream.flush()
+        self._previous_record_sha256 = record_sha256
+        return record_sha256
 
 
 def _exact_dict(value: object, expected: set[str], field: str) -> dict[str, object]:
@@ -867,7 +956,7 @@ def _run_declared_process(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise AuditProcessError(f"{command.step} timed out") from exc
+        raise AuditStepTimeoutError(f"{command.step} timed out") from exc
     except OSError as exc:
         raise AuditProcessError(f"{command.step} failed to launch") from exc
     stdout = completed.stdout or b""
@@ -880,6 +969,8 @@ def _run_declared_process(
         "stdout_bytes": len(stdout),
         "stderr_bytes": len(stderr),
     }
+    if command.step == "pytest":
+        result["pytest_scope"] = PYTEST_SCOPE
     if completed.returncode == 0:
         return {**result, "status": "PASSED"}
     if command.expected_exit == "REPORTABLE_NONZERO":
@@ -967,6 +1058,248 @@ def _scan_secrets(invocation: MasterAuditInvocation) -> tuple[dict[str, object],
     )
 
 
+@dataclass(frozen=True)
+class _InternalStepOutcome:
+    result: dict[str, object]
+    report_path: str | None = None
+    report_sha256: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "result": self.result,
+            "report_path": self.report_path,
+            "report_sha256": self.report_sha256,
+        }
+
+
+def _execute_internal_step_direct(
+    invocation: MasterAuditInvocation,
+    *,
+    step: str,
+    report_bytes: bytes | None,
+    publish_report: bool,
+    deadline_monotonic: float | None = None,
+) -> _InternalStepOutcome:
+    root = invocation.repository.root
+    if step == "preflight":
+        def bounded_process_runner(
+            *args: object, **kwargs: object
+        ) -> subprocess.CompletedProcess[bytes]:
+            if deadline_monotonic is None:
+                return subprocess.run(*args, **kwargs)
+            remaining = deadline_monotonic - time.monotonic() - 0.5
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(
+                    cmd=kwargs.get("args", args[0] if args else "git"),
+                    timeout=0,
+                )
+            requested = kwargs.get("timeout")
+            if requested is None:
+                kwargs["timeout"] = remaining
+            else:
+                kwargs["timeout"] = min(float(requested), remaining)
+            return subprocess.run(*args, **kwargs)
+
+        return _InternalStepOutcome(
+            validate_repository_preflight(
+                invocation,
+                cwd=root,
+                process_runner=bounded_process_runner,
+            )
+        )
+    if step == "authority_read":
+        for binding in (
+            invocation.authorities
+            + invocation.configuration
+            + invocation.lockfiles
+        ):
+            _verify_file_binding(root, binding).read_bytes()
+        return _InternalStepOutcome(
+            {
+                "step": step,
+                "status": "PASSED",
+                "file_count": (
+                    len(invocation.authorities)
+                    + len(invocation.configuration)
+                    + len(invocation.lockfiles)
+                ),
+            }
+        )
+    if step == "accepted_release_verification":
+        return _InternalStepOutcome(_verify_releases(invocation))
+    if step == "mechanical_readiness_verification":
+        return _InternalStepOutcome(_verify_mechanical_readiness(invocation))
+    if step == "secret_scan":
+        result, _ = _scan_secrets(invocation)
+        return _InternalStepOutcome(result)
+    if step == "master_classification":
+        _verify_file_binding(root, invocation.master).read_bytes()
+        return _InternalStepOutcome(
+            {
+                "step": step,
+                "status": "EVIDENCE_READY_FOR_INDEPENDENT_REVIEW",
+            }
+        )
+    if step == "report_publication":
+        if publish_report:
+            report_path, report_sha256 = publish_content_addressed_report(
+                repository_root=root,
+                output_root=invocation.report.output_root,
+                report_bytes=report_bytes or b"",
+            )
+            status = "PUBLISHED"
+            path_text = str(report_path)
+        else:
+            report_sha256 = None
+            status = "NOT_REQUESTED"
+            path_text = None
+        return _InternalStepOutcome(
+            {
+                "step": step,
+                "status": status,
+                "report_sha256": report_sha256,
+            },
+            report_path=path_text,
+            report_sha256=report_sha256,
+        )
+    raise ContractError(f"unsupported internal audit step: {step}")
+
+
+def _internal_step_worker(
+    connection: object,
+    invocation_payload: dict[str, object],
+    step: str,
+    report_bytes: bytes | None,
+    publish_report: bool,
+    deadline_monotonic: float,
+) -> None:
+    payload: dict[str, object]
+    try:
+        invocation = MasterAuditInvocation.from_dict(invocation_payload)
+        outcome = _execute_internal_step_direct(
+            invocation,
+            step=step,
+            report_bytes=report_bytes,
+            publish_report=publish_report,
+            deadline_monotonic=deadline_monotonic,
+        )
+        payload = {"ok": True, "outcome": outcome.as_dict(), "error_type": None}
+    except Exception as exc:  # pragma: no cover - exercised through parent contract
+        payload = {
+            "ok": False,
+            "outcome": None,
+            "error_type": type(exc).__name__,
+        }
+    try:
+        connection.send_bytes(canonical_json_bytes(payload))  # type: ignore[attr-defined]
+    finally:
+        connection.close()  # type: ignore[attr-defined]
+
+
+def _stop_worker_process(process: multiprocessing.Process) -> None:
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
+
+
+def _run_internal_step_isolated(
+    invocation: MasterAuditInvocation,
+    *,
+    command: CommandBinding,
+    report_bytes: bytes | None,
+    publish_report: bool,
+    worker_target: Callable[..., None] = _internal_step_worker,
+) -> _InternalStepOutcome:
+    if command.step not in _INTERNAL_STEPS:
+        raise ContractError("isolated worker received a process step")
+    deadline_monotonic = time.monotonic() + command.timeout_seconds
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=worker_target,
+        args=(
+            sender,
+            invocation.as_dict(),
+            command.step,
+            report_bytes if command.step == "report_publication" else None,
+            publish_report if command.step == "report_publication" else False,
+            deadline_monotonic,
+        ),
+        name=f"master-audit-{command.step}",
+    )
+    process.start()
+    sender.close()
+    try:
+        remaining = deadline_monotonic - time.monotonic()
+        if remaining <= 0 or not receiver.poll(remaining):
+            _stop_worker_process(process)
+            raise AuditStepTimeoutError(f"{command.step} timed out")
+        try:
+            raw = receiver.recv_bytes(_MAX_INTERNAL_RESULT_BYTES)
+        except (EOFError, OSError) as exc:
+            _stop_worker_process(process)
+            raise AuditProcessError(
+                f"{command.step} worker returned no valid result"
+            ) from exc
+    finally:
+        receiver.close()
+    process.join(timeout=5)
+    if process.is_alive():
+        _stop_worker_process(process)
+        raise AuditProcessError(f"{command.step} worker failed to exit")
+    if process.exitcode != 0:
+        raise AuditProcessError(
+            f"{command.step} worker exited {process.exitcode}"
+        )
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AuditProcessError(
+            f"{command.step} worker returned invalid JSON"
+        ) from exc
+    if canonical_json_bytes(payload) != raw or type(payload) is not dict:
+        raise AuditProcessError(
+            f"{command.step} worker returned noncanonical evidence"
+        )
+    if set(payload) != {"ok", "outcome", "error_type"}:
+        raise AuditProcessError(
+            f"{command.step} worker result fields differ"
+        )
+    if payload["ok"] is not True:
+        error_type = payload.get("error_type")
+        if type(error_type) is not str or not error_type:
+            error_type = "UnknownWorkerError"
+        raise AuditProcessError(
+            f"{command.step} failed in isolated worker: {error_type}"
+        )
+    outcome_value = payload["outcome"]
+    if type(outcome_value) is not dict or set(outcome_value) != {
+        "result",
+        "report_path",
+        "report_sha256",
+    }:
+        raise AuditProcessError(f"{command.step} worker outcome fields differ")
+    result = outcome_value["result"]
+    report_path = outcome_value["report_path"]
+    report_sha256 = outcome_value["report_sha256"]
+    if type(result) is not dict or result.get("step") != command.step:
+        raise AuditProcessError(f"{command.step} worker result does not bind its step")
+    if report_path is not None and type(report_path) is not str:
+        raise AuditProcessError(f"{command.step} worker report path is invalid")
+    if report_sha256 is not None:
+        report_sha256 = require_sha256(
+            report_sha256, f"{command.step}.report_sha256"
+        )
+    return _InternalStepOutcome(
+        dict(result),
+        report_path=report_path,
+        report_sha256=report_sha256,
+    )
+
+
 def publish_content_addressed_report(
     *,
     repository_root: Path,
@@ -996,10 +1329,70 @@ def publish_content_addressed_report(
     return destination, report_sha256
 
 
+def _run_step_with_evidence(
+    *,
+    command: CommandBinding,
+    step_ordinal: int,
+    action: Callable[[], _InternalStepOutcome],
+    evidence_emitter: StepEvidenceEmitter | None,
+) -> _InternalStepOutcome:
+    step_started_ns = (
+        evidence_emitter.now_ns()
+        if evidence_emitter is not None
+        else time.monotonic_ns()
+    )
+    if evidence_emitter is not None:
+        evidence_emitter.emit(
+            command=command,
+            step_ordinal=step_ordinal,
+            phase="STARTED",
+            observed_ns=step_started_ns,
+            step_started_ns=step_started_ns,
+        )
+    try:
+        outcome = action()
+    except AuditStepTimeoutError as exc:
+        if evidence_emitter is not None:
+            evidence_emitter.emit(
+                command=command,
+                step_ordinal=step_ordinal,
+                phase="TIMED_OUT",
+                observed_ns=evidence_emitter.now_ns(),
+                step_started_ns=step_started_ns,
+                failure_class=type(exc).__name__,
+            )
+        raise
+    except Exception as exc:
+        if evidence_emitter is not None:
+            evidence_emitter.emit(
+                command=command,
+                step_ordinal=step_ordinal,
+                phase="FAILED",
+                observed_ns=evidence_emitter.now_ns(),
+                step_started_ns=step_started_ns,
+                failure_class=type(exc).__name__,
+            )
+        raise
+    if evidence_emitter is not None:
+        evidence_emitter.emit(
+            command=command,
+            step_ordinal=step_ordinal,
+            phase="COMPLETED",
+            observed_ns=evidence_emitter.now_ns(),
+            step_started_ns=step_started_ns,
+            result_sha256=sha256_bytes(canonical_json_bytes(outcome.result)),
+        )
+    return outcome
+
+
 def execute_invocation(
     invocation: MasterAuditInvocation,
     *,
     process_runner: _ProcessRunner = subprocess.run,
+    internal_step_runner: Callable[..., _InternalStepOutcome] = (
+        _run_internal_step_isolated
+    ),
+    evidence_emitter: StepEvidenceEmitter | None = None,
     report_bytes: bytes | None = None,
     publish_report: bool = False,
 ) -> AuditExecutionResult:
@@ -1014,69 +1407,40 @@ def execute_invocation(
 
     root = invocation.repository.root
     commands = {command.step: command for command in invocation.commands}
-    results: list[dict[str, object]] = [
-        validate_repository_preflight(
-            invocation, cwd=root, process_runner=process_runner
-        )
-    ]
-
-    for binding in (
-        invocation.authorities + invocation.configuration + invocation.lockfiles
-    ):
-        _verify_file_binding(root, binding).read_bytes()
-    results.append(
-        {
-            "step": "authority_read",
-            "status": "PASSED",
-            "file_count": (
-                len(invocation.authorities)
-                + len(invocation.configuration)
-                + len(invocation.lockfiles)
-            ),
-        }
-    )
-    results.append(
-        _run_declared_process(
-            commands["contract_discovery"],
-            cwd=root,
-            process_runner=process_runner,
-        )
-    )
-    results.append(_verify_releases(invocation))
-    results.append(_verify_mechanical_readiness(invocation))
-    secret_result, _ = _scan_secrets(invocation)
-    results.append(secret_result)
-    results.append(
-        _run_declared_process(
-            commands["pytest"], cwd=root, process_runner=process_runner
-        )
-    )
-    _verify_file_binding(root, invocation.master).read_bytes()
-    results.append(
-        {
-            "step": "master_classification",
-            "status": "EVIDENCE_READY_FOR_INDEPENDENT_REVIEW",
-        }
-    )
-
+    results: list[dict[str, object]] = []
     report_path: Path | None = None
     report_sha256: str | None = None
-    if publish_report:
-        report_path, report_sha256 = publish_content_addressed_report(
-            repository_root=root,
-            output_root=invocation.report.output_root,
-            report_bytes=report_bytes or b"",
+    for step_ordinal, step in enumerate(COMMAND_ORDER, start=1):
+        command = commands[step]
+        if step in _PROCESS_STEPS:
+            action = lambda command=command: _InternalStepOutcome(
+                _run_declared_process(
+                    command,
+                    cwd=root,
+                    process_runner=process_runner,
+                )
+            )
+        else:
+            action = lambda command=command: internal_step_runner(
+                invocation,
+                command=command,
+                report_bytes=report_bytes,
+                publish_report=publish_report,
+            )
+        outcome = _run_step_with_evidence(
+            command=command,
+            step_ordinal=step_ordinal,
+            action=action,
+            evidence_emitter=evidence_emitter,
         )
-        report_status = "PUBLISHED"
-    else:
-        report_status = "NOT_REQUESTED"
-    results.append(
-        {
-            "step": "report_publication",
-            "status": report_status,
-            "report_sha256": report_sha256,
-        }
-    )
+        results.append(outcome.result)
+        if step == "report_publication":
+            report_path = (
+                None
+                if outcome.report_path is None
+                else Path(outcome.report_path)
+            )
+            report_sha256 = outcome.report_sha256
     return AuditExecutionResult(
         manifest_id=invocation.manifest_id,
         target_state=invocation.target_state,
