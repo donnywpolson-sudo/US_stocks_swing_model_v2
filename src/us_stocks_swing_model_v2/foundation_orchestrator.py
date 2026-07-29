@@ -127,6 +127,13 @@ _IMPLEMENTATION_PATHS = (
     "config/environment.lock.json",
     "requirements.sha256.lock",
 )
+_PRODUCTION_REFRESH_SUBSTANTIVE_COMMIT_PATHS = (
+    "config/foundation_refresh_authorization.json",
+    "src/us_stocks_swing_model_v2/foundation_orchestrator.py",
+    "tests/test_controlled_rebuild_authorization.py",
+    "tests/test_foundation_orchestrator.py",
+)
+_PRODUCTION_REFRESH_COORDINATION_COMMIT_PATHS = ("CODEX_HANDOFF.md",)
 _AGGREGATE_CONTRACT = {
     "schema_version": 1,
     "contract_version": ORCHESTRATOR_VERSION,
@@ -269,6 +276,10 @@ def _load_production_refresh_authorization(
         "project",
         "authorized_base_commit",
         "maximum_commits_after_base",
+        "required_substantive_commits_after_base",
+        "required_coordination_commits_after_base",
+        "substantive_commit_paths",
+        "coordination_commit_paths",
         "migration",
         "calendar",
         "created_at",
@@ -292,13 +303,19 @@ def _load_production_refresh_authorization(
     authorization_id = sha256_bytes(canonical_json_bytes(unsigned).removesuffix(b"\n"))
     if (
         payload["authorization_id"] != authorization_id
-        or payload["schema_version"] != 1
-        or payload["authorization_version"] != "1.0.0"
+        or payload["schema_version"] != 2
+        or payload["authorization_version"] != "2.0.0"
         or payload["authorization_class"]
         != PRODUCTION_REFRESH_AUTHORIZATION_CLASS
         or payload["authorization_source"] != "CURRENT_THREAD_USER_MESSAGE"
         or payload["project"] != PROJECT
-        or payload["maximum_commits_after_base"] != 1
+        or payload["maximum_commits_after_base"] != 2
+        or payload["required_substantive_commits_after_base"] != 1
+        or payload["required_coordination_commits_after_base"] != 1
+        or payload["substantive_commit_paths"]
+        != list(_PRODUCTION_REFRESH_SUBSTANTIVE_COMMIT_PATHS)
+        or payload["coordination_commit_paths"]
+        != list(_PRODUCTION_REFRESH_COORDINATION_COMMIT_PATHS)
         or payload["maximum_distinct_builds"] != 1
         or payload["idempotent_resume_same_build_allowed"] is not True
         or payload["prior_releases_immutable"] is not True
@@ -337,6 +354,70 @@ def _git_output(*args: str) -> str:
     return completed.stdout.strip()
 
 
+def _commit_paths(commit: str) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            path
+            for path in _git_output(
+                "diff-tree", "--no-commit-id", "--name-only", "-r", commit
+            ).splitlines()
+            if path
+        )
+    )
+
+
+def _validate_production_refresh_commit_topology(
+    payload: Mapping[str, Any],
+) -> None:
+    base = str(payload["authorized_base_commit"])
+    commits = tuple(
+        commit
+        for commit in _git_output(
+            "rev-list", "--reverse", f"{base}..HEAD"
+        ).splitlines()
+        if commit
+    )
+    if len(commits) != int(payload["maximum_commits_after_base"]):
+        raise IntegrityError(
+            "production foundation refresh commit distance differs from authorization"
+        )
+    substantive_count = int(payload["required_substantive_commits_after_base"])
+    coordination_count = int(payload["required_coordination_commits_after_base"])
+    if substantive_count + coordination_count != len(commits):
+        raise IntegrityError(
+            "production foundation refresh commit topology differs from authorization"
+        )
+    previous = base
+    for commit in commits:
+        if tuple(
+            _git_output("rev-list", "--parents", "-n", "1", commit).split()
+        ) != (commit, previous):
+            raise IntegrityError(
+                "production foundation refresh commit topology differs from authorization"
+            )
+        previous = commit
+    if not commits or _git_output("rev-parse", "HEAD") != commits[-1]:
+        raise IntegrityError(
+            "production foundation refresh commit topology differs from authorization"
+        )
+    substantive_commits = commits[:substantive_count]
+    coordination_commits = commits[substantive_count:]
+    substantive_paths = tuple(payload["substantive_commit_paths"])
+    coordination_paths = tuple(payload["coordination_commit_paths"])
+    if any(
+        _commit_paths(commit) != substantive_paths for commit in substantive_commits
+    ):
+        raise IntegrityError(
+            "production foundation refresh substantive commit paths differ from authorization"
+        )
+    if any(
+        _commit_paths(commit) != coordination_paths for commit in coordination_commits
+    ):
+        raise IntegrityError(
+            "production foundation refresh coordination commit paths differ from authorization"
+        )
+
+
 def _validate_production_refresh_authorization(
     payload: Mapping[str, Any],
     *,
@@ -364,12 +445,7 @@ def _validate_production_refresh_authorization(
         raise IntegrityError(
             "production foundation refresh HEAD is not descended from its authorized base"
         ) from exc
-    if int(_git_output("rev-list", "--count", f"{base}..HEAD")) != int(
-        payload["maximum_commits_after_base"]
-    ):
-        raise IntegrityError(
-            "production foundation refresh commit distance differs from authorization"
-        )
+    _validate_production_refresh_commit_topology(payload)
     migration = payload["migration"]
     calendar = payload["calendar"]
     if (

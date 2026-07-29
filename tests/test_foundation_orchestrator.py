@@ -278,6 +278,125 @@ def test_checkpoint_and_accepted_aggregate_tamper_fail_closed(
         shutil.rmtree(clean_root)
 
 
+def _production_topology_payload() -> dict[str, object]:
+    return {
+        "authorized_base_commit": "a" * 40,
+        "maximum_commits_after_base": 2,
+        "required_substantive_commits_after_base": 1,
+        "required_coordination_commits_after_base": 1,
+        "substantive_commit_paths": [
+            "config/foundation_refresh_authorization.json",
+            "src/us_stocks_swing_model_v2/foundation_orchestrator.py",
+            "tests/test_controlled_rebuild_authorization.py",
+            "tests/test_foundation_orchestrator.py",
+        ],
+        "coordination_commit_paths": ["CODEX_HANDOFF.md"],
+    }
+
+
+def _topology_git_responses(*, case: str = "valid") -> dict[tuple[str, ...], str]:
+    base = "a" * 40
+    substantive = "b" * 40
+    coordination = "c" * 40
+    commits = [substantive, coordination]
+    substantive_paths = list(_production_topology_payload()["substantive_commit_paths"])
+    coordination_paths = ["CODEX_HANDOFF.md"]
+    substantive_parent = base
+    if case == "missing_coordination":
+        commits.pop()
+    elif case == "extra_commit":
+        commits.append("d" * 40)
+    elif case == "reordered":
+        commits.reverse()
+    elif case == "non_linear":
+        substantive_parent = "e" * 40
+    elif case == "substantive_path_drift":
+        substantive_paths.append("README.md")
+    elif case == "coordination_extra_path":
+        coordination_paths.append("README.md")
+    return {
+        ("rev-list", "--reverse", f"{base}..HEAD"): "\n".join(commits),
+        ("rev-list", "--parents", "-n", "1", substantive): (
+            f"{substantive} {substantive_parent}"
+        ),
+        ("rev-list", "--parents", "-n", "1", coordination): (
+            f"{coordination} {substantive}"
+        ),
+        ("rev-parse", "HEAD"): commits[-1],
+        ("diff-tree", "--no-commit-id", "--name-only", "-r", substantive): (
+            "\n".join(substantive_paths)
+        ),
+        ("diff-tree", "--no-commit-id", "--name-only", "-r", coordination): (
+            "\n".join(coordination_paths)
+        ),
+    }
+
+
+def test_production_authorization_accepts_substantive_then_handoff_topology(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = _topology_git_responses()
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_git_output",
+        lambda *arguments: responses[arguments],
+    )
+    orchestrator_module._validate_production_refresh_commit_topology(
+        _production_topology_payload()
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("missing_coordination", "commit distance"),
+        ("extra_commit", "commit distance"),
+        ("reordered", "commit topology"),
+        ("non_linear", "commit topology"),
+        ("substantive_path_drift", "substantive commit paths"),
+        ("coordination_extra_path", "coordination commit paths"),
+    ],
+)
+def test_production_authorization_rejects_topology_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    message: str,
+) -> None:
+    responses = _topology_git_responses(case=case)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "_git_output",
+        lambda *arguments: responses[arguments],
+    )
+    with pytest.raises(IntegrityError, match=message):
+        orchestrator_module._validate_production_refresh_commit_topology(
+            _production_topology_payload()
+        )
+
+
+def test_production_authorization_rejects_dirty_tracked_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(orchestrator_module.__file__).resolve().parents[2]
+
+    def fake_git_output(*arguments: str) -> str:
+        if arguments == ("rev-parse", "--show-toplevel"):
+            return str(root)
+        if arguments == ("status", "--porcelain", "--untracked-files=no"):
+            return " M CODEX_HANDOFF.md"
+        raise AssertionError(f"unexpected Git arguments: {arguments!r}")
+
+    monkeypatch.setattr(orchestrator_module, "_git_output", fake_git_output)
+    with pytest.raises(IntegrityError, match="clean tracked tree"):
+        orchestrator_module._validate_production_refresh_authorization(
+            {},
+            prepared=None,
+            migration_release_directory=root,
+            accepted_release_root=root,
+            derived_work_root=root,
+        )
+
+
 def test_production_execution_requires_exact_one_shot_authorization(
     orchestrator_tmp: Path,
 ) -> None:

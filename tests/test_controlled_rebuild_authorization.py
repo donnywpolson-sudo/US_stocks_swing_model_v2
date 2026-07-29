@@ -46,8 +46,20 @@ def test_foundation_refresh_authorization_is_exact_one_shot_and_non_alpha() -> N
     payload = json.loads(path.read_text(encoding="utf-8"))
     authorization_id = payload.pop("authorization_id")
     assert sha256_json(payload) == authorization_id == (
-        "b74581430dfa30794e2712ff654303dbde0399de2624c1d4e74a75aae7b9c39c"
+        "4d48145afee8a1713ad3f7321d4456449615eed7a14094da02cead38af07a062"
     )
+    assert payload["schema_version"] == 2
+    assert payload["authorization_version"] == "2.0.0"
+    assert payload["maximum_commits_after_base"] == 2
+    assert payload["required_substantive_commits_after_base"] == 1
+    assert payload["required_coordination_commits_after_base"] == 1
+    assert payload["substantive_commit_paths"] == [
+        "config/foundation_refresh_authorization.json",
+        "src/us_stocks_swing_model_v2/foundation_orchestrator.py",
+        "tests/test_controlled_rebuild_authorization.py",
+        "tests/test_foundation_orchestrator.py",
+    ]
+    assert payload["coordination_commit_paths"] == ["CODEX_HANDOFF.md"]
     assert payload["authorization_class"] == (
         "ONE_SHOT_NON_ACTIVE_FOUNDATION_SUCCESSOR_REFRESH"
     )
