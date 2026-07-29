@@ -30,3 +30,24 @@ offline verification, but it cannot establish independent provenance.
 A local pytest log and a GitHub Actions artifact are review evidence, not
 independently anchored immutable records, provider attestations, or alpha
 evidence.
+
+## Audit command manifests
+
+An audit authorization must freeze every reviewer process in one ordered
+command manifest before execution. Each record identifies the exact executable,
+arguments, working directory, environment additions, invocation limit, timeout,
+expected exit behavior, and whether a nonzero exit stops the invocation or is a
+predeclared reportable test result.
+
+This repository uses a `src/` package layout. Pytest obtains that path from
+`pyproject.toml`; standalone Python does not. An audit may not add a
+supplementary import, environment validator, alternate selector, fallback, or
+retry merely because it is read-only. If only pytest is authorized,
+environment evidence comes from the exact selected tests and static lockfile
+inspection.
+
+An undeclared command or unexpected nonzero exit is a process failure. The
+reviewer preserves partial evidence and stops before later commands or report
+publication. A predeclared reportable test-result exit permits only the
+authorized incomplete report; it never permits another project command, retry,
+cleanup, or readiness claim.

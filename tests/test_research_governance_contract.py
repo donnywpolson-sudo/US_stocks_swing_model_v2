@@ -8,6 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "research_readiness_contract.json"
 DOC_PATH = ROOT / "docs" / "HISTORICAL_RESEARCH_HARNESS.md"
 MONITORING_POLICY_PATH = ROOT / "config" / "prospective_monitoring_policy.json"
+MASTER_AUDIT_PATH = ROOT / "MASTER_AUDIT.md"
+META_MASTER_AUDIT_PATH = ROOT / "META_MASTER_AUDIT.md"
+TEST_EVIDENCE_POLICY_PATH = ROOT / "docs" / "TEST_EXECUTION_EVIDENCE_POLICY.md"
 
 
 def _contract() -> dict:
@@ -130,6 +133,57 @@ def test_document_does_not_convert_readiness_or_screen_into_alpha_authority() ->
     assert "A diagnostic screen pass does not seal a candidate" in normalized
     assert "all writes to the legacy repository remain hard-paused" in normalized
     assert "Outer OOS is a screen, not the final holdout." in normalized
+
+
+def test_audit_command_manifests_fail_closed_without_supplementary_imports() -> None:
+    master = MASTER_AUDIT_PATH.read_text(encoding="utf-8")
+    meta = META_MASTER_AUDIT_PATH.read_text(encoding="utf-8")
+    policy = TEST_EVIDENCE_POLICY_PATH.read_text(encoding="utf-8")
+
+    master_normalized = " ".join(master.split())
+    meta_normalized = " ".join(meta.split())
+    policy_normalized = " ".join(policy.split())
+
+    for text in (master_normalized, meta_normalized, policy_normalized):
+        assert "ordered command manifest" in text
+        assert "`src/` package layout" in text
+        assert "supplementary import" in text
+        assert "undeclared command" in text.lower()
+        assert "unexpected nonzero exit" in text.lower()
+
+    assert (
+        "stop before any later command or report publication"
+        in master_normalized
+    )
+    assert (
+        "Preserve partial evidence, publish nothing, and stop"
+        in meta_normalized
+    )
+    assert (
+        "stops before later commands or report publication"
+        in policy_normalized
+    )
+    assert "REPORTABLE_TEST_RESULT" in meta_normalized
+
+
+def test_meta_audit_keeps_specification_and_project_verdicts_separate() -> None:
+    meta = META_MASTER_AUDIT_PATH.read_text(encoding="utf-8")
+    normalized = " ".join(meta.split())
+
+    assert "Mode: `MASTER_SPECIFICATION_REVIEW`" in normalized
+    assert (
+        "The Meta Audit grades defects in the Master specification. "
+        "It does not grade the project's present readiness"
+    ) in normalized
+    assert (
+        "Missing current executable evidence is not a Meta finding when the "
+        "Master explicitly requires it"
+    ) in normalized
+    assert (
+        "The Meta review does not execute Master gates or require current "
+        "runtime evidence to exist."
+    ) in normalized
+    assert "The review must not apply those amendments." in normalized
 
 
 def test_robustness_and_monitoring_governance_are_binding_and_fail_closed() -> None:
