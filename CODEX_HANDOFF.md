@@ -2,13 +2,13 @@
 
 ## Freshness and Authority
 
-- Updated: `2026-07-29`
+- Updated: `2026-07-29T09:10:45-07:00`
 - Root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `ee55d25291aff94ddbbfc177b1e40c83ff25ccf2`
+  `eda58b5a317e8b3045cb96c775fd5cad1950a608`
 - State-base tree:
-  `b98622a9c50a5560bb4caa503fbe0934197c699b`
+  `1c5f95c6dda0f6bc4d330ec1f4900aaec436f2e0`
 - Expected worktree: modified only `CODEX_HANDOFF.md`.
 
 This is coordination context, not evidence or execution authority. Repository
@@ -26,8 +26,8 @@ binding.
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
 - The migration, XNYS, foundation, rebuild, historical-ready, Nasdaq baseline,
   identity, Meta-review, and eleven component identities remain unchanged.
-- `AGENTS.md` now commits the larger-goal completion workflow at the state
-  base.
+- `AGENTS.md` uses the uniform eight-section guide and preserves the
+  larger-goal completion workflow at the state base.
 - Invocation
   `c033fb394ca8d9bb2b8a08240cd2e0bb4cbf011a8e0876709e7ac839f446db89`
   with manifest ID
