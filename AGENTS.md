@@ -1,30 +1,21 @@
 # US Stocks Swing Model v2 Instructions
 
-## Scope
+## Purpose And Scope
+
+### Repository Identity
 
 - This repository is independent from every futures project and from
   `C:\Users\donny\Desktop\US_stocks_swing_model`.
-- Before any project mutation or workload, first use read-only identity checks
-  to record the current directory and resolve `git rev-parse --show-toplevel`.
-  Normalize separators and case using Windows path semantics; require the Git
-  root to identify exactly `C:\Users\donny\Desktop\US_stocks_swing_model_v2`,
-  and reject a nested, linked/reparse, or unrelated worktree. Stop on any
-  mismatch; never rely on a similarly named repository or stale working
-  directory. The identity checks themselves are exempt from this precondition.
+
+### Legacy And Active-Data Boundary
+
 - Treat the legacy repository as read-only forensic evidence. Never import it,
   discover files from it at runtime, or modify it.
 - Active data must be addressed by an accepted immutable release ID. Recursive
   fallback discovery, alternate roots, hardlinks, junctions, and symlinks are
   prohibited.
-- An accepted release is an exact `release_manifest.json` validated by
-  `verify_accepted_release` in
-  `src/us_stocks_swing_model_v2/releases.py`, published only at
-  `accepted_root/dataset/release_id`. Its release ID must equal the SHA-256 of
-  its canonical manifest, including the declared file hashes, code, config,
-  and environment bindings. Missing, mismatched, or unverified manifests are
-  not accepted evidence.
 
-## Project identity and workflow continuity
+### Project Identity
 
 - This daily US stock/ETF OHLCV project asks whether information causally
   available after completed session `D0` can support useful next-open-to-fifth-
@@ -38,41 +29,10 @@
   model, candidate, approval, path, or runtime dependency becomes active in V2.
   Legacy failed or inspected experiments remain negative discovery evidence and
   trial-census input, never fresh, pristine, or rerunnable V2 evidence.
-- Preserve this workflow: qualify daily sources; canonicalize bars and causal
-  reference data; build the eligible universe; create separate feature and
-  five-session outcome releases; preregister chronological WFA; and train,
-  score, or evaluate only when separately authorized. Documentation never
-  authorizes a phase; immutable releases, the research firewall, counted trials,
-  independent sleeve gates, sealed bundles, and prospective monitoring remain
-  binding.
 
-## Larger-goal completion workflow
+## Authority And Sources Of Truth
 
-- For non-trivial work, treat the user's current larger goal—not the immediate
-  substep—as the unit of work. Infer that goal from the latest request and
-  verified repository state, state it plainly, and maintain one bounded
-  end-to-end plan from the current state through its completion criteria.
-- The plan must distinguish executable work, approval gates, user-owned
-  decisions, stop conditions, and required completion evidence. Update it as
-  evidence changes instead of replacing it with isolated next-action prompts.
-- Continue through every safe, in-scope, already-authorized plan step. Before
-  ending a turn, inspect the plan and perform the next routine authorized step
-  when one remains. Do not make the user reply “do that” or paste back a
-  suggested next action merely to continue ordinary work.
-- A plan organizes existing authority; it never grants missing authority,
-  weakens a project gate, or permits a destructive or materially different
-  action. Yield only when the larger goal is complete, the authorized scope is
-  exhausted, or a genuine approval, decision, missing input, or blocker
-  requires the user.
-- At a genuine user boundary, request only the exact approval, decision, or
-  evidence needed to resume the existing plan. Do not provide a generic
-  one-step prompt for the user to paste back.
-- If a fresh thread is genuinely necessary, provide one self-contained
-  goal-completion prompt containing the larger goal, verified current state,
-  completed work, remaining plan, constraints, active gate, stop conditions,
-  and done criteria. Never create a serial chain of continuation prompts.
-
-## Document authority and required reading
+### Document Authority And Required Reading
 
 - `AGENTS.md` governs agent workflow, repository safety, validation, and
   approval boundaries.
@@ -101,7 +61,57 @@
 - If these authorities appear to conflict, inspect the implemented contract
   and report the conflict. Do not silently weaken a safety or scientific rule.
 
-## Scientific boundaries
+## Working Method And Planning
+
+### Scientific Workflow
+
+- Preserve this workflow: qualify daily sources; canonicalize bars and causal
+  reference data; build the eligible universe; create separate feature and
+  five-session outcome releases; preregister chronological WFA; and train,
+  score, or evaluate only when separately authorized. Documentation never
+  authorizes a phase; immutable releases, the research firewall, counted trials,
+  independent sleeve gates, sealed bundles, and prospective monitoring remain
+  binding.
+
+### Larger-Goal Completion
+
+- For non-trivial work, treat the user's current larger goal—not the immediate
+  substep—as the unit of work. Infer that goal from the latest request and
+  verified repository state, state it plainly, and maintain one bounded
+  end-to-end plan from the current state through its completion criteria.
+- The plan must distinguish executable work, approval gates, user-owned
+  decisions, stop conditions, and required completion evidence. Update it as
+  evidence changes instead of replacing it with isolated next-action prompts.
+- Continue through every safe, in-scope, already-authorized plan step. Before
+  ending a turn, inspect the plan and perform the next routine authorized step
+  when one remains. Do not make the user reply “do that” or paste back a
+  suggested next action merely to continue ordinary work.
+- A plan organizes existing authority; it never grants missing authority,
+  weakens a project gate, or permits a destructive or materially different
+  action. Yield only when the larger goal is complete, the authorized scope is
+  exhausted, or a genuine approval, decision, missing input, or blocker
+  requires the user.
+- At a genuine user boundary, request only the exact approval, decision, or
+  evidence needed to resume the existing plan. Do not provide a generic
+  one-step prompt for the user to paste back.
+- If a fresh thread is genuinely necessary, provide one self-contained
+  goal-completion prompt containing the larger goal, verified current state,
+  completed work, remaining plan, constraints, active gate, stop conditions,
+  and done criteria. Never create a serial chain of continuation prompts.
+
+## Project-Specific Rules
+
+### Accepted Release Contract
+
+- An accepted release is an exact `release_manifest.json` validated by
+  `verify_accepted_release` in
+  `src/us_stocks_swing_model_v2/releases.py`, published only at
+  `accepted_root/dataset/release_id`. Its release ID must equal the SHA-256 of
+  its canonical manifest, including the declared file hashes, code, config,
+  and environment bindings. Missing, mismatched, or unverified manifests are
+  not accepted evidence.
+
+### Scientific Boundaries
 
 - Existing historical data is discovery evidence, not pristine confirmation.
 - Any real-history evaluation must be registered before outcomes are read.
@@ -123,7 +133,7 @@
   requires an exact signed recovery review; monitoring cannot retrain, retune,
   substitute sources, auto-resume, or promote.
 
-## Source boundaries
+### Source Boundaries
 
 - Alpaca Basic is the only candidate active OHLCV source. SIP and IEX must be
   probed separately in one bounded qualification; no feed is assumed active.
@@ -158,7 +168,19 @@
   qualification evidence only. Never concatenate source epochs.
 - Alpha Vantage and options data are excluded.
 
-## Protected contracts
+## Safety And Approval Gates
+
+### Repository Identity Gate
+
+- Before any project mutation or workload, first use read-only identity checks
+  to record the current directory and resolve `git rev-parse --show-toplevel`.
+  Normalize separators and case using Windows path semantics; require the Git
+  root to identify exactly `C:\Users\donny\Desktop\US_stocks_swing_model_v2`,
+  and reject a nested, linked/reparse, or unrelated worktree. Stop on any
+  mismatch; never rely on a similarly named repository or stale working
+  directory. The identity checks themselves are exempt from this precondition.
+
+### Protected Contracts
 
 - Preserve CLI arguments, config keys, schemas, column names, file paths,
   manifests, release identities, public APIs, report fields, and output formats
@@ -174,7 +196,7 @@
   robustness policy. A semantic change after outcome access is a new counted
   trial, not cleanup.
 
-## Change safety
+### Change Safety And Authorization
 
 - Search before editing and run `git status --short` first.
 - Treat every pre-existing worktree change as user-owned. Record the baseline
@@ -237,7 +259,9 @@
   local state. Do not refresh, overwrite, delete, stage, or commit them unless
   the task explicitly authorizes the exact artifacts.
 
-## Evidence and failure handling
+## Evidence, Failure, And Validation
+
+### Evidence And Failure Handling
 
 - If a mutating command times out, is interrupted, exits ambiguously, or may
   have partially written output, treat completion as unproven. Stop, preserve
@@ -260,7 +284,7 @@
   error, and affected artifact. Do not silently continue or repeat the same
   failed approach without a materially different diagnostic.
 
-## Acceptance
+### Acceptance
 
 - A failed candidate retires the hypothesis; it does not justify weakening a
   gate or rebuilding the architecture.
@@ -278,6 +302,8 @@
   unverified claims.
 
 ## Handoffs
+
+### Handoff Contract
 
 - Use `CODEX_HANDOFF.md` only for meaningful work continuing across prompts or a
   fresh thread, never for a completed one-shot task that does not change project
@@ -303,16 +329,21 @@
 - Do not describe uncommitted or unvalidated behavior as complete; label it
   `IN_PROGRESS`, `UNVERIFIED`, or blocked, as applicable.
 
-## Plain-English User-Facing Output
+## Outputs And Reports
 
-- Use concise plain English and scale detail to the task. Lead with what the
-  result means; explain any necessary technical term briefly.
-- Interim updates contain only new evidence, a changed decision, a blocker, or a
-  useful checkpoint.
-- Final responses are self-contained. Include only applicable outcomes, changed
-  files or deliverables, material verification, failures, limitations, blockers,
-  recovery concerns, and one exact next action or approval when needed. Do not
-  repeat routine commentary, plans, tool narration, full logs or diffs, empty
-  headings, or generic follow-ups.
-- Never omit material uncertainty, safety warnings, failed checks, limitations,
-  or blockers for brevity.
+- Use concise plain English. Lead with what the result means, and explain a necessary technical term briefly.
+- Interim updates contain only new material evidence, a changed decision, a blocker, or a useful checkpoint.
+- Use this order for final responses and reports; omit any section that has nothing useful to say, except `Plan Prompt`:
+  1. `Result`: state the outcome and current status first.
+  2. `Changed`: list only changed files or deliverables and what changed.
+  3. `Verified`: give material checks or evidence and their pass/fail result; state scope or freshness when it matters.
+  4. `Problems`: include only real issues; give severity, evidence, impact, and whether work may proceed.
+  5. `Plan Prompt`: provide the single continuation prompt described below.
+- For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
+- Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
+- Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, empty headings, generic follow-ups, and full logs or diffs unless the user asks for them.
+- When the current larger goal remains unfinished, end with the label `Plan Prompt:` followed by exactly one fenced `text` block containing one self-contained, copy-pastable continuation prompt. Do not add a competing `Next Action`, alternate prompt, or prompt chain.
+- The Plan Prompt must continue the active larger goal within its current scope: name the goal and completion condition, capture the verified current position and completed milestones, identify the exact blocker or active gate when one exists, and direct the next Codex turn to recheck live repository evidence and applicable authority and handoff files, maintain a concise dependency- and safety-aware plan, and execute every safe, in-scope, already-authorized step until completion or the next real boundary.
+- If a handoff was updated, the Plan Prompt must preserve its current goal and active gate and incorporate its next safe step.
+- A Plan Prompt never grants authority, broadens scope, or substitutes handoff text for current proof. If the current larger goal is complete, end with `Plan Prompt: None`.
+- Follow a user-requested response structure when one is provided.
