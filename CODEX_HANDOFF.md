@@ -6,13 +6,10 @@
 - Exact root: `C:\Users\donny\Desktop\US_stocks_swing_model_v2`
 - Branch: `main`
 - State-base commit:
-  `60ab4b838aecf91113d19af39a1cdbae7e61cbd7`
+  `61feb2ae16728c45faed7d2288a52f7cc587a857`
 - State-base tree:
-  `131f1fe94d02a9993e219926089cf86d784a0e86`
-- Expected worktree: modified only `CODEX_HANDOFF.md`,
-  `src/us_stocks_swing_model_v2/master_audit_runner.py`,
-  `src/us_stocks_swing_model_v2/cli/master_audit_internal_worker.py`, and
-  `tests/test_master_audit_runner.py`.
+  `8054a15e93308cbbe7454e6c776fac5b3c919aa3`
+- Expected worktree: modified only `CODEX_HANDOFF.md`.
 
 This handoff is coordination context only. `AGENTS.md`, the Constitution,
 Harness, current code/configuration/tests, and accepted manifests remain
@@ -28,15 +25,14 @@ authoritative.
 - `META_MASTER_AUDIT.md` SHA-256 remains
   `15720b3a1c4d4984ff0b9687e17d38503e385eb97d7fcabfd02b0e2a0b3c408a`.
 - The observable, timeout-bounded runner remediation is committed at the state
-  base and validated. It emits immediately
-  flushed, content-addressed and hash-chained start/terminal JSONL evidence to
-  stderr for all nine steps. Internal steps run in isolated workers under their
-  declared timeouts. JSON stdout and validation-only behavior remain preserved.
+  base and validated. It emits flushed, hash-chained start/terminal JSONL
+  evidence for all nine steps. Internal steps run in isolated, timeout-bounded
+  workers. JSON stdout and validation-only behavior are preserved.
 - Definitive pytest scope remains exact `python -m pytest -q`, explicitly
   including the three `local_evidence` migration tests.
 - Manifest-generation remediation is committed and validated. Secret-scan
-  candidates receive deterministic, disjoint surface ownership with
-  admitted evidence taking precedence; conflicting identities fail closed.
+  candidates receive disjoint ownership with admitted evidence taking
+  precedence; conflicting identities fail closed.
   Preflight hashes each physical file once across duplicate logical bindings,
   and forbidden secret filenames cannot enter an ordinary hashed census.
 - Prior-manifest rebinding remediation is committed at the state base and
@@ -44,10 +40,11 @@ authoritative.
   preserves the 4,937 audit-input evidence bindings separately from the 15,597
   admitted secret-scan bindings, rejects baseline tampering, and normalizes the
   current command-exit contract.
-- Windows worker-transport remediation is validated but uncommitted. Internal
-  steps now use a bounded canonical-JSON subprocess under the manifest-bound
-  Python instead of multiprocessing Pipe/spawn. Real launch, timeout, failure,
-  stderr rejection, and canonical-output contracts are covered.
+- Windows worker-transport remediation is committed at the state base and
+  validated. Internal steps use a bounded canonical-JSON subprocess under the
+  manifest-bound Python instead of multiprocessing Pipe/spawn. Real launch,
+  timeout, failure, stderr rejection, and canonical-output contracts are
+  covered.
 - Targeted synthetic validation passed: `67 passed` for
   `tests/test_master_audit_runner.py`,
   `tests/test_meta_audit_remediation.py`, and
@@ -63,8 +60,8 @@ authoritative.
   `23bc8ad98cb8f1cd2b0376313c3bd4ecadaf58723c27166c365e5efee9122842`
   with manifest ID
   `6aad9a88cf612c4717b5aa5a5e3c819e0ac9aa2c7a7afed96091c916d48109ac`
-  passed validation-only against the state base but becomes stale when the
-  worker remediation is committed.
+  passed validation-only against the prior state but is stale after the worker
+  remediation commit.
 - Its sole calibration stopped at Step 1 with `PermissionError`; telemetry was
   canonical and chain-valid, no pytest or report ran, and no retry occurred.
 - Validation-only preflight took about 49 seconds. The next manifest must bind
@@ -73,13 +70,14 @@ authoritative.
 
 ## Only Active Gate
 
-`UNAUTHORIZED`: review, stage, and commit exactly the four expected modified
-paths. Any manifest generation or calibration remains separately gated and must
-bind the resulting clean commit.
+`UNAUTHORIZED`: generate and validation-check one new content-addressed
+invocation manifest bound to the resulting clean coordination commit. It must
+bind all nine timeouts explicitly, set preflight to 120 seconds, preserve the
+other reviewed limits, and preserve prior manifests unchanged.
 
-No manifest generation, calibration, audit execution, report publication,
-provider/network request, secret-byte read, data mutation, activation, research,
-training, evaluation, prediction, push, or trading is authorized.
+No calibration, audit execution, report publication, provider/network request,
+secret-byte read, data mutation, activation, research, training, evaluation,
+prediction, push, or trading is authorized.
 
 ## Invalidation
 
