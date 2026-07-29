@@ -46,28 +46,31 @@
   independent sleeve gates, sealed bundles, and prospective monitoring remain
   binding.
 
-## Larger-goal planning and continuation
+## Larger-goal completion workflow
 
-- For non-trivial work, identify the current larger goal from the user's latest
-  request and verified repository state. State that goal plainly and create or
-  update one bounded end-to-end plan from the current state to its completion.
-  The plan must distinguish executable steps from approval gates, user-owned
-  decisions, stop conditions, and completion evidence.
-- Keep the plan current as evidence changes, and work through every safe,
-  in-scope, already-authorized step without asking the user to paste back the
-  previous response's suggested next action. A plan organizes authorized work;
-  it never supplies missing authority or weakens any project gate.
-- Do not end a turn merely because another routine next step can be described.
-  Perform that step when it is safe and authorized. Yield to the user only when
-  the larger goal is complete, a binding gate or material blocker requires
-  user action, or continuing would exceed the authorized scope.
-- At a real user-owned boundary, request only the exact approval, decision, or
-  missing evidence needed to resume the plan. Do not ask the user to copy and
-  paste a generic next-action prompt.
-- If continuation in a fresh thread is genuinely necessary, provide one
-  self-contained goal-completion prompt covering the whole remaining objective,
-  verified current state, remaining plan, constraints, active gate, and done
-  criteria. Do not create a serial chain of one-step continuation prompts.
+- For non-trivial work, treat the user's current larger goal—not the immediate
+  substep—as the unit of work. Infer that goal from the latest request and
+  verified repository state, state it plainly, and maintain one bounded
+  end-to-end plan from the current state through its completion criteria.
+- The plan must distinguish executable work, approval gates, user-owned
+  decisions, stop conditions, and required completion evidence. Update it as
+  evidence changes instead of replacing it with isolated next-action prompts.
+- Continue through every safe, in-scope, already-authorized plan step. Before
+  ending a turn, inspect the plan and perform the next routine authorized step
+  when one remains. Do not make the user reply “do that” or paste back a
+  suggested next action merely to continue ordinary work.
+- A plan organizes existing authority; it never grants missing authority,
+  weakens a project gate, or permits a destructive or materially different
+  action. Yield only when the larger goal is complete, the authorized scope is
+  exhausted, or a genuine approval, decision, missing input, or blocker
+  requires the user.
+- At a genuine user boundary, request only the exact approval, decision, or
+  evidence needed to resume the existing plan. Do not provide a generic
+  one-step prompt for the user to paste back.
+- If a fresh thread is genuinely necessary, provide one self-contained
+  goal-completion prompt containing the larger goal, verified current state,
+  completed work, remaining plan, constraints, active gate, stop conditions,
+  and done criteria. Never create a serial chain of continuation prompts.
 
 ## Document authority and required reading
 
