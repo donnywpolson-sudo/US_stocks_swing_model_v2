@@ -143,9 +143,21 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
     remediation = policy["publication_eligibility_remediation"]
     assert (
         remediation["base_commit"]
-        == "a554f957f05fa88aa694da8f14d44749256ee0d8"
+        == "d83cc2be4d2b5acf46677c101721f0769f1221ba"
     )
-    assert remediation["base_tree"] == "fa905e28f4788f99608c27b0fbd0d20a0692cf43"
+    assert remediation["base_tree"] == "9b80c0c5e2484296ef740a345974147387aca122"
+    assert (
+        remediation["input_assessment_id"]
+        == "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8"
+    )
+    assert (
+        remediation["alpaca_snapshot_id"]
+        == "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe"
+    )
+    assert (
+        remediation["nasdaq_snapshot_id"]
+        == "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8"
+    )
     assert remediation["required_successor_commit_count"] == 1
     assert remediation["require_clean_tree"] is True
     assert (
@@ -154,7 +166,7 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
     )
     assert (
         policy["publication_eligibility_remediation_id"]
-        == "a4eb4c06895239da3d529bef44ea36a27ba5221089621a34e507604b8deff63c"
+        == "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782"
     )
     assert policy["baseline_contract"]["record_count"] == 13064
     assert policy["execution_contract"]["activation"] is False
@@ -221,6 +233,36 @@ def test_publication_repository_gate_requires_clean_single_successor(
                 REPO.resolve(),
                 policy=policy,
             )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "input_assessment_id",
+        "alpaca_snapshot_id",
+        "nasdaq_snapshot_id",
+    ],
+)
+def test_publication_eligibility_remediation_requires_exact_inputs(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    assessment = _assessment(tmp_path)
+    remediation = {
+        "input_assessment_id": assessment.assessment_id,
+        "alpaca_snapshot_id": assessment.alpaca_snapshot_id,
+        "nasdaq_snapshot_id": assessment.nasdaq_snapshot_id,
+    }
+    identity_publisher_module._require_eligibility_remediation_inputs(
+        remediation=remediation,
+        assessment=assessment,
+    )
+    remediation[field] = "f" * 64
+    with pytest.raises(IntegrityError, match="eligibility remediation"):
+        identity_publisher_module._require_eligibility_remediation_inputs(
+            remediation=remediation,
+            assessment=assessment,
+        )
 
 
 def test_projection_filters_mixed_assets_without_changing_legacy_parser(

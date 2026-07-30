@@ -138,19 +138,19 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
     if remediation != {
         "schema_version": 1,
         "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
-        "base_commit": "a554f957f05fa88aa694da8f14d44749256ee0d8",
-        "base_tree": "fa905e28f4788f99608c27b0fbd0d20a0692cf43",
+        "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
+        "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
         "preserved_authorization_plan_id": (
             "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545"
         ),
         "input_assessment_id": (
-            "f74cb03ebd303fc2863c2105326e1b69d6177a6d5c975cc5fcc6f208dea34da1"
+            "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8"
         ),
         "alpaca_snapshot_id": (
-            "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a"
+            "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe"
         ),
         "nasdaq_snapshot_id": (
-            "34494904a1a7db8408fba9e1ca233021fe06133faaa5744a2029ea3535c2a5c0"
+            "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8"
         ),
         "required_successor_commit_count": 1,
         "require_clean_tree": True,

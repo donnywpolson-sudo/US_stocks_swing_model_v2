@@ -195,6 +195,21 @@ def _repository_binding(
     return {"head": head, "tree": tree}
 
 
+def _require_eligibility_remediation_inputs(
+    *,
+    remediation: Mapping[str, Any],
+    assessment: IdentityInputAssessment,
+) -> None:
+    if (
+        assessment.assessment_id != remediation["input_assessment_id"]
+        or assessment.alpaca_snapshot_id != remediation["alpaca_snapshot_id"]
+        or assessment.nasdaq_snapshot_id != remediation["nasdaq_snapshot_id"]
+    ):
+        raise IntegrityError(
+            "identity publication inputs differ from eligibility remediation"
+        )
+
+
 def _closure(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
     entries: list[dict[str, str]] = []
     for relative in paths:
@@ -315,6 +330,10 @@ def build_identity_release_publication_plan(
         nasdaq_snapshot_directory=nasdaq_snapshot_directory,
         repo_root=root,
         accepted_root=accepted,
+    )
+    _require_eligibility_remediation_inputs(
+        remediation=policy["publication_eligibility_remediation"],
+        assessment=assessment,
     )
     repository = _repository_binding(root, policy=policy)
     return _plan_from_context(

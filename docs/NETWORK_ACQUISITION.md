@@ -189,10 +189,11 @@ The original identity-readiness authorization remains immutable historical
 evidence. Publication planning additionally binds the separately
 content-addressed eligibility-remediation record in
 `config/nasdaq_identity_readiness_policy.json`. That record fixes the reviewed
-base commit and tree after the Alpaca projection remediation. The production
-publisher still requires a completely clean tree descended by exactly one
-reviewed successor commit; dirty, zero-distance, unrelated, base-tree-mismatched,
-and multi-commit states fail closed.
+base commit and tree plus the exact assessment and both input snapshots. The
+production publisher recomputes the assessment and requires those three input
+identities to match before it accepts a completely clean tree descended by
+exactly one reviewed successor commit; dirty, mismatched-input, zero-distance,
+unrelated, base-tree-mismatched, and multi-commit states fail closed.
 
 The identity publisher also defaults to a no-write plan:
 

@@ -52,12 +52,12 @@
   "publication_eligibility_remediation": {
     "schema_version": 1,
     "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
-    "base_commit": "a554f957f05fa88aa694da8f14d44749256ee0d8",
-    "base_tree": "fa905e28f4788f99608c27b0fbd0d20a0692cf43",
+    "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
+    "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
     "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
-    "input_assessment_id": "f74cb03ebd303fc2863c2105326e1b69d6177a6d5c975cc5fcc6f208dea34da1",
-    "alpaca_snapshot_id": "b328103270f59e408ec3457266f03dfe2bf2a024cf38a3d38fd4b323cf47b91a",
-    "nasdaq_snapshot_id": "34494904a1a7db8408fba9e1ca233021fe06133faaa5744a2029ea3535c2a5c0",
+    "input_assessment_id": "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8",
+    "alpaca_snapshot_id": "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe",
+    "nasdaq_snapshot_id": "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8",
     "required_successor_commit_count": 1,
     "require_clean_tree": true,
     "verification": [
@@ -75,7 +75,7 @@
     "commit_message": "Remediate identity publication eligibility",
     "stop_after_commit": true
   },
-  "publication_eligibility_remediation_id": "a4eb4c06895239da3d529bef44ea36a27ba5221089621a34e507604b8deff63c",
+  "publication_eligibility_remediation_id": "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782",
   "alpaca_asset_projection_policy_id": "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68",
   "baseline_contract": {
     "accepted_root": "data/vault/accepted",
@@ -115,5 +115,5 @@
   },
   "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
   "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
-  "policy_id": "dcc49442fef3b1d860f01828579dfe361e7f78fa6c0121ce1af70a3f6daf5b37"
+  "policy_id": "c9fbd95308939a36fd4845b96cf146055fb4d6cb7577272d1db4ae7622328bfd"
 }
