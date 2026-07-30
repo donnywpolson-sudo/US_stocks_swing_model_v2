@@ -27,6 +27,7 @@ test = [
 stock-v2-hash-copy = "us_stocks_swing_model_v2.cli.hash_copy:main"
 stock-v2-qualify-sources = "us_stocks_swing_model_v2.cli.qualify_free_sources:main"
 stock-v2-publish-nasdaq-bootstrap = "us_stocks_swing_model_v2.cli.publish_nasdaq_bootstrap:main"
+stock-v2-publish-alpaca-qualification = "us_stocks_swing_model_v2.cli.publish_alpaca_qualification:main"
 stock-v2-qualify-identity = "us_stocks_swing_model_v2.cli.qualify_identity_sources:main"
 stock-v2-publish-identity = "us_stocks_swing_model_v2.cli.publish_identity_release:main"
 

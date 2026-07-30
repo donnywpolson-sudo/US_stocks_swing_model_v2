@@ -95,6 +95,24 @@ non-active accepted release first. Only a later separately authorized cutover
 may set `qualified_feed` to `sip`, name that verified receipt, and enable the
 source. Canonical bars and research remain later gates.
 
+The dedicated receipt publisher is also no-write by default:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.publish_alpaca_qualification
+```
+
+Planning revalidates the clean committed repository, exact policy and pair
+assessment, both immutable captures, registry, calendar, inactive source
+configuration, environment, code/config closures, and accepted/work roots. It
+emits one content-addressed publication plan. Execution remains a separate
+gate and requires `--execute`, that exact approved plan ID,
+`ALPACA_QUALIFICATION_PUBLICATION_APPROVED=YES`, and production system UTC.
+The only durable result is one atomic accepted release under
+`data/vault/accepted/alpaca_feed_qualification/<release_id>/` containing the
+qualification receipt and release manifest. The publisher performs no network
+or credential access, does not modify `config/sources.json`, and cannot
+activate a feed or authorize canonical bars or research.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,

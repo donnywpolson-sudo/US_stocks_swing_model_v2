@@ -359,6 +359,21 @@ def build_alpaca_feed_cutover_design(
 ) -> dict[str, Any]:
     root = Path(repo_root or _repo_root()).resolve(strict=True)
     policy = load_alpaca_feed_qualification_policy(root)
+    assessment = load_validated_alpaca_feed_qualification_assessment(root)
+    return _design_from_context(
+        policy=policy,
+        assessment=assessment,
+        repository=_repository_binding(root),
+    )
+
+
+def load_validated_alpaca_feed_qualification_assessment(
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    """Reload and revalidate the exact immutable SIP/IEX qualification pair."""
+
+    root = Path(repo_root or _repo_root()).resolve(strict=True)
+    policy = load_alpaca_feed_qualification_policy(root)
     baseline = policy["source_config_baseline"]
     source_path = require_contained_path(root / baseline["path"], root)
     if sha256_file(source_path) != baseline["file_sha256"]:
@@ -429,8 +444,11 @@ def build_alpaca_feed_cutover_design(
         calendar_release_directory=calendar_directory,
         accepted_release_root=allowed_root / "accepted",
     )
-    return _design_from_context(
-        policy=policy,
-        assessment=assessment,
-        repository=_repository_binding(root),
-    )
+    if (
+        assessment["assessment_id"] != policy["assessment"]["assessment_id"]
+        or assessment["selected_feed_candidate"] != "sip"
+        or assessment["selection_reason"] != "both_pass_prefer_sip"
+        or assessment["activation_authorized"] is not False
+    ):
+        raise IntegrityError("Alpaca qualification assessment changed")
+    return assessment
