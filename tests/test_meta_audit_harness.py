@@ -10,6 +10,9 @@ import subprocess
 import pytest
 
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
+from us_stocks_swing_model_v2.cli.prepare_meta_audit import (
+    main as prepare_meta_audit_main,
+)
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.meta_audit_harness import (
     EXPECTED_EXIT,
@@ -18,8 +21,10 @@ from us_stocks_swing_model_v2.meta_audit_harness import (
     OUTPUT_DESTINATION,
     POWERSHELL_FLAGS,
     PROHIBITIONS,
+    READ_GROUP_FOOTER,
     FileBinding,
     MetaAuditEnvelope,
+    build_reviewer_dispatch,
     build_maximal_read_groups,
     build_envelope_payload,
     build_v2_envelope_payload,
@@ -592,6 +597,173 @@ def test_v2_reader_emits_utf8_group_output_without_mojibake(
     assert result.stderr == ""
     assert "controller — café" in result.stdout
     assert "target must remain" not in result.stdout
+    assert result.stdout.endswith(READ_GROUP_FOOTER)
+    assert len(result.stdout.encode("utf-8")) == first_group_command[
+        "output_max_utf8_bytes"
+    ]
+
+
+def test_v2_plan_groups_declares_safe_dispatch_and_footer_contract(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    raw = canonical_json_bytes(envelope)
+    manifest = tmp_path / "envelope.json"
+    manifest.write_bytes(raw)
+    command = envelope["commands"][1]
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(tmp_path / "tools" / "meta_audit" / SCRIPT.name),
+            "-Mode",
+            "PlanGroups",
+            "-EnvelopePath",
+            str(manifest),
+            "-EnvelopeSha256",
+            sha256_bytes(raw),
+            "-CommandOrdinal",
+            str(command["command_ordinal"]),
+        ],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    plan = json.loads(result.stdout)
+    groups = envelope["read_groups"]
+    first_target = next(
+        group for group in groups if group["phase"] == "TARGET"
+    )
+    assert plan["first_read_command_ordinal"] == 3
+    assert plan["last_read_command_ordinal"] == len(groups) + 2
+    assert plan["first_target_command_ordinal"] == (
+        first_target["group_ordinal"] + 2
+    )
+    assert plan["final_preflight_command_ordinal"] == len(envelope["commands"])
+    assert plan["read_group_completion_footer"] == READ_GROUP_FOOTER.rstrip(
+        "\n"
+    )
+    assert plan["missing_footer_disposition"] == "STOP_INCOMPLETE_NO_RETRY"
+    assert len(result.stdout.encode("utf-8")) <= command[
+        "output_max_utf8_bytes"
+    ]
+
+
+def test_v2_reviewer_dispatch_supplies_exact_commands_without_target_content(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    raw = canonical_json_bytes(envelope)
+    manifest = (tmp_path / "envelope.json").resolve()
+    manifest.write_bytes(raw)
+    file_sha256 = sha256_bytes(raw)
+
+    dispatch = build_reviewer_dispatch(
+        envelope,
+        envelope_path=manifest,
+        envelope_sha256=file_sha256,
+    )
+
+    assert dispatch["mode"] == "REVIEWER_DISPATCH_NO_WRITES"
+    assert dispatch["envelope"] == {
+        "path": str(manifest),
+        "sha256": file_sha256,
+        "envelope_id": envelope["envelope_id"],
+    }
+    assert "read_groups" not in dispatch
+    assert "target" not in dispatch
+    assert "controller" not in dispatch
+    assert len(dispatch["commands"]) == len(envelope["commands"])
+    assert all(
+        "{ENVELOPE_" not in argument
+        for command in dispatch["commands"]
+        for argument in command["argv"]
+    )
+    read_commands = [
+        command
+        for command in dispatch["commands"]
+        if command["mode"] == "ReadGroup"
+    ]
+    assert [command["phase"] for command in read_commands] == [
+        group["phase"] for group in envelope["read_groups"]
+    ]
+    assert all(
+        command["required_stdout_footer"] == READ_GROUP_FOOTER
+        for command in read_commands
+    )
+    assert dispatch["transport"] == {
+        "dispatch_must_precede_reviewer_creation": True,
+        "reviewer_envelope_read_outside_declared_commands": False,
+        "read_group_completion_footer": READ_GROUP_FOOTER,
+        "missing_footer_disposition": "STOP_INCOMPLETE_NO_RETRY",
+    }
+    assert b"target must remain preparation-private" not in canonical_json_bytes(
+        dispatch
+    )
+    unsigned = {
+        key: value for key, value in dispatch.items() if key != "dispatch_id"
+    }
+    assert dispatch["dispatch_id"] == sha256_bytes(canonical_json_bytes(unsigned))
+
+
+def test_v2_reviewer_dispatch_cli_is_validation_only(
+    tmp_path: Path,
+    capsysbinary: pytest.CaptureFixture[bytes],
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    raw = canonical_json_bytes(envelope)
+    manifest = (tmp_path / "envelope.json").resolve()
+    manifest.write_bytes(raw)
+
+    result = prepare_meta_audit_main(
+        [
+            "--reviewer-dispatch",
+            str(manifest),
+            "--manifest-sha256",
+            sha256_bytes(raw),
+        ]
+    )
+    captured = capsysbinary.readouterr()
+    dispatch = json.loads(captured.out)
+
+    assert result == 0
+    assert captured.err == b""
+    assert dispatch["mode"] == "REVIEWER_DISPATCH_NO_WRITES"
+    assert dispatch["envelope"]["envelope_id"] == envelope["envelope_id"]
 
 
 def test_v2_uses_stable_error_code_for_applicability_mismatch(

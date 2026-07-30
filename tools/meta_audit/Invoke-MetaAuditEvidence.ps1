@@ -406,6 +406,7 @@ function Invoke-ReadGroup {
         }
         $renderedLineCount += $count
     }
+    [void]$builder.Append("===== META_AUDIT_GROUP_COMPLETE =====`n")
     $rendered = $builder.ToString()
     $renderedBytes = $Utf8NoBomStrict.GetByteCount($rendered)
     if (
@@ -459,13 +460,22 @@ switch ($Mode) {
         })
     }
     "PlanGroups" {
+        $commands = @($context.Value.commands)
+        $groups = @($context.Value.read_groups)
+        $firstTarget = @($groups | Where-Object { $_.phase -eq "TARGET" })[0]
         Write-Json -Value ([ordered]@{
             mode = "PLAN_GROUPS_NO_WRITES"
             command_ordinal = $CommandOrdinal
             reference_census_count = [int]$context.Value.reference_census.count
-            read_group_count = @($context.Value.read_groups).Count
+            read_group_count = $groups.Count
+            first_read_command_ordinal = 3
+            last_read_command_ordinal = $groups.Count + 2
+            first_target_command_ordinal = [int]$firstTarget.group_ordinal + 2
+            final_preflight_command_ordinal = $commands.Count
             max_rendered_lines = 400
             max_rendered_utf8_bytes = 20000
+            read_group_completion_footer = "===== META_AUDIT_GROUP_COMPLETE ====="
+            missing_footer_disposition = "STOP_INCOMPLETE_NO_RETRY"
         })
     }
     "ReadReferenceBatch" {

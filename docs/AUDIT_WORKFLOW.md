@@ -46,9 +46,15 @@ work, commit, push, and cutover. It retains exact action-specific authorization.
    20,000 UTF-8 bytes. Reference groups precede B01; target groups follow it.
 4. Canonicalize and content-address the envelope. Retention and execution are
    separately authorized.
-5. Create a reviewer with no inherited turns or prior target access. Execute
-   only the envelope's literal commands.
-6. Bind the final findings to the exact envelope, reviewer independence
+5. Before reviewer creation, derive the validated target-content-free dispatch
+   packet from the exact envelope. Pass that packet directly to the reviewer;
+   an envelope read outside a declared reader command invalidates the attempt.
+6. Create a reviewer with no inherited turns or prior target access. Execute
+   only the dispatch packet's envelope-bound literal commands. Every complete
+   `ReadGroup` output ends with the exact checked-in completion footer. A
+   missing footer means transport truncation and stops the attempt without an
+   external measurement command or retry.
+7. Bind the final findings to the exact envelope, dispatch, reviewer independence
    attestation, target identity, and group census.
 
 The Meta Audit reviews `MASTER_AUDIT.md` as a specification. It does not execute

@@ -33,6 +33,7 @@ MODES = (
 )
 MAX_GROUP_LINES = 400
 MAX_GROUP_UTF8_BYTES = 20_000
+READ_GROUP_FOOTER = "===== META_AUDIT_GROUP_COMPLETE =====\n"
 LOCAL_CORRECTION_BUDGET = 2
 FAILURE_CLASSES = (
     "LOCAL_CORRECTABLE",
@@ -736,6 +737,8 @@ def _group_metrics(
     rendered_bytes = sum(
         _slice_rendered_bytes(item, line_map[item.path]) for item in slices
     )
+    if slices:
+        rendered_bytes += len(READ_GROUP_FOOTER.encode("ascii"))
     return line_count, rendered_bytes
 
 
@@ -1168,6 +1171,86 @@ def validate_v2_envelope_payload(value: object) -> dict[str, object]:
     if envelope_id != expected_id:
         raise IntegrityError("envelope_id differs from canonical unsigned content")
     return {**normalized, "envelope_id": envelope_id}
+
+
+def build_reviewer_dispatch(
+    envelope: Mapping[str, object],
+    *,
+    envelope_path: Path,
+    envelope_sha256: str,
+) -> dict[str, object]:
+    """Build a content-addressed, target-content-free reviewer transport packet."""
+
+    normalized = validate_v2_envelope_payload(dict(envelope))
+    path = envelope_path.resolve()
+    if not path.is_absolute():
+        raise ContractError("DISPATCH_ENVELOPE_PATH_INVALID: path must be absolute")
+    file_sha256 = require_sha256(
+        envelope_sha256, "reviewer_dispatch.envelope_sha256"
+    )
+    groups = normalized["read_groups"]
+    commands: list[dict[str, object]] = []
+    for source in normalized["commands"]:
+        command = dict(source)
+        group_ordinal = command["group_ordinal"]
+        phase = None
+        footer = None
+        if group_ordinal is not None:
+            phase = groups[group_ordinal - 1]["phase"]
+            footer = READ_GROUP_FOOTER
+        argv = [
+            (
+                str(path)
+                if value == "{ENVELOPE_PATH}"
+                else file_sha256
+                if value == "{ENVELOPE_SHA256}"
+                else value
+            )
+            for value in command["argv"]
+        ]
+        commands.append(
+            {
+                "command_ordinal": command["command_ordinal"],
+                "mode": command["mode"],
+                "group_ordinal": group_ordinal,
+                "phase": phase,
+                "argv": argv,
+                "cwd": command["cwd"],
+                "environment_additions": command["environment_additions"],
+                "run_limit": command["run_limit"],
+                "timeout_seconds": command["timeout_seconds"],
+                "expected_exit": command["expected_exit"],
+                "output_max_utf8_bytes": command["output_max_utf8_bytes"],
+                "required_stdout_footer": footer,
+            }
+        )
+    unsigned = {
+        "schema_version": 1,
+        "mode": "REVIEWER_DISPATCH_NO_WRITES",
+        "envelope": {
+            "path": str(path),
+            "sha256": file_sha256,
+            "envelope_id": normalized["envelope_id"],
+        },
+        "repository": normalized["repository"],
+        "script": normalized["script"],
+        "commands": commands,
+        "barriers": normalized["barriers"],
+        "reviewer_independence": normalized["reviewer_independence"],
+        "failure_class": normalized["failure_class"],
+        "output": normalized["output"],
+        "prohibitions": normalized["prohibitions"],
+        "transport": {
+            "dispatch_must_precede_reviewer_creation": True,
+            "reviewer_envelope_read_outside_declared_commands": False,
+            "read_group_completion_footer": READ_GROUP_FOOTER,
+            "missing_footer_disposition": "STOP_INCOMPLETE_NO_RETRY",
+        },
+    }
+    return {
+        **unsigned,
+        "dispatch_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
 
 
 def run_host_validation(

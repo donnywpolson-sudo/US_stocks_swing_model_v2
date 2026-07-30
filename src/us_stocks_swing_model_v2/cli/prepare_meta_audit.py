@@ -9,6 +9,7 @@ import sys
 
 from ..common import canonical_json_bytes
 from ..meta_audit_harness import (
+    build_reviewer_dispatch,
     build_envelope_payload,
     load_envelope,
     prepare_v2_envelope,
@@ -21,6 +22,7 @@ def _parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--unsigned", type=Path)
     mode.add_argument("--manifest", type=Path)
+    mode.add_argument("--reviewer-dispatch", type=Path)
     mode.add_argument("--prepare", action="store_true")
     mode.add_argument("--validate-host", action="store_true")
     parser.add_argument("--manifest-sha256")
@@ -72,6 +74,22 @@ def main(argv: list[str] | None = None) -> int:
             powershell_executable=args.powershell,
         )
         sys.stdout.buffer.write(canonical_json_bytes(envelope))
+        return 0
+    if args.reviewer_dispatch is not None:
+        if args.manifest_sha256 is None:
+            raise SystemExit("--reviewer-dispatch requires --manifest-sha256")
+        envelope = load_envelope(
+            args.reviewer_dispatch,
+            expected_file_sha256=args.manifest_sha256,
+        )
+        if not isinstance(envelope, dict) or envelope.get("schema_version") != 2:
+            raise SystemExit("--reviewer-dispatch requires a schema-v2 envelope")
+        dispatch = build_reviewer_dispatch(
+            envelope,
+            envelope_path=args.reviewer_dispatch,
+            envelope_sha256=args.manifest_sha256,
+        )
+        sys.stdout.buffer.write(canonical_json_bytes(dispatch))
         return 0
     if args.manifest_sha256 is None:
         raise SystemExit("--manifest requires --manifest-sha256")

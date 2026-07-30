@@ -31,10 +31,19 @@ Before content-addressing or requesting approval for an invocation:
    capabilities with metadata-only inputs.
 3. Freeze exact targets, outputs, run limits, timeouts, and failure class.
 4. Minimize declared processes using deterministic maximal safe batches.
-5. Only then content-address the plan or envelope.
+5. Content-address the plan or envelope.
+6. Before requesting execution or creating the reviewer, derive a
+   target-content-free, content-addressed reviewer dispatch packet from the
+   exact validated envelope. The packet supplies every exact command and
+   substitutes the envelope path and file hash; the reviewer must not inspect
+   the envelope outside a declared reader command.
 
 A preparation failure does not spend a substantive invocation when no declared
 evidence read or side effect began.
+
+Every bounded read group ends with the exact checked-in completion footer.
+Missing or truncated footer output stops the invocation as incomplete without
+an external measurement command, retry, or later command.
 
 ## Live Checkpoint
 
