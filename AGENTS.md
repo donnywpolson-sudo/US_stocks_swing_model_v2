@@ -133,11 +133,29 @@
   Do not ask the user to restate authority for the next edit, focused check,
   materially corrective cycle, or read-only verification already inside that
   phase.
+- A plain-language request to implement or fix a local phase is sufficient
+  authority for its inspection, edits, focused tests, static checks,
+  `git diff --check`, completion verification, and at most two materially
+  corrective cycles. Do not require a formal authorization paragraph.
 - At a genuine boundary, coalesce permissions that are simultaneously
   decision-complete and share the same action class, targets, risks, outputs,
   and stop conditions. Do not create a serial approval chain for steps already
   known to be required. Never bundle a later action whose exact evidence,
   target, or risk cannot yet be known.
+- One decision-complete `MUTATING_OR_EXTERNAL` gate may include metadata-only
+  preflight, declared one-time credential handling, one bounded invocation,
+  atomic landing, immediate deterministic no-write verification or assessment,
+  and the final conversation report. Retry, cleanup, publication, activation,
+  commit, and push remain excluded unless their applicable gate explicitly
+  includes them.
+- Present a genuine gate once in concise plain language with its action,
+  bounds, outputs, stop conditions, and exclusions. A direct confirmation such
+  as "Yes" or "Run that gate" binds the immediately preceding gate; never
+  require the user to copy hashes, commands, or an authorization essay back
+  into the conversation.
+- Treat staging and one non-amended commit as one separately authorized commit
+  gate that includes final revalidation, exact-path staging, commit creation,
+  and post-commit verification. Activation and cutover remain a different gate.
 - Before freezing a content-addressed plan, manifest, invocation, or approval
   request, validate the exact literal executable/script transport and required
   host capabilities using metadata-only inputs. Environment, quoting, encoding,
@@ -148,10 +166,9 @@
   batches, and prefer one maximal safe batch over per-file or per-field calls.
   Preserve source order, byte/line caps, failure isolation, and secret
   exclusions.
-- Maintain one concise live checkpoint for long workflows: larger goal,
-  completed phase, active phase, next genuine gate, blockers, validation budget,
-  and audit/readiness status when applicable. Current verified state replaces
-  repeated narrative history.
+- Maintain one concise live checkpoint for long workflows: current outcome,
+  blocker, and next meaningful phase, plus audit/readiness status only when
+  applicable. Current verified state replaces repeated narrative history.
 - Trigger a workflow retrospective before repeating the pattern when any of the
   following occurs: more than two avoidable user round trips for one phase,
   more than one host/tooling failure that preparation could have caught, a
@@ -403,7 +420,7 @@
 
 - Use concise plain English. Lead with what the result means, and explain a necessary technical term briefly.
 - Interim updates contain only new material evidence, a changed decision, a blocker, or a useful checkpoint.
-- Use this order for every substantive final response and report:
+- Use this order for every substantive same-thread final response and report:
   1. `Status`: use exactly `done`, `in progress`, or `blocked`, followed by a
      one-sentence explanation.
   2. `Completed`: describe what Codex accomplished in plain English rather than
@@ -413,15 +430,15 @@
      skipped or unverified validation.
   4. `Needs attention`: include only real problems, approval gates, or
      user-owned decisions. If none exist, say so plainly.
-  5. `Continue Prompt`: provide the self-contained prompt defined below.
+  5. `Checkpoint`: state only the current outcome, blocker, and next meaningful
+     phase.
 - For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
 - Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
 - Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, generic follow-ups, and full logs or diffs unless the user asks for them.
-- End every substantive final response and report with `Continue Prompt:`
-  followed by exactly one fenced `text` block. The prompt is for starting a new
-  Codex thread or session; within the same thread, continue safe,
-  already-authorized work autonomously and never require the user to paste the
-  prompt back.
+- Do not emit a `Continue Prompt` during ordinary same-thread work. Provide one
+  only when the user explicitly requests a fresh-thread handoff or a genuine
+  context transfer is necessary. Within the same thread, continue safe,
+  already-authorized work autonomously.
 - The Continue Prompt must continue the active larger goal within its current
   scope: name the overall goal and completion condition, capture what has
   already been completed, identify the current blocker or next action, and
@@ -434,7 +451,8 @@
 - If a handoff was updated, the Continue Prompt must preserve its current goal
   and active gate and incorporate its next safe step.
 - A Continue Prompt never grants authority, broadens scope, substitutes handoff
-  text for current proof, or creates a prompt chain.
+  text for current proof, creates a prompt chain, or serves as an authorization
+  essay for the user to paste back.
 - Every audit-related result must state four fields plainly: `Master Audit`,
   `Meta Audit`, `Project readiness`, and `Next gate`. Use only
   `NOT_PREPARED`, `PREPARED`, `VALIDATED`, `STARTED`, `INCOMPLETE`, or

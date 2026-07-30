@@ -62,6 +62,21 @@ work, commit, push, and cutover. It retains exact action-specific authorization.
 The Meta Audit reviews `MASTER_AUDIT.md` as a specification. It does not execute
 the Master Audit or classify current project readiness.
 
+## Reviewer Transport Freeze
+
+The current reviewer-creation interface cannot deliver the complete canonical
+dispatch unchanged in the fresh reviewer’s initial context. While that host
+capability is unchanged, do not prepare or materialize another envelope solely
+to retry transport, request another reviewer invocation, or reconstruct,
+project, compact, template, or complete the dispatch after reviewer creation.
+
+Reopen reviewer execution only after a material interface change and a
+target-free synthetic transport check proves that a packet at least as large as
+the canonical dispatch reaches the fresh reviewer before creation, unchanged
+and checksum-verified, without a retained dispatch file or undeclared process.
+Preserve existing envelopes and stopped-attempt evidence; this freeze grants no
+cleanup authority.
+
 ## Handoffs
 
 `CODEX_HANDOFF.md` is for genuine thread transfer, context loss, or an

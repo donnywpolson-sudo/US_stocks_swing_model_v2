@@ -21,17 +21,19 @@ def test_agent_policy_distinguishes_local_and_high_risk_action_classes() -> None
 def test_same_thread_work_does_not_require_handoff_or_prompt_churn() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     handoff = (ROOT / "CODEX_HANDOFF.md").read_text(encoding="utf-8")
+    normalized_agents = " ".join(agents.split()).lower()
 
     assert "do not let stale coordination prose block safe" in agents
     assert "Avoid handoff-only commits for routine same-thread transitions" in agents
-    assert "within the same thread, continue safe" in agents
-    assert "never require the user to paste the" in agents
+    assert "within the same thread, continue safe" in normalized_agents
+    assert "never require the user to copy hashes, commands" in normalized_agents
     assert "A Continue Prompt never grants authority" in agents
+    assert "Do not emit a `Continue Prompt` during ordinary same-thread work" in agents
     assert "Do not create routine same-thread handoff-only commits" in handoff
     assert len(handoff.split()) <= 450
 
 
-def test_substantive_results_use_plain_language_continue_structure() -> None:
+def test_substantive_results_use_plain_language_checkpoint_structure() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     headings = (
@@ -39,17 +41,19 @@ def test_substantive_results_use_plain_language_continue_structure() -> None:
         "`Completed`",
         "`Checks`",
         "`Needs attention`",
-        "`Continue Prompt`",
+        "`Checkpoint`",
     )
     positions = [agents.index(heading) for heading in headings]
 
     assert positions == sorted(positions)
-    assert "Use this order for every substantive final response and report" in agents
+    assert "Use this order for every substantive same-thread final response and report" in agents
     assert "use exactly `done`, `in progress`, or `blocked`" in agents
     assert "what Codex accomplished in plain English" in agents
     assert "whether it passed" in agents
     assert "only real problems, approval gates, or" in agents
-    assert "End every substantive final response and report with `Continue Prompt:`" in agents
+    assert "current outcome, blocker, and next meaningful" in agents
+    assert "Do not emit a `Continue Prompt` during ordinary same-thread work" in agents
+    assert "only when the user explicitly requests a fresh-thread handoff" in agents
     assert "name the overall goal and completion condition" in agents
     assert "what has\n  already been completed" in agents
     assert "current blocker or next action" in agents
@@ -94,13 +98,49 @@ def test_future_workflows_bundle_local_work_and_trigger_durable_retrospectives()
     normalized_agents = " ".join(agents.split())
 
     assert "bounded phase envelope" in agents
+    assert "A plain-language request to implement or fix a local phase" in agents
     assert "coalesce permissions" in agents
+    assert "one bounded invocation" in agents
+    assert '"Yes" or "Run that gate"' in agents
+    assert "one separately authorized commit" in agents
     assert "Before freezing a content-addressed plan" in agents
     assert "more than two avoidable user round trips" in agents
     assert "a handoff-only commit during a live thread" in normalized_agents
     assert "Do not answer a systemic failure with another one-off" in workflow
     assert "deterministic maximal safe batches" in workflow
     assert "unchanged safety and evidence quality" in workflow
+
+
+def test_external_phase_covers_verification_without_approval_essay() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")
+    normalized_agents = " ".join(agents.split())
+    normalized_workflow = " ".join(workflow.split())
+
+    for phrase in (
+        "metadata-only preflight",
+        "declared one-time credential handling",
+        "atomic landing",
+        "no-write verification or assessment",
+        "final conversation report",
+    ):
+        assert phrase in normalized_agents
+        assert phrase in normalized_workflow
+    assert "Never require the user to copy plan IDs, hashes" in workflow
+    assert "Activation and cutover remain a separate gate" in normalized_workflow
+
+
+def test_meta_reviewer_transport_remains_frozen_until_capability_changes() -> None:
+    audit_workflow = (ROOT / "docs" / "AUDIT_WORKFLOW.md").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(audit_workflow.split())
+
+    assert "Reviewer Transport Freeze" in audit_workflow
+    assert "While that host capability is unchanged" in normalized
+    assert "target-free synthetic transport check" in normalized
+    assert "unchanged and checksum-verified" in normalized
+    assert "without a retained dispatch file or undeclared process" in normalized
 
 
 def test_meta_audit_dispatch_and_transport_failure_are_fail_closed() -> None:

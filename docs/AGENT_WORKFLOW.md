@@ -10,6 +10,8 @@ A user request establishes a bounded larger goal and completion criteria.
 Repository-local implementation authority includes its routine edits, focused
 validation, static checks, read-only verification, and at most two materially
 corrective cycles. Those steps proceed without serial “do that” prompts.
+A plain-language implementation or fix request is sufficient; the user does not
+need to reproduce a formal authorization paragraph.
 
 Actions are classified before execution:
 
@@ -21,6 +23,23 @@ Actions are classified before execution:
 Only simultaneously decision-complete actions with the same class, scope,
 risks, outputs, and stop conditions may share one approval. Unknown
 evidence-dependent actions remain separate.
+
+One decision-complete external phase may include metadata-only preflight,
+declared one-time credential handling, one bounded call, atomic landing,
+immediate deterministic no-write verification or assessment, and its final
+conversation report. Retry, cleanup, publication, activation, commit, and push
+remain excluded unless their applicable gate explicitly includes them.
+
+## Concise Gates
+
+Present a genuine gate once with its action, bounds, outputs, stop conditions,
+and exclusions. A direct “Yes” or “Run that gate” binds that immediately
+preceding summary. Never require the user to copy plan IDs, hashes, literal
+commands, or a long authorization prompt back into the conversation.
+
+Final revalidation, exact-path staging, one non-amended commit, and post-commit
+verification may share one commit gate. Activation and cutover remain a
+separate gate.
 
 ## Preparation Before Invocation
 
@@ -54,15 +73,18 @@ an external measurement command, retry, or later command.
 
 Long workflows keep one concise checkpoint:
 
-- larger goal and done criteria;
-- completed and active phase;
-- next genuine authority boundary;
-- blockers and remaining local-correction budget;
-- Master Audit, Meta Audit, and project-readiness status when relevant.
+- current outcome;
+- blocker, or `none`;
+- next meaningful phase;
+- Master Audit, Meta Audit, and project-readiness status only when relevant.
 
 Use verified live state instead of copying chronology across prompts.
 `CODEX_HANDOFF.md` is reserved for genuine thread transfer or a high-risk gate
 that depends on persistent continuation state.
+
+Same-thread final responses do not carry a copyable continuation prompt.
+Provide one self-contained prompt only for an explicit fresh-thread handoff or
+necessary context transfer.
 
 ## Efficiency Retrospective
 
