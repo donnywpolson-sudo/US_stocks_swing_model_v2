@@ -49,7 +49,7 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --alpaca-only `
   --symbols AAPL,SPY `
   --start 2026-07-23T04:00:00Z `
-  --end 2026-07-30T04:00:00Z `
+  --end 2026-07-30T03:59:59Z `
   --max-pages 1
 ```
 
@@ -67,7 +67,7 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
   --verify-alpaca-pair <sip-snapshot-directory> <iex-snapshot-directory> `
   --symbols AAPL,SPY `
   --start 2026-07-23T04:00:00Z `
-  --end 2026-07-30T04:00:00Z
+  --end 2026-07-30T03:59:59Z
 ```
 
 The assessor reloads the immutable network snapshots, applies the pinned
@@ -76,6 +76,24 @@ assessment. If both feeds pass, SIP is the candidate; otherwise the sole
 passing feed is the candidate. No pass, early stop, or evidence mismatch
 selects no feed. A candidate is not an accepted qualification receipt and does
 not authorize activation, configuration changes, canonical bars, or research.
+
+The completed five-session assessment selected SIP under the frozen both-pass
+tie rule. `config/alpaca_feed_qualification_policy.json` binds that assessment,
+both immutable snapshots, the registry, calendar, request contract, prospective
+non-active accepted receipt, and later source-cutover contract.
+
+The local design CLI is no-write and has no execute mode:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.prepare_alpaca_source_cutover
+```
+
+It revalidates the complete evidence and emits a content-addressed design. The
+design grants no receipt-publication, activation, canonical-bars, provider,
+credential, research, or audit authority. Receipt publication must create one
+non-active accepted release first. Only a later separately authorized cutover
+may set `qualified_feed` to `sip`, name that verified receipt, and enable the
+source. Canonical bars and research remain later gates.
 
 ## Landed evidence
 

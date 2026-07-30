@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import math
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.error import HTTPError
 from urllib.request import Request
 from zoneinfo import ZoneInfo
 
-from ..common import require_aware_utc, sha256_bytes
+from ..common import canonical_json_bytes, iso_z, require_aware_utc, require_sha256, sha256_bytes
 from ..clock import TrustedClock, require_trusted_clock
 from ..errors import ContractError, IntegrityError, NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
@@ -467,6 +467,95 @@ def qualify_landed_pages(
         ),
         trust_eligible=bool(page_list) and all(snapshot.trust_eligible for snapshot in page_list),
     )
+
+
+def assess_landed_alpaca_pair(
+    initial: AlpacaBarsRequest,
+    *,
+    sip_snapshot: LandedSnapshot,
+    iex_snapshot: LandedSnapshot,
+    network_registry_id: str,
+    calendar_release_directory: Path,
+    accepted_release_root: Path,
+    qualification_function: Callable[..., AlpacaQualificationResult] | None = None,
+) -> dict[str, object]:
+    """Build the canonical no-write SIP/IEX assessment from immutable snapshots."""
+
+    require_sha256(network_registry_id, "Alpaca pair network_registry_id")
+    qualify = qualification_function or qualify_landed_pages
+    qualifications = {
+        "sip": qualify(
+            initial,
+            AlpacaBarsPolicy(feed="sip", asof=None),
+            (sip_snapshot,),
+            calendar_release_directory=calendar_release_directory,
+            accepted_release_root=accepted_release_root,
+        ),
+        "iex": qualify(
+            initial,
+            AlpacaBarsPolicy(feed="iex", asof=None),
+            (iex_snapshot,),
+            calendar_release_directory=calendar_release_directory,
+            accepted_release_root=accepted_release_root,
+        ),
+    }
+    eligible = {feed: result.eligible for feed, result in qualifications.items()}
+    selected_feed = (
+        "sip" if eligible["sip"] else "iex" if eligible["iex"] else None
+    )
+    selection_reason = (
+        "both_pass_prefer_sip"
+        if all(eligible.values())
+        else "sip_only"
+        if eligible["sip"]
+        else "iex_only"
+        if eligible["iex"]
+        else "neither_pass"
+    )
+
+    def qualification_result(value: AlpacaQualificationResult) -> dict[str, object]:
+        return {
+            "feed": value.feed,
+            "state": value.state,
+            "reasons": list(value.reasons),
+            "snapshot_ids": list(value.snapshot_ids),
+            "bar_count": value.bar_count,
+            "calendar_release_id": value.calendar_release_id,
+            "evidence_state": value.evidence_state,
+            "trust_eligible": value.trust_eligible,
+        }
+
+    unsigned = {
+        "schema_version": 1,
+        "mode": "ALPACA_SIP_IEX_PAIR_ASSESSMENT_NO_WRITES",
+        "symbols": list(initial.symbols),
+        "start": iso_z(initial.start),
+        "end": iso_z(initial.end),
+        "network_registry_id": network_registry_id,
+        "snapshots": {
+            "sip": {
+                "snapshot_id": sip_snapshot.snapshot_id,
+                "raw_sha256": sip_snapshot.raw_sha256,
+                "retrieved_at": iso_z(sip_snapshot.retrieved_at),
+            },
+            "iex": {
+                "snapshot_id": iex_snapshot.snapshot_id,
+                "raw_sha256": iex_snapshot.raw_sha256,
+                "retrieved_at": iso_z(iex_snapshot.retrieved_at),
+            },
+        },
+        "qualifications": {
+            feed: qualification_result(result)
+            for feed, result in sorted(qualifications.items())
+        },
+        "selected_feed_candidate": selected_feed,
+        "selection_reason": selection_reason,
+        "activation_authorized": False,
+    }
+    return {
+        **unsigned,
+        "assessment_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
 
 
 def _json_object(raw: bytes) -> dict[str, object]:

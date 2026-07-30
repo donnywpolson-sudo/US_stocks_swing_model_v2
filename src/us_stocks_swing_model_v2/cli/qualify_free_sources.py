@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request
 
-from ..common import canonical_json_bytes, iso_z, sha256_bytes
+from ..common import iso_z, sha256_bytes
 from ..clock import TrustedClock
 from ..errors import NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
@@ -17,6 +17,7 @@ from ..providers.alpaca import (
     AUTH_ENVIRONMENT_TOKEN,
     AlpacaBarsPolicy,
     AlpacaBarsRequest,
+    assess_landed_alpaca_pair,
     guarded_fetch_landed_pages,
     qualify_landed_pages,
 )
@@ -292,74 +293,15 @@ def main(argv: list[str] | None = None) -> int:
             _parse_time(args.end),
             offline_requested_at,
         )
-        qualifications = {
-            "sip": qualify_landed_pages(
-                offline_request,
-                AlpacaBarsPolicy(feed="sip", asof=None),
-                (sip_snapshot,),
-                calendar_release_directory=calendar_release,
-                accepted_release_root=expected_calendar_root,
-            ),
-            "iex": qualify_landed_pages(
-                offline_request,
-                AlpacaBarsPolicy(feed="iex", asof=None),
-                (iex_snapshot,),
-                calendar_release_directory=calendar_release,
-                accepted_release_root=expected_calendar_root,
-            ),
-        }
-        eligible = {
-            feed: result.eligible for feed, result in qualifications.items()
-        }
-        selected_feed = (
-            "sip"
-            if eligible["sip"]
-            else "iex"
-            if eligible["iex"]
-            else None
+        assessment = assess_landed_alpaca_pair(
+            offline_request,
+            sip_snapshot=sip_snapshot,
+            iex_snapshot=iex_snapshot,
+            network_registry_id=acquisition_registry.registry_id,
+            calendar_release_directory=calendar_release,
+            accepted_release_root=expected_calendar_root,
+            qualification_function=qualify_landed_pages,
         )
-        selection_reason = (
-            "both_pass_prefer_sip"
-            if all(eligible.values())
-            else "sip_only"
-            if eligible["sip"]
-            else "iex_only"
-            if eligible["iex"]
-            else "neither_pass"
-        )
-        unsigned_assessment = {
-            "schema_version": 1,
-            "mode": "ALPACA_SIP_IEX_PAIR_ASSESSMENT_NO_WRITES",
-            "symbols": list(symbols),
-            "start": iso_z(offline_request.start),
-            "end": iso_z(offline_request.end),
-            "network_registry_id": acquisition_registry.registry_id,
-            "snapshots": {
-                "sip": {
-                    "snapshot_id": sip_snapshot.snapshot_id,
-                    "raw_sha256": sip_snapshot.raw_sha256,
-                    "retrieved_at": iso_z(sip_snapshot.retrieved_at),
-                },
-                "iex": {
-                    "snapshot_id": iex_snapshot.snapshot_id,
-                    "raw_sha256": iex_snapshot.raw_sha256,
-                    "retrieved_at": iso_z(iex_snapshot.retrieved_at),
-                },
-            },
-            "qualifications": {
-                feed: _qualification_result(result)
-                for feed, result in sorted(qualifications.items())
-            },
-            "selected_feed_candidate": selected_feed,
-            "selection_reason": selection_reason,
-            "activation_authorized": False,
-        }
-        assessment = {
-            **unsigned_assessment,
-            "assessment_id": sha256_bytes(
-                canonical_json_bytes(unsigned_assessment)
-            ),
-        }
         plan["result"] = {"alpaca_pair_assessment": assessment}
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
