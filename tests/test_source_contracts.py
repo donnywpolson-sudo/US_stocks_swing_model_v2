@@ -22,10 +22,12 @@ from us_stocks_swing_model_v2.cli.qualify_free_sources import main as qualificat
 import us_stocks_swing_model_v2.cli.qualify_free_sources as qualification_cli
 from us_stocks_swing_model_v2.providers.alpaca import (
     MAX_TRUSTED_REQUEST_AGE_MINUTES,
+    AlpacaQualificationResult,
     AlpacaBarsPolicy,
     AlpacaBarsRequest,
     _valid_bar,
     guarded_fetch_json,
+    guarded_fetch_landed_pages,
     qualify_landed_pages,
 )
 import us_stocks_swing_model_v2.providers.alpaca as alpaca_module
@@ -282,10 +284,294 @@ def test_qualification_cli_is_no_network_by_default_and_requires_dual_authorizat
     monkeypatch.chdir(tmp_path)
     before = tuple(tmp_path.rglob("*"))
     assert qualification_main([]) == 0
-    assert '"mode": "plan_only"' in capsys.readouterr().out
+    plan_output = capsys.readouterr().out
+    assert '"mode": "plan_only"' in plan_output
+    plan = json.loads(plan_output)
     assert tuple(tmp_path.rglob("*")) == before
-    with pytest.raises(NetworkGuardError, match="FREE_SOURCE_QUALIFICATION_APPROVED"):
+    with pytest.raises(NetworkGuardError, match="both exact approved"):
         qualification_main(["--execute-network"])
+    with pytest.raises(NetworkGuardError, match="FREE_SOURCE_QUALIFICATION_APPROVED"):
+        qualification_main(
+            [
+                "--execute-network",
+                "--approved-sip-plan-id",
+                plan["request_plans"]["alpaca_sip_qualification"]["plan_id"],
+                "--approved-iex-plan-id",
+                plan["request_plans"]["alpaca_iex_qualification"]["plan_id"],
+            ]
+        )
+
+
+def test_alpaca_plan_binds_one_page_and_exact_approved_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = [
+        "--alpaca-only",
+        "--symbols",
+        "AAPL,SPY",
+        "--start",
+        "2026-07-23T04:00:00Z",
+        "--end",
+        "2026-07-30T04:00:00Z",
+        "--max-pages",
+        "1",
+    ]
+    monkeypatch.chdir(tmp_path)
+    assert qualification_main(["--plan-only", *args]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    sip = plan["request_plans"]["alpaca_sip_qualification"]
+    iex = plan["request_plans"]["alpaca_iex_qualification"]
+    assert sip["max_pages"] == iex["max_pages"] == 1
+    assert sip["plan_id"] == (
+        "7246ac32f31920e19e8a9abf4c2e7b94a1eaf6ff83fab56985e0927b7c8f68e9"
+    )
+    assert iex["plan_id"] == (
+        "e19f11c01e65097e9457452bb7a744a068dc37003f3a62e10ac8a1f3d550fdd0"
+    )
+
+    def unexpected_store(*_args, **_kwargs):
+        raise AssertionError("plan mismatch reached snapshot filesystem access")
+
+    monkeypatch.setattr(
+        qualification_cli,
+        "AsReceivedSnapshotStore",
+        unexpected_store,
+    )
+    monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
+    with pytest.raises(NetworkGuardError, match="both exact approved"):
+        qualification_main(["--execute-network", *args])
+    with pytest.raises(NetworkGuardError, match="plan ID differs"):
+        qualification_main(
+            [
+                "--execute-network",
+                *args,
+                "--approved-sip-plan-id",
+                "f" * 64,
+                "--approved-iex-plan-id",
+                iex["plan_id"],
+            ]
+        )
+
+
+def test_alpaca_execution_uses_one_attempt_per_feed_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: list[tuple[str, object]] = []
+
+    class Store:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    def start_session(plan, **_kwargs):
+        observed.append(("session", plan.source))
+        return object()
+
+    def fetch_pages(_request, *, policy, max_pages, **_kwargs):
+        observed.append(("fetch", (policy.feed, max_pages)))
+        return ()
+
+    def qualify(_request, policy, _pages, **_kwargs):
+        return AlpacaQualificationResult(
+            state="PASS",
+            reasons=(),
+            feed=str(policy.feed),
+            snapshot_ids=(str(policy.feed) * 64,),
+            symbols=("AAPL", "SPY"),
+            bar_count=10,
+            calendar_release_id="1" * 64,
+            evidence_state="NETWORK_AS_RECEIVED",
+            trust_eligible=True,
+        )
+
+    monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
+    monkeypatch.setenv("APCA_API_KEY_ID", "id")
+    monkeypatch.setenv("APCA_API_SECRET_KEY", "secret")
+    monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
+    monkeypatch.setattr(
+        qualification_cli,
+        "load_xnys_calendar_release",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        qualification_cli,
+        "start_local_network_execution",
+        start_session,
+    )
+    monkeypatch.setattr(
+        qualification_cli,
+        "guarded_fetch_landed_pages",
+        fetch_pages,
+    )
+    monkeypatch.setattr(qualification_cli, "qualify_landed_pages", qualify)
+    assert qualification_main(
+        [
+            "--execute-network",
+            "--alpaca-only",
+            "--symbols",
+            "AAPL,SPY",
+            "--start",
+            "2026-07-23T04:00:00Z",
+            "--end",
+            "2026-07-30T04:00:00Z",
+            "--max-pages",
+            "1",
+            "--approved-sip-plan-id",
+            "7246ac32f31920e19e8a9abf4c2e7b94a1eaf6ff83fab56985e0927b7c8f68e9",
+            "--approved-iex-plan-id",
+            "e19f11c01e65097e9457452bb7a744a068dc37003f3a62e10ac8a1f3d550fdd0",
+        ]
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert observed == [
+        ("session", "alpaca_sip_qualification"),
+        ("session", "alpaca_iex_qualification"),
+        ("fetch", ("sip", 1)),
+        ("fetch", ("iex", 1)),
+    ]
+    assert output["result"]["qualified_feed_candidates"] == ["sip", "iex"]
+
+
+def test_one_page_alpaca_capture_rejects_pagination_without_second_get(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    raw = b'{"bars":{},"next_page_token":"page-2"}'
+
+    class Evidence:
+        url = "https://data.alpaca.markets/v2/stocks/bars"
+        response_url = url
+        status = 200
+        raw_bytes = raw
+        headers: dict[str, str] = {}
+        transport_evidence = object()
+
+    class Snapshot:
+        def read_verified_bytes(self) -> bytes:
+            return raw
+
+    class Store:
+        def _land_network_response(self, **_kwargs):
+            return Snapshot()
+
+    def fetch(*_args, **_kwargs):
+        calls.append(1)
+        return Evidence()
+
+    monkeypatch.setattr(alpaca_module, "guarded_fetch_json", fetch)
+    observed_at = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+    clock = TrustedClock.synthetic_fixed(
+        observed_at,
+        permit=SyntheticOnlyPermit.create(
+            fixture_id="one-page-alpaca",
+            scope="TRUSTED_CLOCK_FIXED_TIME",
+        ),
+    )
+    with pytest.raises(ContractError, match="exceeded the bounded pagination"):
+        guarded_fetch_landed_pages(
+            AlpacaBarsRequest(
+                ("AAPL", "SPY"),
+                datetime(2026, 7, 23, 4, tzinfo=timezone.utc),
+                datetime(2026, 7, 30, 4, tzinfo=timezone.utc),
+                observed_at,
+            ),
+            snapshot_store=Store(),
+            api_key_id="id",
+            api_secret_key="secret",
+            policy=AlpacaBarsPolicy(feed="sip"),
+            network_enabled=True,
+            max_pages=1,
+            clock=clock,
+            authorization_session=object(),
+        )
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("sip_pass", "iex_pass", "selected", "reason"),
+    [
+        (True, True, "sip", "both_pass_prefer_sip"),
+        (True, False, "sip", "sip_only"),
+        (False, True, "iex", "iex_only"),
+        (False, False, None, "neither_pass"),
+    ],
+)
+def test_offline_alpaca_pair_assessment_selects_only_passing_feed_without_network(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    sip_pass: bool,
+    iex_pass: bool,
+    selected: str | None,
+    reason: str,
+) -> None:
+    retrieved_at = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+
+    class Snapshot:
+        def __init__(self, feed: str):
+            self.source = f"alpaca_{feed}_qualification"
+            self.snapshot_id = ("1" if feed == "sip" else "2") * 64
+            self.raw_sha256 = ("3" if feed == "sip" else "4") * 64
+            self.retrieved_at = retrieved_at
+            self.local_integrity_verified = True
+
+    class Store:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def load(self, path):
+            return Snapshot("sip" if "sip" in str(path) else "iex")
+
+    def qualify(_request, policy, pages, **_kwargs):
+        snapshot = tuple(pages)[0]
+        passed = sip_pass if policy.feed == "sip" else iex_pass
+        return AlpacaQualificationResult(
+            state="PASS" if passed else "FAIL",
+            reasons=() if passed else ("fixture_fail",),
+            feed=str(policy.feed),
+            snapshot_ids=(snapshot.snapshot_id,),
+            symbols=("AAPL", "SPY"),
+            bar_count=10,
+            calendar_release_id="5" * 64,
+            evidence_state="NETWORK_AS_RECEIVED",
+            trust_eligible=True,
+        )
+
+    monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
+    monkeypatch.setattr(
+        qualification_cli,
+        "load_xnys_calendar_release",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(qualification_cli, "qualify_landed_pages", qualify)
+    monkeypatch.setattr(
+        qualification_cli,
+        "start_local_network_execution",
+        lambda *_args, **_kwargs: pytest.fail(
+            "offline Alpaca assessment created a network session"
+        ),
+    )
+    assert qualification_main(
+        [
+            "--verify-alpaca-pair",
+            "sip-snapshot",
+            "iex-snapshot",
+            "--symbols",
+            "AAPL,SPY",
+            "--start",
+            "2026-07-23T04:00:00Z",
+            "--end",
+            "2026-07-30T04:00:00Z",
+        ]
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assessment = output["result"]["alpaca_pair_assessment"]
+    assert output["mode"] == "verify_local_alpaca_pair"
+    assert assessment["selected_feed_candidate"] == selected
+    assert assessment["selection_reason"] == reason
+    assert assessment["activation_authorized"] is False
+    assert len(assessment["assessment_id"]) == 64
 
 
 def test_obsolete_authorization_arguments_are_rejected_without_writes(

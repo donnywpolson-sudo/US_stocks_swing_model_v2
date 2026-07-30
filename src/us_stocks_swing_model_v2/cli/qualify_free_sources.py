@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request
 
-from ..common import iso_z, sha256_bytes
+from ..common import canonical_json_bytes, iso_z, sha256_bytes
 from ..clock import TrustedClock
 from ..errors import NetworkGuardError
 from ..exchange_calendar import load_xnys_calendar_release
@@ -65,12 +65,22 @@ def parser() -> argparse.ArgumentParser:
         metavar=("SNAPSHOT_A", "SNAPSHOT_B"),
         help="offline-only verification of the frozen two-capture bootstrap pair",
     )
+    mode.add_argument(
+        "--verify-alpaca-pair",
+        nargs=2,
+        type=Path,
+        metavar=("SIP_SNAPSHOT", "IEX_SNAPSHOT"),
+        help="offline-only verification of one SIP and one IEX qualification snapshot",
+    )
     selection = value.add_mutually_exclusive_group()
     selection.add_argument("--nasdaq-only", action="store_true")
     selection.add_argument("--alpaca-only", action="store_true")
     value.add_argument("--symbols", default="AAPL,SPY")
     value.add_argument("--start", default="2024-01-02T00:00:00Z")
     value.add_argument("--end", default="2024-01-10T00:00:00Z")
+    value.add_argument("--max-pages", type=int, default=10)
+    value.add_argument("--approved-sip-plan-id")
+    value.add_argument("--approved-iex-plan-id")
     value.add_argument(
         "--prior-nasdaq-accepted-record-count",
         type=int,
@@ -89,13 +99,67 @@ def _load_source_config(repo_root: Path) -> dict[str, object]:
     )
 
 
+def _qualification_result(value: object) -> dict[str, object]:
+    return {
+        "feed": value.feed,
+        "state": value.state,
+        "reasons": list(value.reasons),
+        "snapshot_ids": list(value.snapshot_ids),
+        "bar_count": value.bar_count,
+        "calendar_release_id": value.calendar_release_id,
+        "evidence_state": value.evidence_state,
+        "trust_eligible": value.trust_eligible,
+    }
+
+
+def _approved_alpaca_plans(
+    *,
+    execute_network: bool,
+    use_alpaca: bool,
+    request_plans: dict[str, NetworkRequestPlan],
+    approved_sip_plan_id: str | None,
+    approved_iex_plan_id: str | None,
+) -> None:
+    supplied = {
+        "sip": approved_sip_plan_id,
+        "iex": approved_iex_plan_id,
+    }
+    if not execute_network:
+        if any(value is not None for value in supplied.values()):
+            raise NetworkGuardError(
+                "approved Alpaca plan IDs are valid only with --execute-network"
+            )
+        return
+    if not use_alpaca:
+        if any(value is not None for value in supplied.values()):
+            raise NetworkGuardError(
+                "Nasdaq-only execution cannot accept Alpaca plan IDs"
+            )
+        return
+    if any(value is None for value in supplied.values()):
+        raise NetworkGuardError(
+            "Alpaca execution requires both exact approved request plan IDs"
+        )
+    expected = {
+        "sip": request_plans["alpaca_sip_qualification"].plan_id,
+        "iex": request_plans["alpaca_iex_qualification"].plan_id,
+    }
+    if supplied != expected:
+        raise NetworkGuardError("approved Alpaca request plan ID differs")
+
+
 def main(argv: list[str] | None = None) -> int:
     supplied_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(supplied_argv)
+    if not 1 <= args.max_pages <= 100:
+        raise NetworkGuardError("Alpaca max pages must be in [1,100]")
+    verify_alpaca_pair = args.verify_alpaca_pair is not None
     verify_nasdaq_pair = args.verify_nasdaq_bootstrap_pair is not None
     verify_nasdaq = args.verify_nasdaq_snapshot is not None or verify_nasdaq_pair
     if verify_nasdaq and args.alpaca_only:
         raise NetworkGuardError("Nasdaq snapshot verification cannot select Alpaca")
+    if verify_alpaca_pair and args.nasdaq_only:
+        raise NetworkGuardError("Alpaca pair verification cannot select Nasdaq")
     if verify_nasdaq_pair and args.prior_nasdaq_accepted_record_count is not None:
         raise NetworkGuardError(
             "Nasdaq bootstrap pair verification does not accept a historical prior count"
@@ -103,8 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     requested_at = datetime.now(timezone.utc)
     symbols = tuple(sorted(set(item.strip().upper() for item in args.symbols.split(",") if item.strip())))
     alpaca_request = AlpacaBarsRequest(symbols, _parse_time(args.start), _parse_time(args.end), requested_at)
-    use_alpaca = not args.nasdaq_only and not verify_nasdaq
-    use_nasdaq = not args.alpaca_only
+    use_alpaca = verify_alpaca_pair or (not args.nasdaq_only and not verify_nasdaq)
+    use_nasdaq = not verify_alpaca_pair and not args.alpaca_only
     alpaca_policies = tuple(AlpacaBarsPolicy(feed=feed, asof=None) for feed in ("sip", "iex"))
     repo_root = Path(__file__).resolve().parents[3]
     source_config = _load_source_config(repo_root)
@@ -114,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     trusted_clock = TrustedClock.production()
     request_plans: dict[str, NetworkRequestPlan] = {}
-    if use_alpaca:
+    if use_alpaca and not verify_alpaca_pair:
         for policy in alpaca_policies:
             source = f"alpaca_{policy.feed}_qualification"
             request_plans[source] = NetworkRequestPlan.create(
@@ -123,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                 initial_url=alpaca_request.url(policy),
                 timeout_seconds=30,
                 max_response_bytes=64 * 1024 * 1024,
-                max_pages=10,
+                max_pages=args.max_pages,
                 pagination_parameter="page_token",
             )
     if use_nasdaq:
@@ -138,15 +202,19 @@ def main(argv: list[str] | None = None) -> int:
         )
     plan: dict[str, object] = {
         "mode": (
-            "verify_local_nasdaq_bootstrap_pair"
-            if verify_nasdaq_pair
+            "verify_local_alpaca_pair"
+            if verify_alpaca_pair
             else (
-                "verify_local_nasdaq_snapshot"
-                if verify_nasdaq
+                "verify_local_nasdaq_bootstrap_pair"
+                if verify_nasdaq_pair
                 else (
-                    "network_capture"
-                    if args.execute_network
-                    else "plan_only"
+                    "verify_local_nasdaq_snapshot"
+                    if verify_nasdaq
+                    else (
+                        "network_capture"
+                        if args.execute_network
+                        else "plan_only"
+                    )
                 )
             )
         ),
@@ -163,7 +231,14 @@ def main(argv: list[str] | None = None) -> int:
             for source, item in sorted(request_plans.items())
         },
     }
-    if not args.execute_network and not verify_nasdaq:
+    _approved_alpaca_plans(
+        execute_network=args.execute_network,
+        use_alpaca=use_alpaca,
+        request_plans=request_plans,
+        approved_sip_plan_id=args.approved_sip_plan_id,
+        approved_iex_plan_id=args.approved_iex_plan_id,
+    )
+    if not args.execute_network and not verify_nasdaq and not verify_alpaca_pair:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
     if args.execute_network and os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
@@ -199,6 +274,95 @@ def main(argv: list[str] | None = None) -> int:
         allowed_root=repo_root,
         acquisition_registry=acquisition_registry,
     )
+    if verify_alpaca_pair:
+        assert calendar_release is not None and expected_calendar_root is not None
+        sip_snapshot = store.load(args.verify_alpaca_pair[0])
+        iex_snapshot = store.load(args.verify_alpaca_pair[1])
+        if not sip_snapshot.local_integrity_verified or not iex_snapshot.local_integrity_verified:
+            raise NetworkGuardError(
+                "Alpaca pair requires locally integrity-verified network snapshots"
+            )
+        offline_requested_at = min(
+            sip_snapshot.retrieved_at,
+            iex_snapshot.retrieved_at,
+        )
+        offline_request = AlpacaBarsRequest(
+            symbols,
+            _parse_time(args.start),
+            _parse_time(args.end),
+            offline_requested_at,
+        )
+        qualifications = {
+            "sip": qualify_landed_pages(
+                offline_request,
+                AlpacaBarsPolicy(feed="sip", asof=None),
+                (sip_snapshot,),
+                calendar_release_directory=calendar_release,
+                accepted_release_root=expected_calendar_root,
+            ),
+            "iex": qualify_landed_pages(
+                offline_request,
+                AlpacaBarsPolicy(feed="iex", asof=None),
+                (iex_snapshot,),
+                calendar_release_directory=calendar_release,
+                accepted_release_root=expected_calendar_root,
+            ),
+        }
+        eligible = {
+            feed: result.eligible for feed, result in qualifications.items()
+        }
+        selected_feed = (
+            "sip"
+            if eligible["sip"]
+            else "iex"
+            if eligible["iex"]
+            else None
+        )
+        selection_reason = (
+            "both_pass_prefer_sip"
+            if all(eligible.values())
+            else "sip_only"
+            if eligible["sip"]
+            else "iex_only"
+            if eligible["iex"]
+            else "neither_pass"
+        )
+        unsigned_assessment = {
+            "schema_version": 1,
+            "mode": "ALPACA_SIP_IEX_PAIR_ASSESSMENT_NO_WRITES",
+            "symbols": list(symbols),
+            "start": iso_z(offline_request.start),
+            "end": iso_z(offline_request.end),
+            "network_registry_id": acquisition_registry.registry_id,
+            "snapshots": {
+                "sip": {
+                    "snapshot_id": sip_snapshot.snapshot_id,
+                    "raw_sha256": sip_snapshot.raw_sha256,
+                    "retrieved_at": iso_z(sip_snapshot.retrieved_at),
+                },
+                "iex": {
+                    "snapshot_id": iex_snapshot.snapshot_id,
+                    "raw_sha256": iex_snapshot.raw_sha256,
+                    "retrieved_at": iso_z(iex_snapshot.retrieved_at),
+                },
+            },
+            "qualifications": {
+                feed: _qualification_result(result)
+                for feed, result in sorted(qualifications.items())
+            },
+            "selected_feed_candidate": selected_feed,
+            "selection_reason": selection_reason,
+            "activation_authorized": False,
+        }
+        assessment = {
+            **unsigned_assessment,
+            "assessment_id": sha256_bytes(
+                canonical_json_bytes(unsigned_assessment)
+            ),
+        }
+        plan["result"] = {"alpaca_pair_assessment": assessment}
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
     network_sessions = {}
     if args.execute_network:
         for source, plan_item in request_plans.items():
@@ -264,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
                 api_secret_key=os.environ.get("APCA_API_SECRET_KEY", ""),
                 policy=policy,
                 network_enabled=True,
+                max_pages=args.max_pages,
                 clock=trusted_clock,
                 authorization_session=network_sessions[
                     f"alpaca_{policy.feed}_qualification"
@@ -276,18 +441,7 @@ def main(argv: list[str] | None = None) -> int:
                 calendar_release_directory=calendar_release,
                 accepted_release_root=expected_calendar_root,
             )
-            feed_results.append(
-                {
-                    "feed": policy.feed,
-                    "state": qualification.state,
-                    "reasons": list(qualification.reasons),
-                    "snapshot_ids": list(qualification.snapshot_ids),
-                    "bar_count": qualification.bar_count,
-                    "calendar_release_id": qualification.calendar_release_id,
-                    "evidence_state": qualification.evidence_state,
-                    "trust_eligible": qualification.trust_eligible,
-                }
-            )
+            feed_results.append(_qualification_result(qualification))
         result["alpaca_feed_qualification"] = feed_results
         result["qualified_feed_candidates"] = [
             row["feed"]

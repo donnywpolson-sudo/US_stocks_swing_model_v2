@@ -36,6 +36,47 @@ failure therefore spends that attempt; same-session retry is intentionally
 rejected. Retry requires a new explicit invocation and a new local session.
 This favors fail-closed replay and ordering safety over in-session availability.
 
+## Bounded Alpaca SIP-versus-IEX qualification
+
+The Alpaca bars planner emits separate content-addressed SIP and IEX request
+plans. Execution must supply both exact reviewed plan IDs; a missing or
+different ID fails before snapshot-store or network-session creation. The
+page bound is explicit and belongs to both plans:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
+  --plan-only `
+  --alpaca-only `
+  --symbols AAPL,SPY `
+  --start 2026-07-23T04:00:00Z `
+  --end 2026-07-30T04:00:00Z `
+  --max-pages 1
+```
+
+The matching separately authorized execution uses the same arguments plus
+`--execute-network`, `--approved-sip-plan-id`, and
+`--approved-iex-plan-id`. A one-page plan stops if the first landed response
+contains a continuation token; it never issues an undeclared second request.
+Credentials remain process-environment inputs and never enter a plan, URL,
+snapshot, or output.
+
+After both snapshots land, the pair can be reassessed offline without writes:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.qualify_free_sources `
+  --verify-alpaca-pair <sip-snapshot-directory> <iex-snapshot-directory> `
+  --symbols AAPL,SPY `
+  --start 2026-07-23T04:00:00Z `
+  --end 2026-07-30T04:00:00Z
+```
+
+The assessor reloads the immutable network snapshots, applies the pinned
+calendar and strict per-feed bar checks, and emits a content-addressed no-write
+assessment. If both feeds pass, SIP is the candidate; otherwise the sole
+passing feed is the candidate. No pass, early stop, or evidence mismatch
+selects no feed. A candidate is not an accepted qualification receipt and does
+not authorize activation, configuration changes, canonical bars, or research.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,
