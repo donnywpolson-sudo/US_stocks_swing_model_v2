@@ -105,6 +105,27 @@ An undeclared command, unexpected nonzero exit, timeout, or interruption is an
 invocation-level failure. Preserve partial evidence, publish nothing, and stop
 without retry or cleanup unless an exact recovery authorization says otherwise.
 
+Preparation is not a reviewer invocation. Before an envelope can become
+executable, preparation must run the exact checked-in reader's metadata-only
+`HostProfile` and `SelfTest` modes and bind their canonical results. Preparation
+must fail before reviewer creation on any shell, .NET, executable, script,
+encoding, path, hashing, or Git-blob mismatch. Such a failure invalidates the
+candidate envelope but does not spend a review invocation because no reviewer
+or reference/target content access has begun.
+
+Envelope schema v2 uses ordered read groups rather than one process per source
+slice. Each group may contain consecutive slices from multiple ordinary files,
+must preserve the frozen source order, and may emit at most 400 numbered lines
+and 20,000 UTF-8 bytes. Preparation greedily appends the next slice until doing
+so would exceed either limit; therefore no adjacent groups may be mergeable.
+All reference groups precede B01 and every target group follows B01. A group
+failure has the same fail-closed effect as any other declared reviewer process.
+
+Reviewer independence is structural evidence in schema v2. The envelope and
+final attestation must bind a fresh reviewer instance, no inherited turns, no
+prior target access, the B01 target-access barrier, and the exact group census.
+Independence prose without these bindings is insufficient.
+
 A specification-review invocation does not require the full project test suite.
 Tests may be read as reference material, and separately authorized targeted
 tests may validate changes to the audit documents, but their results do not

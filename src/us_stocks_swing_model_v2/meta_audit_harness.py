@@ -7,8 +7,10 @@ not execute a Meta Audit, read a target, or grant project authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import subprocess
 from typing import Any, Mapping
 
 from .common import canonical_json_bytes, require_sha256, safe_relative_path, sha256_bytes
@@ -16,6 +18,7 @@ from .errors import ContractError, IntegrityError
 
 
 SCHEMA_VERSION = 1
+SCHEMA_VERSION_V2 = 2
 EXPECTED_EXIT = "REQUIRED_SUCCESS"
 OUTPUT_DESTINATION = "CONVERSATION_ONLY"
 POWERSHELL_FLAGS = ("-NoLogo", "-NoProfile", "-NonInteractive", "-File")
@@ -24,7 +27,17 @@ MODES = (
     "PlanBatches",
     "ReadReferenceBatch",
     "ReadTargetBatch",
+    "PlanGroups",
+    "ReadGroup",
     "FinalPreflight",
+)
+MAX_GROUP_LINES = 400
+MAX_GROUP_UTF8_BYTES = 20_000
+LOCAL_CORRECTION_BUDGET = 2
+FAILURE_CLASSES = (
+    "LOCAL_CORRECTABLE",
+    "READ_ONLY_INVOCATION",
+    "MUTATING_OR_EXTERNAL",
 )
 PROHIBITIONS = (
     "TESTS",
@@ -543,7 +556,10 @@ class MetaAuditEnvelope:
             batch = by_ordinal[command.batch_ordinal]
             expected_mode = "ReadTargetBatch" if batch.target else "ReadReferenceBatch"
             if command.mode != expected_mode:
-                raise ContractError("read command mode differs from batch applicability")
+                raise ContractError(
+                    "BATCH_APPLICABILITY_MISMATCH: "
+                    "read command mode differs from batch applicability"
+                )
             if command.output_max_utf8_bytes != batch.max_rendered_utf8_bytes:
                 raise ContractError("read command output limit differs from its batch")
             bound_batches.append(batch)
@@ -618,7 +634,9 @@ def build_envelope_payload(unsigned: Mapping[str, object]) -> dict[str, object]:
     return MetaAuditEnvelope.from_dict(payload).as_dict()
 
 
-def load_envelope(path: Path, *, expected_file_sha256: str) -> MetaAuditEnvelope:
+def load_envelope(
+    path: Path, *, expected_file_sha256: str
+) -> MetaAuditEnvelope | dict[str, object]:
     expected = require_sha256(expected_file_sha256, "expected_file_sha256")
     raw = Path(path).read_bytes()
     if sha256_bytes(raw) != expected:
@@ -627,7 +645,808 @@ def load_envelope(path: Path, *, expected_file_sha256: str) -> MetaAuditEnvelope
         decoded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ContractError("Meta Audit envelope must be UTF-8 JSON") from exc
-    envelope = MetaAuditEnvelope.from_dict(decoded)
-    if raw != canonical_json_bytes(envelope.as_dict()):
+    if type(decoded) is dict and decoded.get("schema_version") == SCHEMA_VERSION_V2:
+        envelope_v2 = validate_v2_envelope_payload(decoded)
+        if raw != canonical_json_bytes(envelope_v2):
+            raise IntegrityError("Meta Audit envelope is not canonical JSON")
+        return envelope_v2
+    envelope_v1 = MetaAuditEnvelope.from_dict(decoded)
+    if raw != canonical_json_bytes(envelope_v1.as_dict()):
         raise IntegrityError("Meta Audit envelope is not canonical JSON")
-    return envelope
+    return envelope_v1
+
+
+def git_blob_sha1_bytes(data: bytes) -> str:
+    header = f"blob {len(data)}\0".encode("ascii")
+    return hashlib.sha1(header + data).hexdigest()
+
+
+def _strict_lf_lines(data: bytes, path: str) -> tuple[bytes, ...]:
+    if b"\r" in data:
+        raise ContractError(f"NON_LF_TEXT: {path} contains CR bytes")
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ContractError(f"NON_UTF8_TEXT: {path} is not strict UTF-8") from exc
+    lines = data.split(b"\n")
+    if data.endswith(b"\n"):
+        lines = lines[:-1]
+    if not lines:
+        raise ContractError(f"EMPTY_REFERENCE_TEXT: {path} has no readable lines")
+    return tuple(lines)
+
+
+@dataclass(frozen=True)
+class ReadSliceV2:
+    path: str
+    start_line: int
+    line_count: int
+    file_sha256: str
+    file_git_blob: str
+    target: bool
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "path": self.path,
+            "start_line": self.start_line,
+            "line_count": self.line_count,
+            "file_sha256": self.file_sha256,
+            "file_git_blob": self.file_git_blob,
+            "target": self.target,
+        }
+
+
+@dataclass(frozen=True)
+class ReadGroupV2:
+    group_ordinal: int
+    phase: str
+    slices: tuple[ReadSliceV2, ...]
+    rendered_line_count: int
+    rendered_utf8_bytes: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "group_ordinal": self.group_ordinal,
+            "phase": self.phase,
+            "slices": [item.as_dict() for item in self.slices],
+            "rendered_line_count": self.rendered_line_count,
+            "rendered_utf8_bytes": self.rendered_utf8_bytes,
+        }
+
+
+def _slice_rendered_bytes(item: ReadSliceV2, lines: tuple[bytes, ...]) -> int:
+    end_line = item.start_line + item.line_count - 1
+    header = (
+        f"===== {item.path} lines {item.start_line}-{end_line} =====\n".encode(
+            "utf-8"
+        )
+    )
+    total = len(header)
+    for line_number in range(item.start_line, end_line + 1):
+        total += len(f"{line_number:06d}: ".encode("ascii"))
+        total += len(lines[line_number - 1]) + 1
+    return total
+
+
+def _group_metrics(
+    slices: tuple[ReadSliceV2, ...],
+    line_map: Mapping[str, tuple[bytes, ...]],
+) -> tuple[int, int]:
+    line_count = sum(item.line_count for item in slices)
+    rendered_bytes = sum(
+        _slice_rendered_bytes(item, line_map[item.path]) for item in slices
+    )
+    return line_count, rendered_bytes
+
+
+def _pack_phase(
+    bindings: tuple[FileBinding, ...],
+    *,
+    root: Path,
+    target: bool,
+    phase: str,
+) -> tuple[ReadGroupV2, ...]:
+    line_map: dict[str, tuple[bytes, ...]] = {}
+    for binding in bindings:
+        path = root / PurePosixPath(binding.path)
+        data = path.read_bytes()
+        if len(data) != binding.bytes or sha256_bytes(data) != binding.sha256:
+            raise IntegrityError(f"REFERENCE_IDENTITY_MISMATCH: {binding.path}")
+        if git_blob_sha1_bytes(data) != binding.git_blob:
+            raise IntegrityError(f"REFERENCE_GIT_BLOB_MISMATCH: {binding.path}")
+        line_map[binding.path] = _strict_lf_lines(data, binding.path)
+
+    groups: list[ReadGroupV2] = []
+    current: tuple[ReadSliceV2, ...] = ()
+
+    def flush() -> None:
+        nonlocal current
+        if not current:
+            return
+        lines, rendered = _group_metrics(current, line_map)
+        groups.append(
+            ReadGroupV2(
+                group_ordinal=len(groups) + 1,
+                phase=phase,
+                slices=current,
+                rendered_line_count=lines,
+                rendered_utf8_bytes=rendered,
+            )
+        )
+        current = ()
+
+    for binding in bindings:
+        total_lines = len(line_map[binding.path])
+        next_line = 1
+        while next_line <= total_lines:
+            if (
+                current
+                and current[-1].path == binding.path
+                and current[-1].start_line + current[-1].line_count == next_line
+            ):
+                prior = current[-1]
+                candidate_slice = ReadSliceV2(
+                    path=prior.path,
+                    start_line=prior.start_line,
+                    line_count=prior.line_count + 1,
+                    file_sha256=prior.file_sha256,
+                    file_git_blob=prior.file_git_blob,
+                    target=target,
+                )
+                candidate = (*current[:-1], candidate_slice)
+            else:
+                candidate = (
+                    *current,
+                    ReadSliceV2(
+                        path=binding.path,
+                        start_line=next_line,
+                        line_count=1,
+                        file_sha256=binding.sha256,
+                        file_git_blob=binding.git_blob,
+                        target=target,
+                    ),
+                )
+            lines, rendered = _group_metrics(candidate, line_map)
+            if lines <= MAX_GROUP_LINES and rendered <= MAX_GROUP_UTF8_BYTES:
+                current = candidate
+                next_line += 1
+                continue
+            if not current:
+                raise ContractError(
+                    f"UNRENDERABLE_LINE: {binding.path}:{next_line} exceeds "
+                    "the bounded group output"
+                )
+            flush()
+    flush()
+    return tuple(groups)
+
+
+def build_maximal_read_groups(
+    *,
+    root: Path,
+    reference_bindings: tuple[FileBinding, ...],
+    target_binding: FileBinding,
+) -> tuple[ReadGroupV2, ...]:
+    references = _pack_phase(
+        reference_bindings,
+        root=root,
+        target=False,
+        phase="REFERENCE",
+    )
+    targets = _pack_phase(
+        (target_binding,),
+        root=root,
+        target=True,
+        phase="TARGET",
+    )
+    combined = (*references, *targets)
+    return tuple(
+        ReadGroupV2(
+            group_ordinal=index,
+            phase=group.phase,
+            slices=group.slices,
+            rendered_line_count=group.rendered_line_count,
+            rendered_utf8_bytes=group.rendered_utf8_bytes,
+        )
+        for index, group in enumerate(combined, start=1)
+    )
+
+
+def _v2_command(
+    *,
+    ordinal: int,
+    mode: str,
+    group_ordinal: int | None,
+    root: Path,
+    powershell_executable: Path,
+    script_path: Path,
+    timeout_seconds: int,
+    output_max_utf8_bytes: int,
+) -> dict[str, object]:
+    return {
+        "command_ordinal": ordinal,
+        "mode": mode,
+        "group_ordinal": group_ordinal,
+        "argv": [
+            str(powershell_executable),
+            *POWERSHELL_FLAGS,
+            str(script_path),
+            "-Mode",
+            mode,
+            "-EnvelopePath",
+            "{ENVELOPE_PATH}",
+            "-EnvelopeSha256",
+            "{ENVELOPE_SHA256}",
+            "-CommandOrdinal",
+            str(ordinal),
+        ],
+        "cwd": str(root),
+        "environment_additions": {},
+        "run_limit": 1,
+        "timeout_seconds": timeout_seconds,
+        "expected_exit": EXPECTED_EXIT,
+        "output_max_utf8_bytes": output_max_utf8_bytes,
+    }
+
+
+def build_v2_envelope_payload(unsigned: Mapping[str, object]) -> dict[str, object]:
+    value = dict(unsigned)
+    if "envelope_id" in value:
+        raise ContractError("unsigned envelope cannot contain envelope_id")
+    value["schema_version"] = SCHEMA_VERSION_V2
+    payload = {**value, "envelope_id": sha256_bytes(canonical_json_bytes(value))}
+    return validate_v2_envelope_payload(payload)
+
+
+def validate_v2_envelope_payload(value: object) -> dict[str, object]:
+    fields = {
+        "schema_version",
+        "envelope_id",
+        "repository",
+        "host",
+        "script",
+        "target",
+        "controller",
+        "corpus_policy",
+        "reference_census",
+        "read_groups",
+        "commands",
+        "barriers",
+        "reviewer_independence",
+        "failure_class",
+        "encoding",
+        "output",
+        "prohibitions",
+    }
+    item = _exact_dict(value, fields, "envelope_v2")
+    if item["schema_version"] != SCHEMA_VERSION_V2:
+        raise ContractError("UNSUPPORTED_SCHEMA: envelope_v2 must use schema 2")
+    envelope_id = require_sha256(item["envelope_id"], "envelope_v2.envelope_id")
+    repository = RepositoryBinding.from_dict(item["repository"])
+    host = HostBinding.from_dict(item["host"])
+    script = FileBinding.from_dict(item["script"], "script")
+    target = FileBinding.from_dict(item["target"], "target")
+    controller = FileBinding.from_dict(item["controller"], "controller")
+    corpus_policy = FileBinding.from_dict(item["corpus_policy"], "corpus_policy")
+    census = _exact_dict(
+        item["reference_census"],
+        {"count", "sha256", "paths_sha256"},
+        "reference_census",
+    )
+    _positive_int(census["count"], "reference_census.count")
+    require_sha256(census["sha256"], "reference_census.sha256")
+    require_sha256(census["paths_sha256"], "reference_census.paths_sha256")
+    if type(item["read_groups"]) is not list or not item["read_groups"]:
+        raise ContractError("MISSING_READ_GROUPS: read_groups must be nonempty")
+    groups: list[dict[str, object]] = []
+    phases: list[str] = []
+    for index, raw_group in enumerate(item["read_groups"], start=1):
+        group = _exact_dict(
+            raw_group,
+            {
+                "group_ordinal",
+                "phase",
+                "slices",
+                "rendered_line_count",
+                "rendered_utf8_bytes",
+            },
+            f"read_groups[{index - 1}]",
+        )
+        if group["group_ordinal"] != index:
+            raise ContractError("GROUP_ORDER_MISMATCH: group ordinals are not contiguous")
+        phase = _text(group["phase"], "read_group.phase")
+        if phase not in {"REFERENCE", "TARGET"}:
+            raise ContractError("GROUP_PHASE_INVALID: unsupported read-group phase")
+        phases.append(phase)
+        line_count = _positive_int(
+            group["rendered_line_count"], "read_group.rendered_line_count"
+        )
+        rendered_bytes = _positive_int(
+            group["rendered_utf8_bytes"], "read_group.rendered_utf8_bytes"
+        )
+        if line_count > MAX_GROUP_LINES or rendered_bytes > MAX_GROUP_UTF8_BYTES:
+            raise ContractError("GROUP_OUTPUT_LIMIT_EXCEEDED: read group is oversized")
+        if type(group["slices"]) is not list or not group["slices"]:
+            raise ContractError("EMPTY_READ_GROUP: read group lacks slices")
+        slices: list[dict[str, object]] = []
+        for raw_slice in group["slices"]:
+            slice_item = _exact_dict(
+                raw_slice,
+                {
+                    "path",
+                    "start_line",
+                    "line_count",
+                    "file_sha256",
+                    "file_git_blob",
+                    "target",
+                },
+                "read_group.slice",
+            )
+            path = _relative_path(slice_item["path"], "read_group.slice.path")
+            target_applicable = _bool(
+                slice_item["target"], "read_group.slice.target"
+            )
+            if target_applicable != (phase == "TARGET") or target_applicable != (
+                path == target.path
+            ):
+                raise ContractError(
+                    "BATCH_APPLICABILITY_MISMATCH: slice phase or target differs"
+                )
+            slices.append(
+                {
+                    "path": path,
+                    "start_line": _positive_int(
+                        slice_item["start_line"], "read_group.slice.start_line"
+                    ),
+                    "line_count": _positive_int(
+                        slice_item["line_count"], "read_group.slice.line_count"
+                    ),
+                    "file_sha256": require_sha256(
+                        slice_item["file_sha256"], "read_group.slice.file_sha256"
+                    ),
+                    "file_git_blob": _git_sha1(
+                        slice_item["file_git_blob"],
+                        "read_group.slice.file_git_blob",
+                    ),
+                    "target": target_applicable,
+                }
+            )
+        groups.append(
+            {
+                "group_ordinal": index,
+                "phase": phase,
+                "slices": slices,
+                "rendered_line_count": line_count,
+                "rendered_utf8_bytes": rendered_bytes,
+            }
+        )
+    if "TARGET" not in phases or "REFERENCE" not in phases:
+        raise ContractError("MISSING_REVIEW_PHASE: reference and target groups required")
+    first_target_index = phases.index("TARGET")
+    if any(phase != "REFERENCE" for phase in phases[:first_target_index]) or any(
+        phase != "TARGET" for phase in phases[first_target_index:]
+    ):
+        raise ContractError("BLIND_ORDER_MISMATCH: target groups must follow references")
+
+    independence = _exact_dict(
+        item["reviewer_independence"],
+        {
+            "reviewer_instance_binding",
+            "no_inherited_turns",
+            "no_prior_target_access",
+            "target_access_barrier",
+            "final_attestation_required",
+        },
+        "reviewer_independence",
+    )
+    require_sha256(
+        independence["reviewer_instance_binding"],
+        "reviewer_independence.reviewer_instance_binding",
+    )
+    for field in (
+        "no_inherited_turns",
+        "no_prior_target_access",
+        "final_attestation_required",
+    ):
+        if _bool(independence[field], f"reviewer_independence.{field}") is not True:
+            raise ContractError("REVIEWER_INDEPENDENCE_REQUIRED: binding must be true")
+    if independence["target_access_barrier"] != "B01_BLIND_CENSUS_FROZEN":
+        raise ContractError("TARGET_BARRIER_MISMATCH: B01 is required")
+    if item["failure_class"] != "READ_ONLY_INVOCATION":
+        raise ContractError("FAILURE_CLASS_MISMATCH: Meta Audit must be read-only")
+    encoding = _exact_dict(
+        item["encoding"], {"name", "bom", "console"}, "encoding"
+    )
+    if encoding != {"name": "UTF-8", "bom": False, "console": "UTF-8"}:
+        raise ContractError("ENCODING_MISMATCH: exact UTF-8 binding is required")
+    output = _exact_dict(item["output"], {"destination", "retained"}, "output")
+    if output != {"destination": OUTPUT_DESTINATION, "retained": False}:
+        raise ContractError("OUTPUT_DESTINATION_MISMATCH: conversation-only required")
+    if item["prohibitions"] != list(PROHIBITIONS):
+        raise ContractError("PROHIBITIONS_MISMATCH: exact safe contract required")
+    if type(item["commands"]) is not list:
+        raise ContractError("COMMAND_CENSUS_INVALID: commands must be a list")
+    commands = item["commands"]
+    if len(commands) != len(groups) + 3:
+        raise ContractError("COMMAND_CENSUS_INVALID: commands differ from groups")
+    expected_modes = ["Preflight", "PlanGroups", *("ReadGroup" for _ in groups), "FinalPreflight"]
+    script_path = repository.root / PurePosixPath(script.path)
+    for index, (raw_command, expected_mode) in enumerate(
+        zip(commands, expected_modes, strict=True), start=1
+    ):
+        command = _exact_dict(
+            raw_command,
+            {
+                "command_ordinal",
+                "mode",
+                "group_ordinal",
+                "argv",
+                "cwd",
+                "environment_additions",
+                "run_limit",
+                "timeout_seconds",
+                "expected_exit",
+                "output_max_utf8_bytes",
+            },
+            "command_v2",
+        )
+        expected_group = index - 2 if expected_mode == "ReadGroup" else None
+        if (
+            command["command_ordinal"] != index
+            or command["mode"] != expected_mode
+            or command["group_ordinal"] != expected_group
+        ):
+            raise ContractError("COMMAND_ORDER_MISMATCH: command differs from group")
+        expected_argv = [
+            str(host.powershell_executable),
+            *POWERSHELL_FLAGS,
+            str(script_path),
+            "-Mode",
+            expected_mode,
+            "-EnvelopePath",
+            "{ENVELOPE_PATH}",
+            "-EnvelopeSha256",
+            "{ENVELOPE_SHA256}",
+            "-CommandOrdinal",
+            str(index),
+        ]
+        if command["argv"] != expected_argv:
+            raise ContractError("COMMAND_ARGV_MISMATCH: literal argv differs")
+        if (
+            command["cwd"] != str(repository.root)
+            or command["environment_additions"] != {}
+            or command["run_limit"] != 1
+            or command["expected_exit"] != EXPECTED_EXIT
+        ):
+            raise ContractError("COMMAND_CONTRACT_MISMATCH: command policy differs")
+        _positive_int(command["timeout_seconds"], "command.timeout_seconds")
+        output_limit = _positive_int(
+            command["output_max_utf8_bytes"], "command.output_max_utf8_bytes"
+        )
+        if expected_group is not None and output_limit != groups[expected_group - 1][
+            "rendered_utf8_bytes"
+        ]:
+            raise ContractError("GROUP_OUTPUT_BINDING_MISMATCH: output limit differs")
+    expected_barriers = [
+        {
+            "name": "B01_BLIND_CENSUS_FROZEN",
+            "after_command_ordinal": first_target_index + 2,
+            "before_command_ordinal": first_target_index + 3,
+        },
+        {
+            "name": "B02_MAPPING_COMPLETE",
+            "after_command_ordinal": len(groups) + 2,
+            "before_command_ordinal": len(groups) + 3,
+        },
+    ]
+    if item["barriers"] != expected_barriers:
+        raise ContractError("BARRIER_MISMATCH: exact B01/B02 boundaries required")
+
+    normalized = {
+        "schema_version": SCHEMA_VERSION_V2,
+        "repository": repository.as_dict(),
+        "host": host.as_dict(),
+        "script": script.as_dict(),
+        "target": target.as_dict(),
+        "controller": controller.as_dict(),
+        "corpus_policy": corpus_policy.as_dict(),
+        "reference_census": {
+            "count": census["count"],
+            "sha256": census["sha256"],
+            "paths_sha256": census["paths_sha256"],
+        },
+        "read_groups": groups,
+        "commands": commands,
+        "barriers": expected_barriers,
+        "reviewer_independence": independence,
+        "failure_class": "READ_ONLY_INVOCATION",
+        "encoding": encoding,
+        "output": output,
+        "prohibitions": list(PROHIBITIONS),
+    }
+    expected_id = sha256_bytes(canonical_json_bytes(normalized))
+    if envelope_id != expected_id:
+        raise IntegrityError("envelope_id differs from canonical unsigned content")
+    return {**normalized, "envelope_id": envelope_id}
+
+
+def run_host_validation(
+    *, powershell_executable: Path, script_path: Path, timeout_seconds: int = 30
+) -> dict[str, object]:
+    outputs: dict[str, object] = {}
+    for mode in ("HostProfile", "SelfTest"):
+        result = subprocess.run(
+            [
+                str(powershell_executable),
+                *POWERSHELL_FLAGS[:-1],
+                "-File",
+                str(script_path),
+                "-Mode",
+                mode,
+            ],
+            cwd=script_path.parents[2],
+            check=False,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+        if result.returncode != 0 or result.stderr:
+            raise ContractError(
+                f"HOST_VALIDATION_FAILED: {mode} exited {result.returncode}"
+            )
+        try:
+            outputs[mode] = json.loads(result.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ContractError(
+                f"HOST_VALIDATION_OUTPUT_INVALID: {mode} was not UTF-8 JSON"
+            ) from exc
+    if outputs["SelfTest"].get("mode") != "SELF_TEST_NO_WRITES":
+        raise ContractError("HOST_SELF_TEST_MISMATCH: expected metadata-only result")
+    return {"host": outputs["HostProfile"], "self_test": outputs["SelfTest"]}
+
+
+def _git_output(root: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise ContractError(f"GIT_METADATA_FAILED: {' '.join(arguments)}")
+    return result.stdout.strip()
+
+
+def load_reference_corpus_policy(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ContractError("CORPUS_POLICY_INVALID: policy is not UTF-8 JSON") from exc
+    fields = {
+        "schema_version",
+        "governed_roots",
+        "governed_files",
+        "excluded_paths",
+        "expected_path_count",
+        "expected_paths_sha256",
+    }
+    item = _exact_dict(value, fields, "corpus_policy")
+    if item["schema_version"] != 1:
+        raise ContractError("CORPUS_POLICY_INVALID: unsupported schema")
+    for field in ("governed_roots", "governed_files", "excluded_paths"):
+        if type(item[field]) is not list:
+            raise ContractError(f"CORPUS_POLICY_INVALID: {field} must be a list")
+        item[field] = [
+            _relative_path(entry, f"corpus_policy.{field}") for entry in item[field]
+        ]
+        if item[field] != sorted(set(item[field])):
+            raise ContractError(f"CORPUS_POLICY_INVALID: {field} must be sorted unique")
+    _positive_int(item["expected_path_count"], "corpus_policy.expected_path_count")
+    require_sha256(
+        item["expected_paths_sha256"], "corpus_policy.expected_paths_sha256"
+    )
+    return item
+
+
+def discover_reference_paths(
+    *, root: Path, policy: Mapping[str, object], target_path: str
+) -> tuple[str, ...]:
+    tracked = tuple(
+        line
+        for line in _git_output(root, "ls-files").splitlines()
+        if line
+    )
+    governed_roots = tuple(f"{path}/" for path in policy["governed_roots"])
+    governed_files = set(policy["governed_files"])
+    excluded = set(policy["excluded_paths"])
+    selected = tuple(
+        path
+        for path in tracked
+        if (
+            path in governed_files
+            or any(path.startswith(prefix) for prefix in governed_roots)
+        )
+        and path not in excluded
+    )
+    if target_path in selected:
+        raise ContractError("TARGET_IN_REFERENCE_CORPUS: target must be excluded")
+    forbidden_names = {"api.env", ".env", "id_rsa", "id_ed25519"}
+    for path in selected:
+        if PurePosixPath(path).name.lower() in forbidden_names:
+            raise ContractError("FORBIDDEN_REFERENCE_PATH: secret-like path selected")
+    if len(selected) != policy["expected_path_count"]:
+        raise ContractError("CORPUS_CENSUS_MISMATCH: path count differs")
+    paths_sha256 = sha256_bytes(canonical_json_bytes(list(selected)))
+    if paths_sha256 != policy["expected_paths_sha256"]:
+        raise IntegrityError("CORPUS_CENSUS_MISMATCH: path hash differs")
+    return selected
+
+
+def _tracked_file_binding(root: Path, relative_path: str) -> FileBinding:
+    safe = _relative_path(relative_path, "tracked_file.path")
+    path = root / PurePosixPath(safe)
+    data = path.read_bytes()
+    binding = FileBinding(
+        path=safe,
+        bytes=len(data),
+        sha256=sha256_bytes(data),
+        git_blob=git_blob_sha1_bytes(data),
+    )
+    head_blob = _git_output(root, "rev-parse", f"HEAD:{safe}")
+    if head_blob != binding.git_blob:
+        raise IntegrityError(f"TRACKED_FILE_MISMATCH: {safe} differs from HEAD")
+    return binding
+
+
+def prepare_v2_envelope(
+    *,
+    root: Path,
+    controller_path: str,
+    target_path: str,
+    corpus_policy_path: str,
+    script_path: str,
+    powershell_executable: Path,
+) -> dict[str, object]:
+    root = root.resolve()
+    if Path(_git_output(root, "rev-parse", "--show-toplevel")).resolve() != root:
+        raise ContractError("REPOSITORY_ROOT_MISMATCH: Git root differs")
+    if _git_output(root, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise ContractError("REPOSITORY_NOT_CLEAN: preparation requires a clean tree")
+    host_validation = run_host_validation(
+        powershell_executable=powershell_executable,
+        script_path=root / PurePosixPath(script_path),
+    )
+    bound_powershell = Path(host_validation["host"]["powershell_executable"])
+    policy = load_reference_corpus_policy(
+        root / PurePosixPath(corpus_policy_path)
+    )
+    reference_paths = discover_reference_paths(
+        root=root,
+        policy=policy,
+        target_path=_relative_path(target_path, "target_path"),
+    )
+    references = tuple(
+        _tracked_file_binding(root, path) for path in reference_paths
+    )
+    target = _tracked_file_binding(root, target_path)
+    controller = _tracked_file_binding(root, controller_path)
+    script = _tracked_file_binding(root, script_path)
+    corpus_policy = _tracked_file_binding(root, corpus_policy_path)
+    groups = build_maximal_read_groups(
+        root=root,
+        reference_bindings=references,
+        target_binding=target,
+    )
+    reference_records = [binding.as_dict() for binding in references]
+    reference_census_sha256 = sha256_bytes(
+        canonical_json_bytes(reference_records)
+    )
+    paths_sha256 = sha256_bytes(canonical_json_bytes(list(reference_paths)))
+    repository = {
+        "root": str(root),
+        "branch": _git_output(root, "branch", "--show-current"),
+        "head": _git_output(root, "rev-parse", "HEAD"),
+        "tree": _git_output(root, "rev-parse", "HEAD^{tree}"),
+        "require_clean": True,
+    }
+    reviewer_binding = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "repository": repository,
+                "target": target.as_dict(),
+                "groups": [group.as_dict() for group in groups],
+                "policy": corpus_policy.as_dict(),
+            }
+        )
+    )
+    commands: list[dict[str, object]] = [
+        _v2_command(
+            ordinal=1,
+            mode="Preflight",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=bound_powershell,
+            script_path=root / PurePosixPath(script.path),
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        ),
+        _v2_command(
+            ordinal=2,
+            mode="PlanGroups",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=bound_powershell,
+            script_path=root / PurePosixPath(script.path),
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        ),
+    ]
+    for group in groups:
+        commands.append(
+            _v2_command(
+                ordinal=len(commands) + 1,
+                mode="ReadGroup",
+                group_ordinal=group.group_ordinal,
+                root=root,
+                powershell_executable=bound_powershell,
+                script_path=root / PurePosixPath(script.path),
+                timeout_seconds=60,
+                output_max_utf8_bytes=group.rendered_utf8_bytes,
+            )
+        )
+    commands.append(
+        _v2_command(
+            ordinal=len(commands) + 1,
+            mode="FinalPreflight",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=bound_powershell,
+            script_path=root / PurePosixPath(script.path),
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        )
+    )
+    first_target_group = next(
+        group.group_ordinal for group in groups if group.phase == "TARGET"
+    )
+    unsigned = {
+        "schema_version": SCHEMA_VERSION_V2,
+        "repository": repository,
+        "host": host_validation["host"],
+        "script": script.as_dict(),
+        "target": target.as_dict(),
+        "controller": controller.as_dict(),
+        "corpus_policy": corpus_policy.as_dict(),
+        "reference_census": {
+            "count": len(references),
+            "sha256": reference_census_sha256,
+            "paths_sha256": paths_sha256,
+        },
+        "read_groups": [group.as_dict() for group in groups],
+        "commands": commands,
+        "barriers": [
+            {
+                "name": "B01_BLIND_CENSUS_FROZEN",
+                "after_command_ordinal": first_target_group + 1,
+                "before_command_ordinal": first_target_group + 2,
+            },
+            {
+                "name": "B02_MAPPING_COMPLETE",
+                "after_command_ordinal": len(groups) + 2,
+                "before_command_ordinal": len(groups) + 3,
+            },
+        ],
+        "reviewer_independence": {
+            "reviewer_instance_binding": reviewer_binding,
+            "no_inherited_turns": True,
+            "no_prior_target_access": True,
+            "target_access_barrier": "B01_BLIND_CENSUS_FROZEN",
+            "final_attestation_required": True,
+        },
+        "failure_class": "READ_ONLY_INVOCATION",
+        "encoding": {"name": "UTF-8", "bom": False, "console": "UTF-8"},
+        "output": {"destination": OUTPUT_DESTINATION, "retained": False},
+        "prohibitions": list(PROHIBITIONS),
+    }
+    return build_v2_envelope_payload(unsigned)

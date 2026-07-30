@@ -6,8 +6,10 @@ param(
         "SelfTest",
         "Preflight",
         "PlanBatches",
+        "PlanGroups",
         "ReadReferenceBatch",
         "ReadTargetBatch",
+        "ReadGroup",
         "FinalPreflight"
     )]
     [string]$Mode,
@@ -19,6 +21,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $Utf8NoBomStrict = New-Object System.Text.UTF8Encoding($false, $true)
+$ConsoleUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $ConsoleUtf8NoBom
+[Console]::OutputEncoding = $ConsoleUtf8NoBom
 $ScriptPath = $MyInvocation.MyCommand.Path
 
 function ConvertTo-Hex {
@@ -170,7 +175,7 @@ function Read-Envelope {
     catch {
         throw "envelope is not valid UTF-8 JSON"
     }
-    if ($value.schema_version -ne 1) {
+    if ($value.schema_version -notin @(1, 2)) {
         throw "envelope schema is unsupported"
     }
     $commands = @($value.commands)
@@ -334,6 +339,87 @@ function Invoke-ReadBatch {
     [Console]::Out.Write($rendered)
 }
 
+function Invoke-ReadGroup {
+    param([Parameter(Mandatory = $true)][object]$Context)
+    $command = $Context.Command
+    if ($null -eq $command.group_ordinal) {
+        throw "read-group command lacks a group ordinal"
+    }
+    $groups = @($Context.Value.read_groups)
+    $ordinal = [int]$command.group_ordinal
+    if ($ordinal -le 0 -or $ordinal -gt $groups.Count) {
+        throw "read-group ordinal is outside the envelope"
+    }
+    $group = $groups[$ordinal - 1]
+    if ([int]$group.group_ordinal -ne $ordinal) {
+        throw "read-group ordinal differs from its record"
+    }
+    $builder = New-Object Text.StringBuilder
+    $renderedLineCount = 0
+    foreach ($slice in @($group.slices)) {
+        $path = Join-Path $Context.Root ([string]$slice.path).Replace("/", "\")
+        if (
+            (Get-ContainedRelativePath -Root $Context.Root -Candidate $path) -ne
+            [string]$slice.path
+        ) {
+            throw "read-group path differs"
+        }
+        $isTarget = [bool]$slice.target
+        if (
+            ($group.phase -eq "TARGET") -ne $isTarget -or
+            $isTarget -ne ([string]$slice.path -eq [string]$Context.Value.target.path)
+        ) {
+            throw "BATCH_APPLICABILITY_MISMATCH: read-group applicability differs"
+        }
+        $bytes = Get-FileBytes -LiteralPath $path
+        if (
+            (Get-Sha256Bytes -Bytes $bytes) -ne [string]$slice.file_sha256 -or
+            (Get-GitBlobSha1 -Bytes $bytes) -ne [string]$slice.file_git_blob
+        ) {
+            throw "read-group file identity differs"
+        }
+        $text = $Utf8NoBomStrict.GetString($bytes)
+        if ($text.Contains("`r")) {
+            throw "read-group text must use LF line endings"
+        }
+        $lines = @($text.Split("`n"))
+        if ($text.EndsWith("`n")) {
+            $lines = @($lines[0..($lines.Count - 2)])
+        }
+        $start = [int]$slice.start_line
+        $count = [int]$slice.line_count
+        $end = $start + $count - 1
+        if ($start -le 0 -or $count -le 0 -or $end -gt $lines.Count) {
+            throw "read-group slice exceeds its file"
+        }
+        [void]$builder.Append(
+            "===== $($slice.path) lines $start-$end =====`n"
+        )
+        for ($offset = 0; $offset -lt $count; $offset++) {
+            [void]$builder.Append(
+                (
+                    "{0:D6}: {1}`n" -f
+                    ($start + $offset),
+                    $lines[$start - 1 + $offset]
+                )
+            )
+        }
+        $renderedLineCount += $count
+    }
+    $rendered = $builder.ToString()
+    $renderedBytes = $Utf8NoBomStrict.GetByteCount($rendered)
+    if (
+        $renderedLineCount -ne [int]$group.rendered_line_count -or
+        $renderedBytes -ne [int]$group.rendered_utf8_bytes -or
+        $renderedLineCount -gt 400 -or
+        $renderedBytes -gt 20000 -or
+        $renderedBytes -gt [int]$command.output_max_utf8_bytes
+    ) {
+        throw "read-group output differs from its exact bounds"
+    }
+    [Console]::Out.Write($rendered)
+}
+
 if ($Mode -eq "HostProfile") {
     Write-Json -Value (Get-HostProfile)
     exit 0
@@ -354,6 +440,7 @@ if ($Mode -eq "SelfTest") {
         mode = "SELF_TEST_NO_WRITES"
         hashing = "PASS"
         contained_relative_path = $selfRelative
+        utf8_round_trip = "PASS$([char]0x2014)caf$([char]0x00e9)"
     })
     exit 0
 }
@@ -371,11 +458,24 @@ switch ($Mode) {
             read_batch_count = @($context.Value.read_batches).Count
         })
     }
+    "PlanGroups" {
+        Write-Json -Value ([ordered]@{
+            mode = "PLAN_GROUPS_NO_WRITES"
+            command_ordinal = $CommandOrdinal
+            reference_census_count = [int]$context.Value.reference_census.count
+            read_group_count = @($context.Value.read_groups).Count
+            max_rendered_lines = 400
+            max_rendered_utf8_bytes = 20000
+        })
+    }
     "ReadReferenceBatch" {
         Invoke-ReadBatch -Context $context -Target $false
     }
     "ReadTargetBatch" {
         Invoke-ReadBatch -Context $context -Target $true
+    }
+    "ReadGroup" {
+        Invoke-ReadGroup -Context $context
     }
     "FinalPreflight" {
         Write-Json -Value (Invoke-RepositoryPreflight -Context $context)

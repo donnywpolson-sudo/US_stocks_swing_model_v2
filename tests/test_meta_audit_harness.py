@@ -13,12 +13,18 @@ from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.meta_audit_harness import (
     EXPECTED_EXIT,
+    MAX_GROUP_LINES,
+    MAX_GROUP_UTF8_BYTES,
     OUTPUT_DESTINATION,
     POWERSHELL_FLAGS,
     PROHIBITIONS,
+    FileBinding,
     MetaAuditEnvelope,
+    build_maximal_read_groups,
     build_envelope_payload,
+    build_v2_envelope_payload,
     load_envelope,
+    prepare_v2_envelope,
 )
 
 
@@ -59,6 +65,7 @@ def _host_profile(script: Path) -> dict[str, object]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
@@ -326,6 +333,7 @@ def test_windows_powershell_host_profile_and_self_test_are_compatible() -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
@@ -366,6 +374,7 @@ def test_exact_script_reads_one_bounded_batch_and_fails_on_self_drift(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
 
@@ -382,6 +391,7 @@ def test_exact_script_reads_one_bounded_batch_and_fails_on_self_drift(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert drifted.returncode != 0
@@ -392,3 +402,216 @@ def test_git_attributes_pin_powershell_to_lf() -> None:
     assert "*.ps1 text eol=lf" in (REPOSITORY_ROOT / ".gitattributes").read_text(
         encoding="utf-8"
     ).splitlines()
+
+
+def test_v2_groups_are_ordered_bounded_and_maximally_pack_short_lines(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.txt"
+    target = tmp_path / "MASTER_AUDIT.md"
+    reference.write_text(
+        "".join(f"reference {index}\n" for index in range(900)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    target.write_text(
+        "".join(f"target {index}\n" for index in range(10)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    reference_binding = FileBinding.from_dict(
+        _file_binding(tmp_path, "reference.txt"), "reference"
+    )
+    target_binding = FileBinding.from_dict(
+        _file_binding(tmp_path, "MASTER_AUDIT.md"), "target"
+    )
+
+    groups = build_maximal_read_groups(
+        root=tmp_path,
+        reference_bindings=(reference_binding,),
+        target_binding=target_binding,
+    )
+
+    assert [group.rendered_line_count for group in groups] == [400, 400, 100, 10]
+    assert [group.phase for group in groups] == [
+        "REFERENCE",
+        "REFERENCE",
+        "REFERENCE",
+        "TARGET",
+    ]
+    assert all(group.rendered_line_count <= MAX_GROUP_LINES for group in groups)
+    assert all(
+        group.rendered_utf8_bytes <= MAX_GROUP_UTF8_BYTES for group in groups
+    )
+    assert all(
+        not slice_item.target
+        for group in groups[:-1]
+        for slice_item in group.slices
+    )
+    assert all(slice_item.target for slice_item in groups[-1].slices)
+
+
+def _init_meta_fixture_repository(root: Path) -> dict[str, object]:
+    script = root / "tools" / "meta_audit" / SCRIPT.name
+    script.parent.mkdir(parents=True)
+    shutil.copyfile(SCRIPT, script)
+    (root / "config").mkdir()
+    (root / "refs").mkdir()
+    (root / "META_MASTER_AUDIT.md").write_text(
+        "controller — café\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (root / "MASTER_AUDIT.md").write_text(
+        "target must remain preparation-private\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (root / "refs" / "reference.txt").write_text(
+        "reference — café\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    paths = ["META_MASTER_AUDIT.md", "refs/reference.txt"]
+    policy = {
+        "schema_version": 1,
+        "governed_roots": ["refs"],
+        "governed_files": ["META_MASTER_AUDIT.md"],
+        "excluded_paths": [],
+        "expected_path_count": len(paths),
+        "expected_paths_sha256": sha256_bytes(canonical_json_bytes(paths)),
+    }
+    (root / "config" / "meta_audit_reference_corpus.json").write_bytes(
+        canonical_json_bytes(policy)
+    )
+    commands = [
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "meta-audit@example.invalid"],
+        ["git", "config", "user.name", "Meta Audit Fixture"],
+        ["git", "add", "--", "."],
+        ["git", "commit", "-q", "-m", "fixture"],
+    ]
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+    return policy
+
+
+def test_v2_preparation_validates_host_and_exact_script_before_envelope(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+
+    assert envelope["schema_version"] == 2
+    assert envelope["failure_class"] == "READ_ONLY_INVOCATION"
+    assert envelope["encoding"] == {
+        "name": "UTF-8",
+        "bom": False,
+        "console": "UTF-8",
+    }
+    assert envelope["reviewer_independence"][
+        "no_inherited_turns"
+    ] is True
+    assert envelope["reviewer_independence"][
+        "no_prior_target_access"
+    ] is True
+    assert envelope["reference_census"]["count"] == 2
+    assert all(
+        slice_item["path"] != "MASTER_AUDIT.md"
+        for group in envelope["read_groups"]
+        if group["phase"] == "REFERENCE"
+        for slice_item in group["slices"]
+    )
+
+    raw = canonical_json_bytes(envelope)
+    manifest = tmp_path / "envelope.json"
+    manifest.write_bytes(raw)
+    loaded = load_envelope(
+        manifest, expected_file_sha256=sha256_bytes(raw)
+    )
+    assert loaded == envelope
+
+
+def test_v2_reader_emits_utf8_group_output_without_mojibake(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    raw = canonical_json_bytes(envelope)
+    manifest = tmp_path / "envelope.json"
+    manifest.write_bytes(raw)
+    first_group_command = envelope["commands"][2]
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(tmp_path / "tools" / "meta_audit" / SCRIPT.name),
+            "-Mode",
+            "ReadGroup",
+            "-EnvelopePath",
+            str(manifest),
+            "-EnvelopeSha256",
+            sha256_bytes(raw),
+            "-CommandOrdinal",
+            str(first_group_command["command_ordinal"]),
+        ],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert "controller — café" in result.stdout
+    assert "target must remain" not in result.stdout
+
+
+def test_v2_uses_stable_error_code_for_applicability_mismatch(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    unsigned = {
+        key: deepcopy(value)
+        for key, value in envelope.items()
+        if key != "envelope_id"
+    }
+    unsigned["read_groups"][0]["slices"][0]["target"] = True
+
+    with pytest.raises(ContractError, match="BATCH_APPLICABILITY_MISMATCH"):
+        build_v2_envelope_payload(unsigned)

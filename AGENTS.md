@@ -99,6 +99,69 @@
   completed work, remaining plan, constraints, active gate, stop conditions,
   and done criteria. Never create a serial chain of continuation prompts.
 
+### Action And Failure Classes
+
+- Classify an intended action before executing it:
+  - `LOCAL_CORRECTABLE` covers requested repository edits, read-only
+    diagnostics, focused local tests, static checks, and `git diff --check`.
+    Authorization to implement a local change includes its narrow focused
+    validation and up to two materially corrective edit-and-validation cycles.
+    A correction must address evidenced failure; repeating an unchanged command
+    does not consume this budget and is prohibited.
+  - `READ_ONLY_INVOCATION` covers a content-addressed audit, assessment, or
+    diagnostic whose independence, ordering, or single-use evidence matters.
+    Its manifest defines whether interruption spends the invocation. Do not
+    infer retry authority beyond that manifest.
+  - `MUTATING_OR_EXTERNAL` covers provider activity, generated evidence,
+    data/release/receipt mutation, research, training, evaluation, prediction,
+    activation, trading, destructive work, commit, push, and cutover. It always
+    requires its existing action-specific authorization and retry policy.
+- A local validation failure is evidence for the current implementation task,
+  not a new authorization boundary by itself. Diagnose it, make the smallest
+  in-scope correction, and continue within the two-cycle budget. Stop for the
+  user when the budget is exhausted, scope or semantics must expand, unrelated
+  state appears, or the failure belongs to another action class.
+- These classes organize existing authority only. They never weaken the
+  scientific workflow, secret boundary, accepted-release contract, provider
+  controls, or explicit commit/push requirements.
+
+### Workflow Efficiency Guardrails
+
+- Treat authorization as a bounded phase envelope, not a one-command coupon.
+  Once the user requests a local implementation or review, execute every
+  routine `LOCAL_CORRECTABLE` step needed for its stated completion criteria.
+  Do not ask the user to restate authority for the next edit, focused check,
+  materially corrective cycle, or read-only verification already inside that
+  phase.
+- At a genuine boundary, coalesce permissions that are simultaneously
+  decision-complete and share the same action class, targets, risks, outputs,
+  and stop conditions. Do not create a serial approval chain for steps already
+  known to be required. Never bundle a later action whose exact evidence,
+  target, or risk cannot yet be known.
+- Before freezing a content-addressed plan, manifest, invocation, or approval
+  request, validate the exact literal executable/script transport and required
+  host capabilities using metadata-only inputs. Environment, quoting, encoding,
+  path, hashing, and process-transport failures belong in preparation, not in a
+  spent substantive invocation.
+- Minimize process and tool-call count without weakening evidence boundaries.
+  Combine independent read-only identity checks, use deterministic bounded
+  batches, and prefer one maximal safe batch over per-file or per-field calls.
+  Preserve source order, byte/line caps, failure isolation, and secret
+  exclusions.
+- Maintain one concise live checkpoint for long workflows: larger goal,
+  completed phase, active phase, next genuine gate, blockers, validation budget,
+  and audit/readiness status when applicable. Current verified state replaces
+  repeated narrative history.
+- Trigger a workflow retrospective before repeating the pattern when any of the
+  following occurs: more than two avoidable user round trips for one phase,
+  more than one host/tooling failure that preparation could have caught, a
+  handoff-only commit during a live thread, or repeated user confusion about
+  whether the requested outcome ran or completed. Remediate the governing
+  policy, script, or template rather than issuing another one-off prompt.
+- Workflow optimization never relaxes a scientific or safety gate. Measure
+  success by fewer avoidable approvals, handoff-only commits, process launches,
+  and repeated diagnostics while retaining the same evidence and stop rules.
+
 ## Project-Specific Rules
 
 ### Accepted Release Contract
@@ -281,8 +344,10 @@
 - Treat model output, generated summaries, Codex/OpenAI memory, and AI consensus
   as unverified until checked against current repository or primary evidence.
 - Stop on a failed validation or contract check and report the command, concise
-  error, and affected artifact. Do not silently continue or repeat the same
-  failed approach without a materially different diagnostic.
+  error, and affected artifact. For `LOCAL_CORRECTABLE` work, continue only
+  through a materially evidenced correction within the two-cycle budget. For
+  `READ_ONLY_INVOCATION` and `MUTATING_OR_EXTERNAL` work, preserve the declared
+  stop and retry contract. Never silently repeat the same failed approach.
 
 ### Acceptance
 
@@ -305,9 +370,10 @@
 
 ### Handoff Contract
 
-- Use `CODEX_HANDOFF.md` only for meaningful work continuing across prompts or a
-  fresh thread, never for a completed one-shot task that does not change project
-  state.
+- Use `CODEX_HANDOFF.md` only when work will actually transfer to a fresh
+  thread, after context loss, or when an external/high-risk action relies on a
+  gate recorded there. Do not update it merely because a same-thread prompt,
+  validation, commit, or ordinary gate completed.
 - A handoff is mutable context, never proof or execution authority, and cannot
   override the Constitution, Harness, implementation, or action-specific
   approval.
@@ -322,10 +388,14 @@
   canonical evidence IDs needed for continuation. Because a tracked handoff
   cannot know its own future commit hash, later commits preserve the binding
   only when they change coordination documentation and nothing else.
-- Invalidate and replace it before continuing after an unexpected branch,
-  non-coordination commit after the state base, unexpected worktree path, new or
-  changed accepted release, manifest, approval, receipt, plan, source
-  configuration, or failed validation.
+- Within one live thread, reconcile a stale handoff against current Git and
+  authoritative evidence but do not let stale coordination prose block safe,
+  already-authorized work. Replace it before a real thread transfer or before
+  an external/high-risk action that depends on its recorded gate. An unexpected
+  branch, unexplained path, or changed authoritative artifact still stops work
+  until reconciled.
+- Batch a needed handoff update with the next authorized coordination point.
+  Avoid handoff-only commits for routine same-thread transitions.
 - Do not describe uncommitted or unvalidated behavior as complete; label it
   `IN_PROGRESS`, `UNVERIFIED`, or blocked, as applicable.
 
@@ -333,17 +403,30 @@
 
 - Use concise plain English. Lead with what the result means, and explain a necessary technical term briefly.
 - Interim updates contain only new material evidence, a changed decision, a blocker, or a useful checkpoint.
-- Use this order for final responses and reports; omit any section that has nothing useful to say, except `Plan Prompt`:
+- Use this order for final responses and reports; omit any section that has
+  nothing useful to say. `Plan Prompt` is conditional as defined below:
   1. `Result`: state the outcome and current status first.
   2. `Changed`: list only changed files or deliverables and what changed.
   3. `Verified`: give material checks or evidence and their pass/fail result; state scope or freshness when it matters.
   4. `Problems`: include only real issues; give severity, evidence, impact, and whether work may proceed.
-  5. `Plan Prompt`: provide the single continuation prompt described below.
+  5. `Plan Prompt`: include only for a genuine fresh-thread transfer or missing
+     material authority.
 - For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
 - Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
 - Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, empty headings, generic follow-ups, and full logs or diffs unless the user asks for them.
-- When the current larger goal remains unfinished, end with the label `Plan Prompt:` followed by exactly one fenced `text` block containing one self-contained, copy-pastable continuation prompt. Do not add a competing `Next Action`, alternate prompt, or prompt chain.
+- Do not emit a continuation prompt merely because the larger goal is
+  unfinished. Continue safe authorized work in the current thread. At a
+  genuine fresh-thread transfer or missing material-authorization boundary,
+  end with `Plan Prompt:` followed by exactly one fenced `text` block containing
+  one self-contained continuation prompt. Do not create a prompt chain.
 - The Plan Prompt must continue the active larger goal within its current scope: name the goal and completion condition, capture the verified current position and completed milestones, identify the exact blocker or active gate when one exists, and direct the next Codex turn to recheck live repository evidence and applicable authority and handoff files, maintain a concise dependency- and safety-aware plan, and execute every safe, in-scope, already-authorized step until completion or the next real boundary.
 - If a handoff was updated, the Plan Prompt must preserve its current goal and active gate and incorporate its next safe step.
-- A Plan Prompt never grants authority, broadens scope, or substitutes handoff text for current proof. If the current larger goal is complete, end with `Plan Prompt: None`.
+- A Plan Prompt never grants authority, broadens scope, or substitutes handoff
+  text for current proof. Omit the section when no transfer or authority
+  boundary exists.
+- Every audit-related result must state four fields plainly: `Master Audit`,
+  `Meta Audit`, `Project readiness`, and `Next gate`. Use only
+  `NOT_PREPARED`, `PREPARED`, `VALIDATED`, `STARTED`, `INCOMPLETE`, or
+  `COMPLETE` for audit workflow state, and do not confuse audit completion with
+  project readiness.
 - Follow a user-requested response structure when one is provided.
