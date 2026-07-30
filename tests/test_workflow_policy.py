@@ -24,10 +24,38 @@ def test_same_thread_work_does_not_require_handoff_or_prompt_churn() -> None:
 
     assert "do not let stale coordination prose block safe" in agents
     assert "Avoid handoff-only commits for routine same-thread transitions" in agents
-    assert "Do not emit a continuation prompt merely because" in agents
-    assert "except `Plan Prompt`" not in agents
+    assert "within the same thread, continue safe" in agents
+    assert "never require the user to paste the" in agents
+    assert "A Continue Prompt never grants authority" in agents
     assert "Do not create routine same-thread handoff-only commits" in handoff
     assert len(handoff.split()) <= 450
+
+
+def test_substantive_results_use_plain_language_continue_structure() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    headings = (
+        "`Status`",
+        "`Completed`",
+        "`Checks`",
+        "`Needs attention`",
+        "`Continue Prompt`",
+    )
+    positions = [agents.index(heading) for heading in headings]
+
+    assert positions == sorted(positions)
+    assert "Use this order for every substantive final response and report" in agents
+    assert "use exactly `done`, `in progress`, or `blocked`" in agents
+    assert "what Codex accomplished in plain English" in agents
+    assert "whether it passed" in agents
+    assert "only real problems, approval gates, or" in agents
+    assert "End every substantive final response and report with `Continue Prompt:`" in agents
+    assert "name the overall goal and completion condition" in agents
+    assert "what has\n  already been completed" in agents
+    assert "current blocker or next action" in agents
+    assert "recheck the live repository evidence" in agents
+    assert "until\n  completion or the next genuine approval boundary" in agents
+    assert "Plan Prompt" not in agents
 
 
 def test_audit_status_vocabulary_and_four_field_result_are_durable() -> None:

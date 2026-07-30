@@ -403,27 +403,38 @@
 
 - Use concise plain English. Lead with what the result means, and explain a necessary technical term briefly.
 - Interim updates contain only new material evidence, a changed decision, a blocker, or a useful checkpoint.
-- Use this order for final responses and reports; omit any section that has
-  nothing useful to say. `Plan Prompt` is conditional as defined below:
-  1. `Result`: state the outcome and current status first.
-  2. `Changed`: list only changed files or deliverables and what changed.
-  3. `Verified`: give material checks or evidence and their pass/fail result; state scope or freshness when it matters.
-  4. `Problems`: include only real issues; give severity, evidence, impact, and whether work may proceed.
-  5. `Plan Prompt`: include only for a genuine fresh-thread transfer or missing
-     material authority.
+- Use this order for every substantive final response and report:
+  1. `Status`: use exactly `done`, `in progress`, or `blocked`, followed by a
+     one-sentence explanation.
+  2. `Completed`: describe what Codex accomplished in plain English rather than
+     turning the section into a technical file inventory. If nothing was
+     completed, say so plainly.
+  3. `Checks`: state what was tested or inspected, whether it passed, and any
+     skipped or unverified validation.
+  4. `Needs attention`: include only real problems, approval gates, or
+     user-owned decisions. If none exist, say so plainly.
+  5. `Continue Prompt`: provide the self-contained prompt defined below.
 - For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
 - Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
-- Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, empty headings, generic follow-ups, and full logs or diffs unless the user asks for them.
-- Do not emit a continuation prompt merely because the larger goal is
-  unfinished. Continue safe authorized work in the current thread. At a
-  genuine fresh-thread transfer or missing material-authorization boundary,
-  end with `Plan Prompt:` followed by exactly one fenced `text` block containing
-  one self-contained continuation prompt. Do not create a prompt chain.
-- The Plan Prompt must continue the active larger goal within its current scope: name the goal and completion condition, capture the verified current position and completed milestones, identify the exact blocker or active gate when one exists, and direct the next Codex turn to recheck live repository evidence and applicable authority and handoff files, maintain a concise dependency- and safety-aware plan, and execute every safe, in-scope, already-authorized step until completion or the next real boundary.
-- If a handoff was updated, the Plan Prompt must preserve its current goal and active gate and incorporate its next safe step.
-- A Plan Prompt never grants authority, broadens scope, or substitutes handoff
-  text for current proof. Omit the section when no transfer or authority
-  boundary exists.
+- Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, generic follow-ups, and full logs or diffs unless the user asks for them.
+- End every substantive final response and report with `Continue Prompt:`
+  followed by exactly one fenced `text` block. The prompt is for starting a new
+  Codex thread or session; within the same thread, continue safe,
+  already-authorized work autonomously and never require the user to paste the
+  prompt back.
+- The Continue Prompt must continue the active larger goal within its current
+  scope: name the overall goal and completion condition, capture what has
+  already been completed, identify the current blocker or next action, and
+  direct the next Codex turn to recheck the live repository evidence and
+  applicable authority and handoff files before acting. It must direct Codex to
+  keep working through every safe, in-scope, already-authorized step until
+  completion or the next genuine approval boundary. When the goal is complete,
+  say that there is no current blocker and instruct the next turn to confirm
+  live state without repeating completed work.
+- If a handoff was updated, the Continue Prompt must preserve its current goal
+  and active gate and incorporate its next safe step.
+- A Continue Prompt never grants authority, broadens scope, substitutes handoff
+  text for current proof, or creates a prompt chain.
 - Every audit-related result must state four fields plainly: `Master Audit`,
   `Meta Audit`, `Project readiness`, and `Next gate`. Use only
   `NOT_PREPARED`, `PREPARED`, `VALIDATED`, `STARTED`, `INCOMPLETE`, or
