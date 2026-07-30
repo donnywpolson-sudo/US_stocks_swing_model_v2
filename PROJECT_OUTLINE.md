@@ -190,7 +190,7 @@ permission to rerun or rescue a retired hypothesis.
 | Completed migration capsule | Immutable post-migration source of truth for the approved non-active historical foundation |
 | HF Data Library | `legacy_discovery` only, physically separated into pre-2022-03-04 PiTrading-consolidated and later IEX-only epochs |
 | Existing Alpaca SIP capsule and probe | Failed source-qualification evidence only; never an active feed |
-| Alpaca Basic bars | Guarded prospective OHLCV lane; SIP and IEX passed the bounded comparison and SIP is the selected candidate; a plan-only, separately gated non-active receipt publisher exists, but no accepted qualification receipt exists and no feed is active |
+| Alpaca Basic bars | Guarded prospective OHLCV lane; SIP and IEX passed the bounded comparison, SIP is selected, and one non-active accepted qualification receipt is published; the separately gated cutover remains unapplied, so no feed is active |
 | Alpaca assets | One immutable mixed asset snapshot is preserved; the frozen offline projection selects 14,096 active US equities from 33,379 raw rows, audits exclusions, and fails selected duplicates; no identity release or activation exists |
 | Nasdaq Trader | Fresh snapshots A and B produced the published non-active 13,064 continuity baseline; a strictly newer capture, offline join, accepted identity release, and activation remain separate gates |
 | Alpha Vantage | Excluded |

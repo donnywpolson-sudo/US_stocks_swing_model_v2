@@ -113,6 +113,30 @@ qualification receipt and release manifest. The publisher performs no network
 or credential access, does not modify `config/sources.json`, and cannot
 activate a feed or authorize canonical bars or research.
 
+## Verified Alpaca SIP source cutover
+
+The source cutover CLI is plan-only by default:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.activate_alpaca_source
+```
+
+It is bound to the exact accepted qualification release, receipt, publication
+plan, inactive `config/sources.json` baseline, one implementation successor,
+environment, and code/config closures. Planning writes nothing and emits the
+exact before/after configuration hashes, receipt path, four declared source
+field changes, and a content-addressed activation plan ID.
+
+Execution is a separate activation gate. It requires `--execute`, the exact
+approved activation plan ID, and
+`ALPACA_SOURCE_ACTIVATION_APPROVED=YES`. It atomically changes only
+`config/sources.json`: enable `alpaca_basic_delayed_sip`, set
+`qualified_feed=sip`, record the accepted qualification receipt path, and set
+the status to `active_sip_qualified_pending_canonical_bars`. Any repository,
+release, plan, or config drift stops before the write. The cutover performs no
+provider or credential access and does not build canonical bars or authorize
+research.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,
