@@ -82,11 +82,15 @@ def test_meta_audit_dispatch_and_transport_failure_are_fail_closed() -> None:
     audit_workflow = (ROOT / "docs" / "AUDIT_WORKFLOW.md").read_text(
         encoding="utf-8"
     )
+    normalized_agent_workflow = " ".join(agent_workflow.split())
 
     assert "target-content-free" in agent_workflow
     assert "must not inspect" in agent_workflow
     assert "outside a declared reader command" in agent_workflow
     assert "completion footer" in agent_workflow
+    assert "entire canonical dispatch" in agent_workflow
+    assert "positional `argv` assumptions" in normalized_agent_workflow
     assert "target-content-free dispatch" in audit_workflow
     assert "external measurement command" in audit_workflow
     assert "missing footer means transport truncation" in audit_workflow
+    assert "without projection or reconstruction" in audit_workflow

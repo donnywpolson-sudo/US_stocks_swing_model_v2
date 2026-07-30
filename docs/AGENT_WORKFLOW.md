@@ -37,6 +37,11 @@ Before content-addressing or requesting approval for an invocation:
    exact validated envelope. The packet supplies every exact command and
    substitutes the envelope path and file hash; the reviewer must not inspect
    the envelope outside a declared reader command.
+7. Deliver the entire canonical dispatch to the reviewer before creation,
+   unchanged and without summaries, templates, compaction, or positional
+   `argv` assumptions. The reviewer executes each command record's complete
+   `argv` list verbatim. If the reviewer transport cannot carry that packet,
+   stop before reviewer creation rather than reconstructing any command.
 
 A preparation failure does not spend a substantive invocation when no declared
 evidence read or side effect began.

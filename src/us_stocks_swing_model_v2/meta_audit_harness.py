@@ -1253,6 +1253,207 @@ def build_reviewer_dispatch(
     }
 
 
+def canonical_reviewer_dispatch_bytes(value: object) -> bytes:
+    """Validate and serialize the complete reviewer dispatch without projection."""
+
+    fields = {
+        "schema_version",
+        "mode",
+        "envelope",
+        "repository",
+        "script",
+        "commands",
+        "barriers",
+        "reviewer_independence",
+        "failure_class",
+        "output",
+        "prohibitions",
+        "transport",
+        "dispatch_id",
+    }
+    item = _exact_dict(value, fields, "reviewer_dispatch")
+    if item["schema_version"] != 1:
+        raise ContractError("REVIEWER_DISPATCH_SCHEMA_MISMATCH")
+    if item["mode"] != "REVIEWER_DISPATCH_NO_WRITES":
+        raise ContractError("REVIEWER_DISPATCH_MODE_MISMATCH")
+
+    envelope = _exact_dict(
+        item["envelope"], {"path", "sha256", "envelope_id"}, "dispatch.envelope"
+    )
+    envelope_path = _absolute_path(envelope["path"], "dispatch.envelope.path")
+    envelope_sha256 = require_sha256(
+        envelope["sha256"], "dispatch.envelope.sha256"
+    )
+    require_sha256(envelope["envelope_id"], "dispatch.envelope.envelope_id")
+    repository = RepositoryBinding.from_dict(item["repository"])
+    if not repository.require_clean:
+        raise ContractError("REVIEWER_DISPATCH_REPOSITORY_MISMATCH")
+    script = FileBinding.from_dict(item["script"], "dispatch.script")
+
+    if type(item["commands"]) is not list or len(item["commands"]) < 5:
+        raise ContractError("REVIEWER_DISPATCH_COMMAND_CENSUS_MISMATCH")
+    commands = item["commands"]
+    powershell_executable: Path | None = None
+    read_phases: list[str] = []
+    for index, raw_command in enumerate(commands, start=1):
+        command = _exact_dict(
+            raw_command,
+            {
+                "command_ordinal",
+                "mode",
+                "group_ordinal",
+                "phase",
+                "argv",
+                "cwd",
+                "environment_additions",
+                "run_limit",
+                "timeout_seconds",
+                "expected_exit",
+                "output_max_utf8_bytes",
+                "required_stdout_footer",
+            },
+            "reviewer_dispatch.command",
+        )
+        if index == 1:
+            expected_mode = "Preflight"
+        elif index == 2:
+            expected_mode = "PlanGroups"
+        elif index == len(commands):
+            expected_mode = "FinalPreflight"
+        else:
+            expected_mode = "ReadGroup"
+        expected_group = index - 2 if expected_mode == "ReadGroup" else None
+        if (
+            command["command_ordinal"] != index
+            or command["mode"] != expected_mode
+            or command["group_ordinal"] != expected_group
+        ):
+            raise ContractError("REVIEWER_DISPATCH_COMMAND_ORDER_MISMATCH")
+
+        phase = command["phase"]
+        if expected_mode == "ReadGroup":
+            if phase not in {"REFERENCE", "TARGET"}:
+                raise ContractError("REVIEWER_DISPATCH_PHASE_MISMATCH")
+            read_phases.append(phase)
+            expected_footer = READ_GROUP_FOOTER
+            expected_timeout = 60
+        else:
+            if phase is not None:
+                raise ContractError("REVIEWER_DISPATCH_PHASE_MISMATCH")
+            expected_footer = None
+            expected_timeout = 30
+        if command["required_stdout_footer"] != expected_footer:
+            raise ContractError("REVIEWER_DISPATCH_FOOTER_MISMATCH")
+        if (
+            command["cwd"] != str(repository.root)
+            or command["environment_additions"] != {}
+            or command["run_limit"] != 1
+            or command["expected_exit"] != EXPECTED_EXIT
+            or command["timeout_seconds"] != expected_timeout
+        ):
+            raise ContractError("REVIEWER_DISPATCH_COMMAND_CONTRACT_MISMATCH")
+        output_limit = _positive_int(
+            command["output_max_utf8_bytes"],
+            "reviewer_dispatch.command.output_max_utf8_bytes",
+        )
+        if expected_mode == "ReadGroup":
+            if output_limit > MAX_GROUP_UTF8_BYTES:
+                raise ContractError("REVIEWER_DISPATCH_OUTPUT_LIMIT_MISMATCH")
+        elif output_limit != 4_000:
+            raise ContractError("REVIEWER_DISPATCH_OUTPUT_LIMIT_MISMATCH")
+
+        if type(command["argv"]) is not list or not command["argv"]:
+            raise ContractError("REVIEWER_DISPATCH_ARGV_MISMATCH")
+        argv = [
+            _text(argument, "reviewer_dispatch.command.argv")
+            for argument in command["argv"]
+        ]
+        if powershell_executable is None:
+            powershell_executable = _absolute_path(
+                argv[0], "reviewer_dispatch.command.argv[0]"
+            )
+        expected_argv = [
+            str(powershell_executable),
+            *POWERSHELL_FLAGS,
+            str(repository.root / PurePosixPath(script.path)),
+            "-Mode",
+            expected_mode,
+            "-EnvelopePath",
+            str(envelope_path),
+            "-EnvelopeSha256",
+            envelope_sha256,
+            "-CommandOrdinal",
+            str(index),
+        ]
+        if argv != expected_argv:
+            raise ContractError("REVIEWER_DISPATCH_ARGV_MISMATCH")
+
+    if "REFERENCE" not in read_phases or "TARGET" not in read_phases:
+        raise ContractError("REVIEWER_DISPATCH_PHASE_MISMATCH")
+    first_target_index = read_phases.index("TARGET")
+    if any(phase != "REFERENCE" for phase in read_phases[:first_target_index]) or any(
+        phase != "TARGET" for phase in read_phases[first_target_index:]
+    ):
+        raise ContractError("REVIEWER_DISPATCH_PHASE_MISMATCH")
+    first_target_command = first_target_index + 3
+    expected_barriers = [
+        {
+            "name": "B01_BLIND_CENSUS_FROZEN",
+            "after_command_ordinal": first_target_command - 1,
+            "before_command_ordinal": first_target_command,
+        },
+        {
+            "name": "B02_MAPPING_COMPLETE",
+            "after_command_ordinal": len(commands) - 1,
+            "before_command_ordinal": len(commands),
+        },
+    ]
+    if item["barriers"] != expected_barriers:
+        raise ContractError("REVIEWER_DISPATCH_BARRIER_MISMATCH")
+
+    independence = _exact_dict(
+        item["reviewer_independence"],
+        {
+            "reviewer_instance_binding",
+            "no_inherited_turns",
+            "no_prior_target_access",
+            "target_access_barrier",
+            "final_attestation_required",
+        },
+        "reviewer_dispatch.reviewer_independence",
+    )
+    require_sha256(
+        independence["reviewer_instance_binding"],
+        "reviewer_dispatch.reviewer_instance_binding",
+    )
+    if (
+        independence["no_inherited_turns"] is not True
+        or independence["no_prior_target_access"] is not True
+        or independence["final_attestation_required"] is not True
+        or independence["target_access_barrier"] != "B01_BLIND_CENSUS_FROZEN"
+    ):
+        raise ContractError("REVIEWER_DISPATCH_INDEPENDENCE_MISMATCH")
+    if item["failure_class"] != "READ_ONLY_INVOCATION":
+        raise ContractError("REVIEWER_DISPATCH_FAILURE_CLASS_MISMATCH")
+    if item["output"] != {"destination": OUTPUT_DESTINATION, "retained": False}:
+        raise ContractError("REVIEWER_DISPATCH_OUTPUT_MISMATCH")
+    if item["prohibitions"] != list(PROHIBITIONS):
+        raise ContractError("REVIEWER_DISPATCH_PROHIBITIONS_MISMATCH")
+    if item["transport"] != {
+        "dispatch_must_precede_reviewer_creation": True,
+        "reviewer_envelope_read_outside_declared_commands": False,
+        "read_group_completion_footer": READ_GROUP_FOOTER,
+        "missing_footer_disposition": "STOP_INCOMPLETE_NO_RETRY",
+    }:
+        raise ContractError("REVIEWER_DISPATCH_TRANSPORT_MISMATCH")
+
+    dispatch_id = require_sha256(item["dispatch_id"], "reviewer_dispatch.dispatch_id")
+    unsigned = {key: value for key, value in item.items() if key != "dispatch_id"}
+    if dispatch_id != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise IntegrityError("REVIEWER_DISPATCH_ID_MISMATCH")
+    return canonical_json_bytes(item)
+
+
 def run_host_validation(
     *, powershell_executable: Path, script_path: Path, timeout_seconds: int = 30
 ) -> dict[str, object]:

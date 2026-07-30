@@ -28,6 +28,7 @@ from us_stocks_swing_model_v2.meta_audit_harness import (
     build_maximal_read_groups,
     build_envelope_payload,
     build_v2_envelope_payload,
+    canonical_reviewer_dispatch_bytes,
     load_envelope,
     prepare_v2_envelope,
 )
@@ -730,6 +731,53 @@ def test_v2_reviewer_dispatch_supplies_exact_commands_without_target_content(
         key: value for key, value in dispatch.items() if key != "dispatch_id"
     }
     assert dispatch["dispatch_id"] == sha256_bytes(canonical_json_bytes(unsigned))
+    transported = json.loads(canonical_reviewer_dispatch_bytes(dispatch))
+    assert transported == dispatch
+    assert [command["argv"] for command in transported["commands"]] == [
+        [
+            (
+                str(manifest)
+                if argument == "{ENVELOPE_PATH}"
+                else file_sha256
+                if argument == "{ENVELOPE_SHA256}"
+                else argument
+            )
+            for argument in command["argv"]
+        ]
+        for command in envelope["commands"]
+    ]
+
+
+def test_v2_reviewer_dispatch_transport_rejects_readdressed_argv_projection(
+    tmp_path: Path,
+) -> None:
+    _init_meta_fixture_repository(tmp_path)
+    envelope = prepare_v2_envelope(
+        root=tmp_path,
+        controller_path="META_MASTER_AUDIT.md",
+        target_path="MASTER_AUDIT.md",
+        corpus_policy_path="config/meta_audit_reference_corpus.json",
+        script_path=f"tools/meta_audit/{SCRIPT.name}",
+        powershell_executable=POWERSHELL,
+    )
+    raw = canonical_json_bytes(envelope)
+    manifest = (tmp_path / "envelope.json").resolve()
+    manifest.write_bytes(raw)
+    dispatch = build_reviewer_dispatch(
+        envelope,
+        envelope_path=manifest,
+        envelope_sha256=sha256_bytes(raw),
+    )
+    projected = deepcopy(dispatch)
+    projected["commands"][0]["argv"].insert(4, "-ExecutionPolicy")
+    projected["commands"][0]["argv"].insert(5, "Bypass")
+    unsigned = {
+        key: value for key, value in projected.items() if key != "dispatch_id"
+    }
+    projected["dispatch_id"] = sha256_bytes(canonical_json_bytes(unsigned))
+
+    with pytest.raises(ContractError, match="REVIEWER_DISPATCH_ARGV_MISMATCH"):
+        canonical_reviewer_dispatch_bytes(projected)
 
 
 def test_v2_reviewer_dispatch_cli_is_validation_only(
@@ -764,6 +812,12 @@ def test_v2_reviewer_dispatch_cli_is_validation_only(
     assert captured.err == b""
     assert dispatch["mode"] == "REVIEWER_DISPATCH_NO_WRITES"
     assert dispatch["envelope"]["envelope_id"] == envelope["envelope_id"]
+    expected = build_reviewer_dispatch(
+        envelope,
+        envelope_path=manifest,
+        envelope_sha256=sha256_bytes(raw),
+    )
+    assert captured.out == canonical_reviewer_dispatch_bytes(expected)
 
 
 def test_v2_uses_stable_error_code_for_applicability_mismatch(

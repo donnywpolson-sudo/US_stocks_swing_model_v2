@@ -11,6 +11,7 @@ from ..common import canonical_json_bytes
 from ..meta_audit_harness import (
     build_reviewer_dispatch,
     build_envelope_payload,
+    canonical_reviewer_dispatch_bytes,
     load_envelope,
     prepare_v2_envelope,
     run_host_validation,
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             envelope_path=args.reviewer_dispatch,
             envelope_sha256=args.manifest_sha256,
         )
-        sys.stdout.buffer.write(canonical_json_bytes(dispatch))
+        sys.stdout.buffer.write(canonical_reviewer_dispatch_bytes(dispatch))
         return 0
     if args.manifest_sha256 is None:
         raise SystemExit("--manifest requires --manifest-sha256")

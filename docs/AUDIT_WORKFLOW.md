@@ -47,8 +47,10 @@ work, commit, push, and cutover. It retains exact action-specific authorization.
 4. Canonicalize and content-address the envelope. Retention and execution are
    separately authorized.
 5. Before reviewer creation, derive the validated target-content-free dispatch
-   packet from the exact envelope. Pass that packet directly to the reviewer;
-   an envelope read outside a declared reader command invalidates the attempt.
+   packet from the exact envelope. Pass the entire canonical packet directly
+   to the reviewer without projection or reconstruction; each complete
+   command record, including its literal `argv`, is authoritative. An envelope
+   read outside a declared reader command invalidates the attempt.
 6. Create a reviewer with no inherited turns or prior target access. Execute
    only the dispatch packet's envelope-bound literal commands. Every complete
    `ReadGroup` output ends with the exact checked-in completion footer. A
