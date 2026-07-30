@@ -7,7 +7,7 @@
     "src/us_stocks_swing_model_v2/research/__init__.py"
   ],
   "expected_path_count": 155,
-  "expected_paths_sha256": "7167c6021fca5abaf47fe9af7f1da639614ebf6be9072be8460d71b813fc2b5a",
+  "expected_paths_sha256": "be6b5a57630dfbba17d71aa765337d9c1688b11fc9c6717fb800071bdac94190",
   "governed_files": [
     "AGENTS.md",
     "META_MASTER_AUDIT.md",
