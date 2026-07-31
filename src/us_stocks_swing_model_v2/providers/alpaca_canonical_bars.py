@@ -926,6 +926,26 @@ def build_canonical_bars_publication_plan(
     }
 
 
+def _prepare_publication_stage(work_root: Path, publication_plan_id: str) -> Path:
+    supplied_work = Path(work_root)
+    if not supplied_work.is_absolute():
+        raise ContractError("canonical bars publication work root must be absolute")
+    work = Path(os.path.abspath(supplied_work))
+    anchor = Path(work.anchor)
+    if work == anchor:
+        raise ContractError(
+            "canonical bars publication work root cannot be a filesystem root"
+        )
+    require_contained_path(work, anchor, must_exist=False)
+    work.mkdir(parents=True, exist_ok=True)
+    require_contained_path(work, anchor, must_exist=True)
+    stage = work / publication_plan_id
+    require_contained_path(stage, work, must_exist=False)
+    stage.mkdir(exist_ok=True)
+    require_contained_path(stage, work, must_exist=True)
+    return stage
+
+
 def publish_canonical_bars(
     candidate: CanonicalBarsCandidate,
     *,
@@ -956,9 +976,7 @@ def publish_canonical_bars(
         acquisition_plan,
         synthetic=False,
     )
-    stage = Path(work_root).resolve() / approved_publication_plan_id
-    require_contained_path(stage, Path(work_root).resolve(), must_exist=False)
-    stage.mkdir(parents=True, exist_ok=True)
+    stage = _prepare_publication_stage(work_root, approved_publication_plan_id)
     for name, payload in ((BARS_FILENAME, bars), (RECEIPT_FILENAME, receipt)):
         path = stage / name
         if path.exists():

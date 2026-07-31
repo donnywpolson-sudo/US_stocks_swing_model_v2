@@ -16,6 +16,7 @@ from us_stocks_swing_model_v2.providers.alpaca_canonical_bars import (
     BARS_FILENAME,
     RECEIPT_FILENAME,
     SOURCE_NAME,
+    _prepare_publication_stage,
     _selected_asset_ids,
     build_canonical_bars_candidate,
     build_canonical_bars_fixture_plan,
@@ -332,6 +333,23 @@ def test_publication_plan_is_exact_and_production_rejects_synthetic(
         )
     assert not accepted.exists()
     assert not work.exists()
+
+
+def test_publication_stage_creates_missing_plain_work_root(tmp_path: Path) -> None:
+    work = tmp_path / "missing" / "alpaca_daily_bars"
+    plan_id = "a" * 64
+
+    stage = _prepare_publication_stage(work, plan_id)
+
+    assert stage == work / plan_id
+    assert stage.is_dir()
+    assert tuple(stage.iterdir()) == ()
+    assert _prepare_publication_stage(work, plan_id) == stage
+
+
+def test_publication_stage_rejects_relative_work_root() -> None:
+    with pytest.raises(ContractError, match="work root must be absolute"):
+        _prepare_publication_stage(Path("data/w/alpaca_daily_bars"), "a" * 64)
 
 
 def test_cli_and_provider_do_not_read_api_env_or_publish_during_planning() -> None:
