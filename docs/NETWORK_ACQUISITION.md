@@ -357,6 +357,11 @@ The plan-only Alpaca corporate-actions preflight binds one requested process-dat
 interval and symbol census to that caveated bars release. It does not call
 Alpaca, prove effective-event completeness, resolve delistings, or authorize
 outcome computation.
+When separately authorized, the same CLI can execute only its exact approved
+plan: one GET, 30-second HTTP timeout, 64 MiB response cap, and one page. A
+returned continuation token stops after the landed first page; it never issues
+a second request. The landed page is immediately parsed offline, but remains
+non-operative process-date evidence and does not publish or enable outcomes.
 The plan grants no
 publication, activation, eligible-universe, feature, outcome, training,
 evaluation, research, provider, credential, or HFDL authority.
