@@ -369,6 +369,12 @@ python -m us_stocks_swing_model_v2.cli.publish_alpaca_historical_backfill \
   --created-at <exact-production-UTC-Z> --approved-plan-id <exact-plan-id> --execute
 ```
 
+The accepted backfill release may next be inspected only through the
+Alpaca-specific downstream planner. It verifies release metadata and emits
+proxy eligibility, feature, outcome, and preregistration boundaries without
+opening bar rows or writing evidence. Historical membership, corporate-action,
+and delisting gaps remain blockers for trusted eligibility and outcomes.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,
