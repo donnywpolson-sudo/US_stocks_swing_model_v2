@@ -276,11 +276,34 @@ and exact group and must separately authorize process-local credential
 handling, bounded calls, atomic ignored snapshot landing, and immediate offline
 verification.
 
+The same CLI contains the fail-closed group runner, but it cannot execute from
+the plan alone. One invocation requires `--execute-group`, the exact approved
+overall plan ID, the selected group's exact request-plan-ID hash,
+`FREE_SOURCE_QUALIFICATION_APPROVED=YES`, and credentials supplied only through
+`APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the process environment. It never
+reads `api.env`. Approval mismatches stop before environment credential access.
+
+Each invocation executes exactly one group in unit order. Every unit receives a
+fresh single-use local network session and may make at most three ordered GETs.
+Each response is atomically landed before its pagination token is parsed. The
+unit is then verified before the next unit begins; a non-terminal third page,
+request drift, redirect, non-200 response, malformed or repeated token, timeout,
+oversized response, landing ambiguity, or verification failure stops the group
+without retry or cleanup. The 1,800-second group host timeout is enforced by
+the owner-operated host invocation.
+
 Offline verification must require terminal pagination, requested-symbol and
 pinned-session containment, unique symbol/session rows, valid raw daily OHLCV
 and timestamps, and explicit exclusions for requested symbols with no returned
 history. It cannot require every current symbol to have existed in every
 historical session.
+
+The process-local group assessment content-addresses the exact plan, group,
+unit assessments, landed snapshot identities, row counts, and zero-history
+exclusions. It is conversation output only and is not an accepted release or a
+publication plan. Snapshot directories are immutable ignored acquisition
+evidence; group execution does not canonicalize, merge, publish, activate, or
+authorize research.
 
 This is deliberately not a historical membership reconstruction. The cohort is
 seeded from one current identity snapshot, so any eventual bars remain

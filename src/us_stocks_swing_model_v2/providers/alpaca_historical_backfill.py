@@ -6,11 +6,13 @@ import json
 import math
 from pathlib import Path
 import subprocess
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 import pyarrow.parquet as pq
 
+from ..canonical.alpaca import _accept_native_bar
+from ..clock import TrustedClock, require_trusted_clock
 from ..common import (
     canonical_json_bytes,
     iso_z,
@@ -23,8 +25,13 @@ from ..errors import ContractError, IntegrityError
 from ..exchange_calendar import load_xnys_calendar_release
 from ..releases import verify_accepted_release
 from .alpaca import AlpacaBarsPolicy, AlpacaBarsRequest
-from .network_execution import NetworkRequestPlan
-from .snapshots import NetworkAcquisitionRegistry
+from .alpaca import guarded_fetch_landed_pages
+from .network_execution import NetworkRequestPlan, start_local_network_execution
+from .snapshots import (
+    AsReceivedSnapshotStore,
+    LandedSnapshot,
+    NetworkAcquisitionRegistry,
+)
 
 
 PROJECT = "US_stocks_swing_model_v2"
@@ -544,6 +551,21 @@ def _build_plan(
         "request_units_sha256": sha256_bytes(canonical_json_bytes(units)),
         "request_units": units,
         "execution_groups": groups,
+        "execution_contract": {
+            "groups_per_invocation": 1,
+            "units_in_plan_order": True,
+            "fresh_network_session_per_unit": True,
+            "approved_plan_id_required": True,
+            "approved_group_request_plan_ids_sha256_required": True,
+            "owner_confirmation_environment": "FREE_SOURCE_QUALIFICATION_APPROVED=YES",
+            "credentials": "PROCESS_ENVIRONMENT_ONLY",
+            "atomic_snapshot_landing": True,
+            "offline_unit_verification_before_next_unit": True,
+            "group_assessment_disposition": "PROCESS_LOCAL_CONVERSATION_ONLY",
+            "retry": False,
+            "cleanup": False,
+            "publication": False,
+        },
         "command_census": {
             "planned_request_units": len(units),
             "planned_execution_groups": len(groups),
@@ -683,6 +705,7 @@ def plan_summary(plan: Mapping[str, object]) -> dict[str, object]:
         "request_unit_count": plan["request_unit_count"],
         "request_units_sha256": plan["request_units_sha256"],
         "execution_groups": plan["execution_groups"],
+        "execution_contract": plan["execution_contract"],
         "command_census": plan["command_census"],
         "credential_boundary": plan["credential_boundary"],
         "outputs": plan["outputs"],
@@ -690,3 +713,454 @@ def plan_summary(plan: Mapping[str, object]) -> dict[str, object]:
         "authorities": plan["authorities"],
         "stop_conditions": plan["stop_conditions"],
     }
+
+
+def _validated_plan_id(plan: Mapping[str, object]) -> str:
+    if not isinstance(plan, Mapping):
+        raise ContractError("historical backfill plan must be an object")
+    plan_id = plan.get("backfill_plan_id")
+    require_sha256(plan_id, "historical backfill plan ID")
+    unsigned = {key: value for key, value in plan.items() if key != "backfill_plan_id"}
+    if sha256_bytes(canonical_json_bytes(unsigned)) != plan_id:
+        raise IntegrityError("historical backfill plan ID differs")
+    units = plan.get("request_units")
+    if (
+        plan.get("plan_type") != "ALPACA_SIP_HISTORICAL_BACKFILL"
+        or plan.get("mode") not in {"PLAN_ONLY", "SYNTHETIC_PLAN_ONLY"}
+        or not isinstance(units, list)
+        or plan.get("request_unit_count") != len(units)
+        or plan.get("request_units_sha256")
+        != sha256_bytes(canonical_json_bytes(units))
+        or plan.get("authorities")
+        != {
+            "provider_access": False,
+            "credential_access": False,
+            "snapshot_write": False,
+            "offline_verification": False,
+            "publication": False,
+            "activation": False,
+            "research": False,
+        }
+        or plan.get("execution_contract")
+        != {
+            "groups_per_invocation": 1,
+            "units_in_plan_order": True,
+            "fresh_network_session_per_unit": True,
+            "approved_plan_id_required": True,
+            "approved_group_request_plan_ids_sha256_required": True,
+            "owner_confirmation_environment": "FREE_SOURCE_QUALIFICATION_APPROVED=YES",
+            "credentials": "PROCESS_ENVIRONMENT_ONLY",
+            "atomic_snapshot_landing": True,
+            "offline_unit_verification_before_next_unit": True,
+            "group_assessment_disposition": "PROCESS_LOCAL_CONVERSATION_ONLY",
+            "retry": False,
+            "cleanup": False,
+            "publication": False,
+        }
+    ):
+        raise IntegrityError("historical backfill plan contract differs")
+    if [unit.get("unit_index") for unit in units] != list(
+        range(1, len(units) + 1)
+    ):
+        raise IntegrityError("historical backfill unit ordering differs")
+    return str(plan_id)
+
+
+def _network_plan_from_unit(
+    unit: Mapping[str, object],
+    *,
+    registry: NetworkAcquisitionRegistry,
+) -> NetworkRequestPlan:
+    value = unit.get("network_request_plan")
+    if not isinstance(value, Mapping):
+        raise ContractError("historical backfill unit lacks a network plan")
+    try:
+        plan = NetworkRequestPlan(**dict(value))
+    except TypeError as exc:
+        raise ContractError("historical backfill network plan fields differ") from exc
+    plan.validate(registry=registry)
+    return plan
+
+
+def _selected_execution_group(
+    plan: Mapping[str, object],
+    *,
+    group_index: int,
+    registry: NetworkAcquisitionRegistry,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    _validated_plan_id(plan)
+    if type(group_index) is not int or group_index < 1:
+        raise ContractError("historical backfill group index must be positive")
+    groups = plan.get("execution_groups")
+    units = plan.get("request_units")
+    if not isinstance(groups, list) or not isinstance(units, list):
+        raise IntegrityError("historical backfill execution census differs")
+    matches = [group for group in groups if group.get("group_index") == group_index]
+    if len(matches) != 1 or not isinstance(matches[0], dict):
+        raise ContractError("historical backfill execution group is absent")
+    group = matches[0]
+    first = group.get("first_unit")
+    last = group.get("last_unit")
+    if type(first) is not int or type(last) is not int or first > last:
+        raise IntegrityError("historical backfill execution group bounds differ")
+    selected = [unit for unit in units if first <= unit.get("unit_index", 0) <= last]
+    if (
+        len(selected) != group.get("unit_count")
+        or [unit["unit_index"] for unit in selected] != list(range(first, last + 1))
+    ):
+        raise IntegrityError("historical backfill execution group unit census differs")
+    request_ids = [
+        _network_plan_from_unit(unit, registry=registry).plan_id
+        for unit in selected
+    ]
+    if sha256_bytes(canonical_json_bytes(request_ids)) != group.get(
+        "request_plan_ids_sha256"
+    ):
+        raise IntegrityError("historical backfill execution group identity differs")
+    if (
+        group.get("maximum_gets") != len(selected) * 3
+        or group.get("maximum_response_bytes")
+        != len(selected) * 3 * 16777216
+        or group.get("host_timeout_seconds") != 1800
+    ):
+        raise IntegrityError("historical backfill execution group bounds differ")
+    return group, selected
+
+
+def _unit_calendar_sessions(
+    unit: Mapping[str, object],
+    calendar_sessions: Sequence[date],
+) -> set[date]:
+    window = unit.get("window")
+    if not isinstance(window, Mapping):
+        raise ContractError("historical backfill unit window differs")
+    first = date.fromisoformat(str(window.get("first_session")))
+    last = date.fromisoformat(str(window.get("last_session")))
+    selected = {session for session in calendar_sessions if first <= session <= last}
+    if (
+        len(selected) != window.get("session_count")
+        or not selected
+        or min(selected) != first
+        or max(selected) != last
+    ):
+        raise IntegrityError("historical backfill unit calendar binding differs")
+    return selected
+
+
+def verify_historical_backfill_unit(
+    unit: Mapping[str, object],
+    pages: Sequence[LandedSnapshot],
+    *,
+    calendar_sessions: Sequence[date],
+    registry: NetworkAcquisitionRegistry,
+    synthetic: bool,
+) -> dict[str, object]:
+    network_plan = _network_plan_from_unit(unit, registry=registry)
+    symbols = unit.get("symbols")
+    asset_ids = unit.get("asset_ids")
+    security_types = unit.get("security_types")
+    if (
+        not isinstance(symbols, list)
+        or not symbols
+        or symbols != sorted(set(symbols))
+        or not isinstance(asset_ids, list)
+        or len(asset_ids) != len(symbols)
+        or len(set(asset_ids)) != len(asset_ids)
+        or not isinstance(security_types, list)
+        or len(security_types) != len(symbols)
+        or set(security_types) - {"STOCK", "ETF"}
+    ):
+        raise IntegrityError("historical backfill unit identity mapping differs")
+    page_list = list(pages)
+    if not 1 <= len(page_list) <= network_plan.max_pages:
+        raise IntegrityError("historical backfill unit page census differs")
+    allowed_sessions = _unit_calendar_sessions(unit, calendar_sessions)
+    requested_at = page_list[0].requested_at
+    if requested_at is None:
+        raise IntegrityError("historical backfill snapshot request time is absent")
+    window = unit["window"]
+    request_policy = AlpacaBarsPolicy(
+        feed="sip",
+        timeframe="1Day",
+        adjustment="raw",
+        asof=None,
+        sort="asc",
+        minimum_end_lag_minutes=20,
+        endpoint="https://data.alpaca.markets/v2/stocks/bars",
+    )
+    expected_token: str | None = None
+    seen_tokens: set[str] = set()
+    seen_keys: set[tuple[str, object]] = set()
+    observed_symbols: set[str] = set()
+    observed_sessions: set[date] = set()
+    snapshot_rows: list[dict[str, object]] = []
+    for page_index, snapshot in enumerate(page_list):
+        request = AlpacaBarsRequest(
+            symbols=tuple(symbols),
+            start=parse_utc_z(str(window["start"]), "historical_backfill.start"),
+            end=parse_utc_z(str(window["end"]), "historical_backfill.end"),
+            requested_at=requested_at,
+            limit=10000,
+            page_token=expected_token,
+        )
+        if (
+            snapshot.source != SOURCE_NAME
+            or snapshot.url != request.url(request_policy)
+            or snapshot.http_status != 200
+            or snapshot.request_plan_id != network_plan.plan_id
+            or snapshot.requested_at != requested_at
+            or snapshot.retrieved_at < requested_at
+            or (not synthetic and not snapshot.local_integrity_verified)
+        ):
+            raise IntegrityError("historical backfill snapshot binding differs")
+        try:
+            payload = json.loads(snapshot.read_verified_bytes())
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise ContractError("historical backfill response is invalid JSON") from exc
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"bars", "next_page_token"}
+            or not isinstance(payload["bars"], dict)
+            or set(payload["bars"]) - set(symbols)
+        ):
+            raise ContractError("historical backfill response schema differs")
+        page_bar_count = 0
+        for symbol, bars in payload["bars"].items():
+            if not isinstance(bars, list) or not bars:
+                raise ContractError("historical backfill symbol bars are empty or invalid")
+            for bar in bars:
+                accepted = _accept_native_bar(
+                    symbol=symbol,
+                    bar=bar,
+                    eastern=NEW_YORK,
+                    seen_keys=seen_keys,
+                )
+                session = accepted[1]
+                if session not in allowed_sessions:
+                    raise ContractError("historical backfill bar is outside the pinned calendar window")
+                observed_symbols.add(symbol)
+                observed_sessions.add(session)
+                page_bar_count += 1
+        token = payload["next_page_token"]
+        if token is not None and (
+            not isinstance(token, str) or not token or token in seen_tokens
+        ):
+            raise ContractError("historical backfill pagination token is malformed or repeated")
+        if isinstance(token, str):
+            seen_tokens.add(token)
+        if page_index < len(page_list) - 1 and token is None:
+            raise ContractError("historical backfill pagination terminated before the final page")
+        if page_index == len(page_list) - 1 and token is not None:
+            raise ContractError("historical backfill pagination is not terminal")
+        expected_token = token
+        snapshot_rows.append(
+            {
+                "page_index": page_index + 1,
+                "snapshot_id": snapshot.snapshot_id,
+                "raw_sha256": snapshot.raw_sha256,
+                "raw_bytes": snapshot.raw_path.stat().st_size,
+                "bar_count": page_bar_count,
+            }
+        )
+    zero_row_symbols = sorted(set(symbols) - observed_symbols)
+    unsigned = {
+        "schema_version": 1,
+        "mode": (
+            "SYNTHETIC_BACKFILL_UNIT_VERIFICATION"
+            if synthetic
+            else "BACKFILL_UNIT_VERIFIED_NOT_PUBLISHED"
+        ),
+        "unit_index": unit["unit_index"],
+        "network_request_plan_id": network_plan.plan_id,
+        "symbol_count": len(symbols),
+        "observed_symbol_count": len(observed_symbols),
+        "zero_row_symbol_count": len(zero_row_symbols),
+        "zero_row_symbols": zero_row_symbols,
+        "bar_count": len(seen_keys),
+        "observed_session_count": len(observed_sessions),
+        "first_observed_session": (
+            min(observed_sessions).isoformat() if observed_sessions else None
+        ),
+        "last_observed_session": (
+            max(observed_sessions).isoformat() if observed_sessions else None
+        ),
+        "pages": snapshot_rows,
+        "terminal_pagination": True,
+        "local_integrity_verified": not synthetic,
+        "historical_membership_proven": False,
+        "publication": False,
+    }
+    return {
+        **unsigned,
+        "unit_assessment_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+
+
+def run_historical_backfill_group(
+    *,
+    backfill_plan: Mapping[str, object],
+    approved_backfill_plan_id: str,
+    group_index: int,
+    approved_group_request_plan_ids_sha256: str,
+    capture_unit: Callable[[Mapping[str, object]], Sequence[LandedSnapshot]],
+    calendar_sessions: Sequence[date],
+    registry: NetworkAcquisitionRegistry,
+    synthetic: bool,
+) -> tuple[tuple[LandedSnapshot, ...], dict[str, object]]:
+    plan_id = _validated_plan_id(backfill_plan)
+    require_sha256(approved_backfill_plan_id, "approved historical backfill plan ID")
+    require_sha256(
+        approved_group_request_plan_ids_sha256,
+        "approved historical backfill group request-plan hash",
+    )
+    group, units = _selected_execution_group(
+        backfill_plan,
+        group_index=group_index,
+        registry=registry,
+    )
+    if plan_id != approved_backfill_plan_id:
+        raise PermissionError("approved historical backfill plan ID differs")
+    if (
+        group["request_plan_ids_sha256"]
+        != approved_group_request_plan_ids_sha256
+    ):
+        raise PermissionError("approved historical backfill execution group differs")
+    assessments: list[dict[str, object]] = []
+    snapshots: list[LandedSnapshot] = []
+    for unit in units:
+        pages = tuple(capture_unit(unit))
+        assessment = verify_historical_backfill_unit(
+            unit,
+            pages,
+            calendar_sessions=calendar_sessions,
+            registry=registry,
+            synthetic=synthetic,
+        )
+        snapshots.extend(pages)
+        assessments.append(assessment)
+    unsigned = {
+        "schema_version": 1,
+        "mode": (
+            "SYNTHETIC_BACKFILL_GROUP_ASSESSMENT"
+            if synthetic
+            else "BACKFILL_GROUP_CAPTURED_AND_VERIFIED_NOT_PUBLISHED"
+        ),
+        "backfill_plan_id": plan_id,
+        "group_index": group_index,
+        "group_request_plan_ids_sha256": group["request_plan_ids_sha256"],
+        "first_unit": group["first_unit"],
+        "last_unit": group["last_unit"],
+        "unit_count": len(units),
+        "page_count": len(snapshots),
+        "bar_count": sum(item["bar_count"] for item in assessments),
+        "observed_symbol_unit_count": sum(
+            item["observed_symbol_count"] for item in assessments
+        ),
+        "zero_row_symbol_unit_count": sum(
+            item["zero_row_symbol_count"] for item in assessments
+        ),
+        "local_integrity_verified": not synthetic,
+        "unit_assessments": assessments,
+        "evidence_class": "LEGACY_DISCOVERY",
+        "quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+        "historical_membership_proven": False,
+        "survivorship_safe": False,
+        "publication": False,
+        "activation": False,
+        "research": False,
+    }
+    return tuple(snapshots), {
+        **unsigned,
+        "group_assessment_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+
+
+def execute_historical_backfill_group(
+    *,
+    backfill_plan: Mapping[str, object],
+    approved_backfill_plan_id: str,
+    group_index: int,
+    approved_group_request_plan_ids_sha256: str,
+    api_key_id: str,
+    api_secret_key: str,
+    clock: TrustedClock | None = None,
+    repo_root: Path | None = None,
+) -> tuple[tuple[LandedSnapshot, ...], dict[str, object]]:
+    root = (repo_root or _repo_root()).resolve(strict=True)
+    trusted_clock = require_trusted_clock(clock)
+    if not trusted_clock.trust_eligible:
+        raise ContractError("historical backfill execution requires production UTC")
+    if not api_key_id or not api_secret_key:
+        raise PermissionError("Alpaca credentials are absent from the process environment")
+    current_plan = build_historical_backfill_plan(repo_root=root)
+    if current_plan["backfill_plan_id"] != approved_backfill_plan_id:
+        raise IntegrityError("historical backfill plan changed before execution")
+    if backfill_plan.get("backfill_plan_id") != current_plan["backfill_plan_id"]:
+        raise IntegrityError("supplied historical backfill plan is stale")
+    policy, _ = load_historical_backfill_policy(root)
+    registry = NetworkAcquisitionRegistry.load(
+        root / policy["network_registry"],
+        allowed_root=root,
+    )
+    accepted_root = (root / "data/vault/accepted").resolve(strict=True)
+    calendar_sessions = _calendar_sessions(root, policy, accepted_root)
+    store = AsReceivedSnapshotStore(
+        root / policy["outputs"]["snapshot_store"],
+        allowed_root=root / "data",
+        acquisition_registry=registry,
+    )
+    request_contract = policy["request_contract"]
+    bars_policy = AlpacaBarsPolicy(
+        feed="sip",
+        timeframe="1Day",
+        adjustment="raw",
+        asof=None,
+        sort="asc",
+        minimum_end_lag_minutes=20,
+        endpoint=request_contract["endpoint"],
+    )
+
+    def capture(unit: Mapping[str, object]) -> Sequence[LandedSnapshot]:
+        network_plan = _network_plan_from_unit(unit, registry=registry)
+        window = unit["window"]
+        request = AlpacaBarsRequest(
+            symbols=tuple(unit["symbols"]),
+            start=parse_utc_z(str(window["start"]), "historical_backfill.start"),
+            end=parse_utc_z(str(window["end"]), "historical_backfill.end"),
+            requested_at=trusted_clock.now(),
+            limit=request_contract["limit"],
+        )
+        if request.url(bars_policy) != network_plan.initial_url:
+            raise IntegrityError("historical backfill request URL changed before execution")
+        session = start_local_network_execution(
+            network_plan,
+            registry=registry,
+            clock=trusted_clock,
+        )
+        return guarded_fetch_landed_pages(
+            request,
+            snapshot_store=store,
+            api_key_id=api_key_id,
+            api_secret_key=api_secret_key,
+            policy=bars_policy,
+            network_enabled=True,
+            max_pages=request_contract["max_pages_per_unit"],
+            clock=trusted_clock,
+            authorization_session=session,
+            source=SOURCE_NAME,
+            timeout_seconds=request_contract["timeout_seconds"],
+            max_response_bytes=request_contract["max_response_bytes_per_page"],
+        )
+
+    return run_historical_backfill_group(
+        backfill_plan=current_plan,
+        approved_backfill_plan_id=approved_backfill_plan_id,
+        group_index=group_index,
+        approved_group_request_plan_ids_sha256=(
+            approved_group_request_plan_ids_sha256
+        ),
+        capture_unit=capture,
+        calendar_sessions=calendar_sessions,
+        registry=registry,
+        synthetic=False,
+    )

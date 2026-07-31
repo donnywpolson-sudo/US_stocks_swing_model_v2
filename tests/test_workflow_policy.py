@@ -195,3 +195,5 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "deterministic Parquet" in readme
     assert "Plan-only Alpaca SIP historical backfill" in network
     assert "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED" in network
+    assert "fresh single-use local network session" in network
+    assert "verified before the next unit begins" in network
