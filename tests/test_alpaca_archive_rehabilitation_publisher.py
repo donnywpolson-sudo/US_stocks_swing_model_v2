@@ -65,15 +65,24 @@ def _write_page(
     return hashlib.sha256(raw).hexdigest(), len(raw)
 
 
-def _archive_fixture(tmp_path: Path) -> tuple[Path, ArchiveExpectations]:
+def _archive_fixture(
+    tmp_path: Path,
+    *,
+    zero_vwap_with_activity: bool = False,
+) -> tuple[Path, ArchiveExpectations]:
     root = tmp_path / "archive"
     page_root = root / "native" / "bars" / "raw" / "chunk_00001"
     page_one = page_root / "page_00001.json.gz"
     page_two = page_root / "page_00002.json.gz"
+    first_aapl = _bar("2026-07-28", 100.0)
+    if zero_vwap_with_activity:
+        first_aapl["vw"] = 0
+    else:
+        first_aapl.update({"v": 0, "n": 0, "vw": 0})
     identity_one = _write_page(
         page_one,
         bars={
-            "AAPL": [_bar("2026-07-28", 100.0)],
+            "AAPL": [first_aapl],
             "SPY": [_bar("2026-07-28", 500.0)],
         },
         next_page_token="page-two",
@@ -225,8 +234,10 @@ def test_candidate_is_deterministic_no_write_and_keeps_causal_caveats(
     assert rebuilt.candidate_id == candidate.candidate_id
     assert rebuilt.bars_bytes == candidate.bars_bytes
     assert candidate.row_count == 4
+    assert candidate.normalized_zero_activity_vwap_rows == 1
     assert candidate.table["asset_id"].null_count == 4
     assert candidate.table["available_at"].null_count == 4
+    assert candidate.table["vwap"].null_count == 1
     assert set(candidate.table["evidence_class"].to_pylist()) == {EVIDENCE_CLASS}
     assert set(candidate.table["quality_state"].to_pylist()) == {QUALITY_STATE}
     assert set(candidate.table["historical_proxy"].to_pylist()) == {True}
@@ -239,6 +250,30 @@ def test_candidate_is_deterministic_no_write_and_keeps_causal_caveats(
         if path.is_file()
     }
     assert after == before
+
+
+def test_candidate_rejects_zero_vwap_when_trading_activity_exists(
+    tmp_path: Path,
+) -> None:
+    archive, expectations = _archive_fixture(
+        tmp_path,
+        zero_vwap_with_activity=True,
+    )
+    with pytest.raises(ContractError, match="OHLCV invariants"):
+        build_rehabilitation_candidate(
+            archive,
+            expectations=expectations,
+            metadata_evidence_files=(),
+            assessment_id="1" * 64,
+            rehabilitation_policy_id="2" * 64,
+            hfdl_retirement_policy_id="3" * 64,
+            evidence_boundary={
+                "input_is_original_http_response_bytes": False,
+                "input_is_canonicalized_provider_json_payload": True,
+                "per_page_retrieval_times_available": False,
+                "historical_membership_point_in_time_safe": False,
+            },
+        )
 
 
 def test_synthetic_publication_is_atomic_idempotent_and_caveated(
@@ -284,6 +319,7 @@ def test_synthetic_publication_is_atomic_idempotent_and_caveated(
         synthetic=True,
     )
     assert receipt["status"] == SYNTHETIC_STATUS
+    assert receipt["outputs"]["normalized_zero_activity_vwap_rows"] == 1
     assert receipt["authorities"]["legacy_discovery_publication"] is False
     assert all(
         receipt["authorities"][name] is False

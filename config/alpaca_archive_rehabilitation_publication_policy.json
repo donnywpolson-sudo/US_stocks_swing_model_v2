@@ -31,6 +31,7 @@
     "copy_exact_page_count": 198,
     "regenerate_derived_parquet": true,
     "copy_legacy_derived_parquet": false,
+    "zero_activity_vwap_policy": "normalize_zero_to_null_only_when_volume_zero_and_trade_count_zero_or_null",
     "active_source_eligible": false,
     "training_authorized": false,
     "research_authorized": false

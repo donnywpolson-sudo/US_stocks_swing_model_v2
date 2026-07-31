@@ -161,6 +161,7 @@ class RehabilitationCandidate:
     pages: tuple[RehabilitationPage, ...]
     evidence_manifest_bytes: bytes
     candidate_id: str
+    normalized_zero_activity_vwap_rows: int
 
     @property
     def row_count(self) -> int:
@@ -362,6 +363,9 @@ def _validate_publication_policy(payload: Mapping[str, Any]) -> None:
         "copy_exact_page_count": 198,
         "regenerate_derived_parquet": True,
         "copy_legacy_derived_parquet": False,
+        "zero_activity_vwap_policy": (
+            "normalize_zero_to_null_only_when_volume_zero_and_trade_count_zero_or_null"
+        ),
         "active_source_eligible": False,
         "training_authorized": False,
         "research_authorized": False,
@@ -480,6 +484,27 @@ def _read_native_page(path: Path, archive_root: Path) -> tuple[bytes, bytes, dic
     return compressed, raw, payload
 
 
+def _normalize_legacy_zero_activity_vwap(bar: object) -> tuple[object, bool]:
+    """Map only the provider's exact zero-activity VWAP sentinel to unavailable."""
+
+    if type(bar) is not dict:
+        return bar, False
+    vwap = bar.get("vw")
+    volume = bar.get("v")
+    trade_count = bar.get("n")
+    if (
+        type(vwap) in {int, float}
+        and float(vwap) == 0.0
+        and type(volume) is int
+        and volume == 0
+        and (trade_count is None or type(trade_count) is int and trade_count == 0)
+    ):
+        normalized = dict(bar)
+        normalized["vw"] = None
+        return normalized, True
+    return bar, False
+
+
 def build_rehabilitation_candidate(
     archive_root: Path,
     *,
@@ -520,6 +545,7 @@ def build_rehabilitation_candidate(
 
     eastern = ZoneInfo("America/New_York")
     seen_keys: set[tuple[str, object]] = set()
+    normalized_zero_activity_vwap_rows = 0
     tables: list[pa.Table] = []
     pages: list[RehabilitationPage] = []
     observed_page_census: list[dict[str, object]] = []
@@ -540,6 +566,9 @@ def build_rehabilitation_candidate(
             ):
                 raise ContractError("rehabilitation page symbol/bars shape differs")
             for bar in bars:
+                validated_bar, normalized_vwap = _normalize_legacy_zero_activity_vwap(
+                    bar
+                )
                 (
                     event_at,
                     session,
@@ -552,10 +581,11 @@ def build_rehabilitation_candidate(
                     vwap,
                 ) = _accept_native_bar(
                     symbol=symbol,
-                    bar=bar,
+                    bar=validated_bar,
                     eastern=eastern,
                     seen_keys=seen_keys,
                 )
+                normalized_zero_activity_vwap_rows += int(normalized_vwap)
                 records.append(
                     {
                         "provider_symbol": symbol,
@@ -630,6 +660,15 @@ def build_rehabilitation_candidate(
             key: value for key, value in inventory.items() if key != "archive_root"
         },
         "pages": [page.evidence_dict() for page in pages],
+        "normalization": {
+            "zero_activity_vwap_zero_to_null_rows": (
+                normalized_zero_activity_vwap_rows
+            ),
+            "rule": (
+                "normalize_zero_to_null_only_when_volume_zero_and_"
+                "trade_count_zero_or_null"
+            ),
+        },
         "evidence_boundary": dict(evidence_boundary),
         "authorities": {
             "active_source": False,
@@ -662,6 +701,7 @@ def build_rehabilitation_candidate(
         pages=tuple(pages),
         evidence_manifest_bytes=canonical_json_bytes(evidence_manifest),
         candidate_id=candidate_id,
+        normalized_zero_activity_vwap_rows=normalized_zero_activity_vwap_rows,
     )
 
 
@@ -778,6 +818,9 @@ def _receipt(
                 candidate.evidence_manifest_bytes
             ),
             "copied_page_count": len(candidate.pages),
+            "normalized_zero_activity_vwap_rows": (
+                candidate.normalized_zero_activity_vwap_rows
+            ),
             "copied_page_census_sha256": sha256_bytes(
                 canonical_json_bytes(
                     [page.evidence_dict() for page in candidate.pages]
@@ -851,6 +894,9 @@ def _build_publication_plan(
         "source_epoch": SOURCE_EPOCH,
         "row_count": candidate.row_count,
         "page_count": len(candidate.pages),
+        "normalized_zero_activity_vwap_rows": (
+            candidate.normalized_zero_activity_vwap_rows
+        ),
         "bars_sha256": sha256_bytes(candidate.bars_bytes),
         "source_evidence_manifest_sha256": sha256_bytes(
             candidate.evidence_manifest_bytes
@@ -1033,6 +1079,8 @@ def _validate_plan(
         or plan.get("source_epoch") != SOURCE_EPOCH
         or plan.get("row_count") != candidate.row_count
         or plan.get("page_count") != len(candidate.pages)
+        or plan.get("normalized_zero_activity_vwap_rows")
+        != candidate.normalized_zero_activity_vwap_rows
         or plan.get("publication_count") != 1
         or plan.get("retry_authorized") is not False
         or plan.get("cleanup_authorized") is not False
@@ -1340,6 +1388,8 @@ def _validate_receipt(
         or outputs.get("schema_fingerprint") != SCHEMA_FINGERPRINT
         or type(outputs.get("copied_page_count")) is not int
         or outputs["copied_page_count"] < 1
+        or type(outputs.get("normalized_zero_activity_vwap_rows")) is not int
+        or outputs["normalized_zero_activity_vwap_rows"] < 0
     ):
         raise IntegrityError("rehabilitation receipt outputs differ")
     for name in (
@@ -1394,6 +1444,10 @@ def verify_rehabilitation_release(
         or evidence.get("derived_legacy_parquet_copied") is not False
         or evidence.get("copied_page_count")
         != receipt["outputs"]["copied_page_count"]
+        or evidence.get("normalization", {}).get(
+            "zero_activity_vwap_zero_to_null_rows"
+        )
+        != receipt["outputs"]["normalized_zero_activity_vwap_rows"]
         or sha256_file(root / EVIDENCE_PATH)
         != receipt["outputs"]["source_evidence_manifest_sha256"]
     ):
