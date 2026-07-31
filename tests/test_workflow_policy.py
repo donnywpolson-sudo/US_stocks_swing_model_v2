@@ -50,10 +50,16 @@ def test_substantive_results_use_plain_language_checkpoint_structure() -> None:
     assert "use exactly `done`, `in progress`, or `blocked`" in agents
     assert "what Codex accomplished in plain English" in agents
     assert "whether it passed" in agents
-    assert "only real problems, approval gates, or" in agents
+    assert "only the one current blocker, decision, or exact" in agents
+    assert "one literal approval line" in agents
     assert "current outcome, blocker, and next meaningful" in agents
     assert "Do not emit a `Continue Prompt` during ordinary same-thread work" in agents
-    assert "only when the user explicitly requests a fresh-thread handoff" in agents
+    assert "only when the user explicitly requests a new-thread handoff" in agents
+    assert "never ask the\n  user to paste a continuation prompt" in agents
+    assert "optional, self-contained handoff for a different" in agents
+    assert "must not\n  compete with `Needs attention`" in agents
+    assert "After the user provides an exact approval" in agents
+    assert "resume\n  the same outcome-level plan automatically" in agents
     assert "name the overall goal and completion condition" in agents
     assert "what has\n  already been completed" in agents
     assert "current blocker or next action" in agents

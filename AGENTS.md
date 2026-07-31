@@ -86,6 +86,10 @@
   ending a turn, inspect the plan and perform the next routine authorized step
   when one remains. Do not make the user reply “do that” or paste back a
   suggested next action merely to continue ordinary work.
+- After the user provides an exact approval, revalidate live state and resume
+  the same outcome-level plan automatically through the next genuine boundary.
+  Do not reduce the approval to one command when its authorized phase includes
+  routine preflight, execution, verification, and reporting.
 - A plan organizes existing authority; it never grants missing authority,
   weakens a project gate, or permits a destructive or materially different
   action. Yield only when the larger goal is complete, the authorized scope is
@@ -428,17 +432,21 @@
      completed, say so plainly.
   3. `Checks`: state what was tested or inspected, whether it passed, and any
      skipped or unverified validation.
-  4. `Needs attention`: include only real problems, approval gates, or
-     user-owned decisions. If none exist, say so plainly.
+  4. `Needs attention`: include only the one current blocker, decision, or exact
+     approval the user must provide now. When approval is required, give one
+     short reason and one literal approval line. If none exist, say so plainly.
   5. `Checkpoint`: state only the current outcome, blocker, and next meaningful
      phase.
 - For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
 - Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
 - Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, generic follow-ups, and full logs or diffs unless the user asks for them.
 - Do not emit a `Continue Prompt` during ordinary same-thread work. Provide one
-  only when the user explicitly requests a fresh-thread handoff or a genuine
-  context transfer is necessary. Within the same thread, continue safe,
-  already-authorized work autonomously.
+  only when the user explicitly requests a new-thread handoff. Within the same
+  thread, continue safe, already-authorized work autonomously and never ask the
+  user to paste a continuation prompt merely to keep working.
+- A Continue Prompt is an optional, self-contained handoff for a different
+  session or new thread. It is not a same-session action request and must not
+  compete with `Needs attention`.
 - The Continue Prompt must continue the active larger goal within its current
   scope: name the overall goal and completion condition, capture what has
   already been completed, identify the current blocker or next action, and
