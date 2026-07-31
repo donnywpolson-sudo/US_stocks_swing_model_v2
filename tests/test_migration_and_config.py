@@ -70,11 +70,21 @@ def _synthetic_execution_kwargs(
 
 def test_checked_in_source_roles_and_exclusions_are_fail_closed() -> None:
     sources = json.loads((REPO / "config" / "sources.json").read_text(encoding="utf-8"))["sources"]
-    assert sources["hfdl_legacy_discovery"]["role"] == "legacy_discovery_only"
-    assert sources["hfdl_legacy_discovery"]["epochs"][1]["start_inclusive"] == "2022-03-04"
+    hfdl = sources["hfdl_legacy_discovery"]
+    assert hfdl["role"] == "retired_excluded_preserved_evidence_only"
+    assert hfdl["status"] == "retired_no_new_derivative_or_research_work"
+    assert hfdl["retirement_policy"] == "config/hfdl_retirement_policy.json"
+    assert hfdl["epochs"][1]["start_inclusive"] == "2022-03-04"
+    assert "concatenate_with_alpaca" in hfdl["prohibitions"]
     capsule = sources["alpaca_sip_qualification_legacy"]
     assert capsule["quality_status"].startswith("fail_")
     assert "780_stock_symbols" in capsule["scope"]
+    assert capsule["legacy_summary"].endswith(
+        "/data/providers/alpaca_sip_v1/run_summary.json"
+    )
+    assert capsule["rehabilitation_policy"] == (
+        "config/alpaca_archive_rehabilitation_policy.json"
+    )
     alpaca = sources["alpaca_basic_delayed_sip"]
     assert alpaca["enabled_for_active_pipeline"] is True
     assert alpaca["status"] == "active_sip_qualified_pending_canonical_bars"

@@ -12,6 +12,7 @@ from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.legacy_discovery_bridge import (
     EXPECTED_EPOCHS,
     EXPECTED_KINDS,
+    build_legacy_discovery_bridge_plan,
     foundation_context_from_payload,
     load_foundation_plan_context,
     load_legacy_discovery_bridge_contract,
@@ -300,34 +301,46 @@ def test_foundation_context_rejects_direct_model_or_wfa_permission() -> None:
             )
 
 
-def test_cli_emits_only_supplied_plan_and_writes_nothing(
+def test_cli_rejects_retired_hfdl_before_builder_or_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    expected = {
-        "schema_version": 1,
-        "mode": "LEGACY_DISCOVERY_PROXY_BRIDGE_PLAN_ONLY_NO_WRITES",
-        "plan_id": "a" * 64,
-    }
+    called = False
+
+    def forbidden_builder(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("retired HFDL builder must not run")
+
     monkeypatch.setattr(
         planner_cli,
         "build_legacy_discovery_bridge_plan",
-        lambda *_args, **_kwargs: expected,
+        forbidden_builder,
     )
     monkeypatch.chdir(tmp_path)
     before = tuple(tmp_path.rglob("*"))
-    assert (
+    with pytest.raises(ContractError, match="HFDL is retired and excluded"):
         planner_cli.main(
             [
+                "--repo-root",
+                str(REPO),
                 "--foundation-set-directory",
                 str(tmp_path / "synthetic-foundation"),
             ]
         )
-        == 0
-    )
-    assert json.loads(capsys.readouterr().out) == expected
+    assert called is False
     assert tuple(tmp_path.rglob("*")) == before
+
+
+def test_public_bridge_builder_rejects_retired_hfdl_before_foundation_access(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ContractError, match="HFDL is retired and excluded"):
+        build_legacy_discovery_bridge_plan(
+            tmp_path / "missing-foundation",
+            accepted_root=tmp_path / "missing-accepted",
+            repo_root=REPO,
+        )
 
 
 def test_planner_surface_has_no_row_reader_writer_or_execution_transport() -> None:

@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from ..hfdl_retirement import reject_hfdl_work
 from ..legacy_discovery_bridge import build_legacy_discovery_bridge_plan
 
 
@@ -35,6 +36,10 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    reject_hfdl_work(
+        args.repo_root,
+        requested_action="new_hfdl_bridge_planning",
+    )
     plan = build_legacy_discovery_bridge_plan(
         args.foundation_set_directory,
         accepted_root=args.accepted_root,

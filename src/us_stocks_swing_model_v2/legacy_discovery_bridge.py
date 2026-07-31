@@ -21,6 +21,7 @@ from .common import (
     sha256_file,
 )
 from .errors import ContractError, IntegrityError
+from .hfdl_retirement import reject_hfdl_work
 from .releases import ReleaseManifest
 
 
@@ -592,6 +593,10 @@ def build_legacy_discovery_bridge_plan(
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     root = Path(repo_root or _repo_root()).resolve(strict=True)
+    reject_hfdl_work(
+        root,
+        requested_action="new_hfdl_bridge_planning",
+    )
     contract = load_legacy_discovery_bridge_contract(root)
     foundation = load_foundation_plan_context(
         set_directory,

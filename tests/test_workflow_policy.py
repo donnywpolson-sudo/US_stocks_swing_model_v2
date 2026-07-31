@@ -168,3 +168,20 @@ def test_meta_audit_dispatch_and_transport_failure_are_fail_closed() -> None:
     assert "external measurement command" in audit_workflow
     assert "missing footer means transport truncation" in audit_workflow
     assert "without projection or reconstruction" in audit_workflow
+
+
+def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    outline = (ROOT / "PROJECT_OUTLINE.md").read_text(encoding="utf-8")
+    harness = (ROOT / "docs" / "HISTORICAL_RESEARCH_HARNESS.md").read_text(
+        encoding="utf-8"
+    )
+    sources = (ROOT / "config" / "sources.json").read_text(encoding="utf-8")
+
+    assert "HF Data Library is retired and excluded" in agents
+    assert "Never mix HFDL with" in agents
+    assert "HFDL is retired and excluded" in outline
+    assert "HFDL bridge is retired" in harness
+    assert "ALPACA_HISTORICAL_REHABILITATION_PENDING" in outline
+    assert "hfdl_retirement_policy.json" in sources
+    assert "alpaca_archive_rehabilitation_policy.json" in sources

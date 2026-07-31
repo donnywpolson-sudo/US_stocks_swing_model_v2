@@ -64,14 +64,21 @@ def test_harness_readiness_is_separate_from_pit_evidence_scope() -> None:
 
 def test_source_epochs_and_free_feed_qualification_are_binding() -> None:
     sources = _contract()["source_roles"]
-    assert sources["hfdl_history"] == "legacy_discovery_only"
+    assert sources["hfdl_history"] == "retired_excluded_preserved_evidence_only"
+    assert sources["hfdl_new_derivative_or_research_work_allowed"] is False
+    assert sources["hfdl_retirement_policy"] == (
+        "config/hfdl_retirement_policy.json"
+    )
     assert sources["hfdl_epochs"] == [
         {"id": "HFDL_PITRADING_CONSOLIDATED", "through": "2022-03-03"},
         {"id": "HFDL_IEX_ONLY", "from": "2022-03-04"},
     ]
     assert sources["hfdl_epochs_may_be_silently_pooled_as_identical_feed"] is False
     assert sources["failed_legacy_alpaca_capsules"] == (
-        "qualification_evidence_only_not_research_bars"
+        "qualification_evidence_only_pending_legacy_rehabilitation"
+    )
+    assert sources["alpaca_rehabilitated_release_ceiling"] == (
+        "legacy_discovery_only_pit_unresolved"
     )
     assert sources["actual_free_feed_requires_entitlement_qualification_receipt"]
     assert sources["assumed_feed_allowed"] is False

@@ -7,7 +7,10 @@
   "sources": {
     "hfdl_legacy_discovery": {
       "enabled_for_active_pipeline": false,
-      "role": "legacy_discovery_only",
+      "role": "retired_excluded_preserved_evidence_only",
+      "status": "retired_no_new_derivative_or_research_work",
+      "retirement_policy": "config/hfdl_retirement_policy.json",
+      "replacement_source": "alpaca_basic_delayed_sip",
       "legacy_root": "C:/Users/donny/Desktop/US_stocks_swing_model/data/raw",
       "point_in_time_safe": false,
       "epochs": [
@@ -21,20 +24,28 @@
         }
       ],
       "prohibitions": [
+        "new_bridge_or_derivative_work",
+        "new_research_training_or_evaluation",
         "prospective_confirmation",
         "concatenate_with_alpaca",
         "historical_membership_claim",
-        "pristine_holdout_claim"
+        "pristine_holdout_claim",
+        "cleanup_without_separate_exact_authorization"
       ]
     },
     "alpaca_sip_qualification_legacy": {
       "enabled_for_active_pipeline": false,
-      "role": "source_qualification_evidence_only",
-      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/reports/provider_feasibility/alpaca_sip_v1/run_summary.json",
+      "role": "failed_qualification_evidence_pending_legacy_rehabilitation",
+      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/data/providers/alpaca_sip_v1/run_summary.json",
+      "rehabilitation_policy": "config/alpaca_archive_rehabilitation_policy.json",
       "scope": "780_stock_symbols_1878977_daily_sip_rows_396_native_json_gz_pages",
       "quality_status": "fail_coverage_0_98638_three_gaps_22357_unmapped_survivorship_fail_stock_only",
       "prohibitions": [
         "treat_as_full_history",
+        "treat_canonicalized_json_as_original_http_bytes",
+        "treat_asof_omission_as_proven",
+        "join_or_pool_with_hfdl",
+        "reuse_derived_parquet",
         "model_training",
         "alpha_evaluation",
         "prospective_confirmation"

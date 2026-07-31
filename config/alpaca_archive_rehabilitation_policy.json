@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0",
+  "project": "US_stocks_swing_model_v2",
+  "mode": "ALPACA_LEGACY_ARCHIVE_REHABILITATION_PLAN_ONLY_NO_WRITES",
+  "legacy_archive_root": "C:/Users/donny/Desktop/US_stocks_swing_model/data/providers/alpaca_sip_v1",
+  "input_contract": {
+    "source": "alpaca_sip_v1",
+    "source_route_name": "historical_stock_bars",
+    "feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "request_start_date": "2016-01-01",
+    "request_end_date": "2026-07-10",
+    "expected_symbol_count": 780,
+    "expected_page_count": 198,
+    "expected_chunk_count": 16,
+    "expected_row_count": 1878977,
+    "expected_event_start": "2016-01-04",
+    "expected_event_end": "2026-07-10",
+    "expected_compressed_bytes": 54343446,
+    "expected_uncompressed_bytes": 200732774,
+    "provenance_glob": "bars/raw/*.parquet.provenance.json",
+    "native_page_glob": "native/bars/raw/chunk_*/page_*.json.gz",
+    "metadata_evidence_files": [
+      "checkpoints/backfill.json",
+      "quality/alpaca_source_quality.json",
+      "run_summary.json",
+      "snapshots/2026-07-12T00-17-46.733438+00-00/snapshot_manifest.json",
+      "snapshots/2026-07-12T00-38-50.367429+00-00/snapshot_manifest.json",
+      "universe/universe_manifest.json"
+    ],
+    "derived_inputs_prohibited": [
+      "bars/raw/*.parquet",
+      "bars/split/*.parquet",
+      "provider_extras/**/*.parquet"
+    ]
+  },
+  "evidence_boundary": {
+    "input_is_original_http_response_bytes": false,
+    "input_is_canonicalized_provider_json_payload": true,
+    "response_headers_available": false,
+    "per_page_retrieval_times_available": false,
+    "asof_omission_proven": false,
+    "historical_membership_point_in_time_safe": false,
+    "historical_stock_etf_type_point_in_time_safe": false,
+    "corporate_actions_point_in_time_complete": false,
+    "delisting_outcomes_complete": false,
+    "source_universe_is_hfdl_seeded_stock_only": true
+  },
+  "prospective_release": {
+    "dataset": "alpaca_legacy_daily_bars",
+    "source_epoch": "alpaca_sip_legacy_canonicalized_payload_20160104_20260710_v1",
+    "role": "legacy_discovery_only",
+    "quality_state": "LEGACY_CAVEATED",
+    "accepted_release_required": true,
+    "derived_parquet_must_be_regenerated": true,
+    "publication_requires_separate_authorization": true,
+    "active_source_eligible": false,
+    "trusted_membership_claim": false,
+    "trusted_stock_etf_sleeve_claim": false,
+    "training_authorized_by_plan": false,
+    "research_authorized_by_plan": false
+  },
+  "hfdl_boundary": {
+    "retirement_policy": "config/hfdl_retirement_policy.json",
+    "may_be_used_as_rehabilitation_input": false,
+    "may_be_joined_or_pooled_with_alpaca": false
+  },
+  "authorities": {
+    "filesystem_write": false,
+    "generated_evidence_write": false,
+    "legacy_repository_write": false,
+    "provider_access": false,
+    "credential_access": false,
+    "publication": false,
+    "source_activation": false,
+    "eligible_universe_build": false,
+    "feature_or_outcome_build": false,
+    "training": false,
+    "evaluation": false,
+    "research": false
+  },
+  "stop_conditions": [
+    "legacy_archive_root_mismatch",
+    "link_reparse_or_hardlink",
+    "missing_extra_or_malformed_provenance",
+    "missing_extra_or_tampered_native_page",
+    "decompressed_hash_or_size_mismatch",
+    "request_contract_mismatch",
+    "page_schema_or_bar_schema_mismatch",
+    "duplicate_or_unsorted_symbol_timestamp",
+    "row_symbol_page_chunk_or_pagination_census_mismatch",
+    "metadata_evidence_missing_or_tampered_during_read",
+    "derived_parquet_requested_as_input",
+    "hfdl_input_or_pooling_requested",
+    "write_publication_research_or_activation_requested"
+  ]
+}

@@ -1,6 +1,6 @@
 # Rebuild Constitution
 
-Version: `1.0.0`
+Version: `1.1.0`
 
 Project: `US_stocks_swing_model_v2`
 
@@ -33,8 +33,9 @@ places a discretionary trade.
 
 1. `SYNTHETIC_MECHANICAL`: fixtures proving code, causal isolation, accounting,
    recovery, and abstention. It is not an alpha trial.
-2. `LEGACY_DISCOVERY`: existing HFDL and all previously inspected historical
-   evidence. It may falsify or develop; it cannot confirm.
+2. `LEGACY_DISCOVERY`: previously inspected historical evidence, including
+   preserved retired HFDL evidence and any separately accepted rehabilitated
+   Alpaca legacy release. It may falsify or develop; it cannot confirm.
 3. `REGISTERED_HISTORICAL_DISCOVERY`: a predeclared, counted trial executed by
    the evaluation role after separate authorization.
 4. `PROSPECTIVE_AS_RECEIVED`: immutable source vintages collected after a
@@ -96,11 +97,18 @@ status rather than row deletion.
 
 ### 3.4 Legacy sources
 
-- HFDL is `legacy_discovery_only`, split into the documented pre-2022-03-04
-  PiTrading-consolidated and post-2022-03-04 IEX-only epochs.
-- The existing 780-symbol Alpaca SIP capsule is failed qualification evidence
-  only (coverage/gap/identity/survivorship blockers). Native pages, checkpoints,
-  snapshots, and audits may migrate; derived Parquet must be regenerated.
+- HFDL is retired and excluded from all future derivative and research work.
+  Existing tracked machinery, releases, and files remain frozen historical
+  audit and trial-census evidence until separately authorized cleanup. HFDL
+  cannot be pooled with Alpaca or reactivated.
+- The existing 780-symbol Alpaca SIP capsule remains failed qualification
+  evidence (coverage/gap/identity/survivorship blockers). Its canonicalized
+  raw-payload pages, checkpoints, snapshots, and audits may be inspected by the
+  plan-only rehabilitation contract and later published only as an immutable,
+  PIT-unresolved `legacy_discovery_only` release after separate authorization.
+  Those pages are not original HTTP response bytes, do not prove `asof`
+  omission, and cannot qualify the active source. Derived Parquet must be
+  regenerated.
 - Alpha Vantage and options data are excluded.
 
 ## 4. Immutable releases

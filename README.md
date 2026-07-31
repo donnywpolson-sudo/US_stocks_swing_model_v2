@@ -52,13 +52,18 @@ split-normalized outcomes rather than legacy stage paths or row shifts.
 
 Current milestone:
 
-`HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`
+`ALPACA_HISTORICAL_REHABILITATION_PENDING`
 
-The controlled rebuild hash-copied the approved legacy evidence into an
-independent v2 vault and built a non-active historical foundation. The
-foundation is **legacy discovery evidence only**: it does not establish
-point-in-time universe truth, claim alpha, run real-history WFA, seal a
-candidate, or issue trades.
+HFDL is retired and excluded from all future derivative and research work. Its
+existing files, tracked machinery, and accepted releases remain untouched as
+historical audit and trial-census evidence until separately authorized cleanup.
+They will not be mixed with Alpaca.
+
+The active historical path is now Alpaca-only. The existing 780-symbol Alpaca
+SIP archive has intact canonicalized provider payloads, but it must pass the
+checked-in plan-only rehabilitation contract and receive separately authorized
+immutable publication before it can serve as PIT-unresolved legacy discovery
+evidence. It cannot become active qualification evidence or authorize research.
 
 The architecture and authorized rebuild boundary are complete. Historical
 hypothesis evaluation, real-history WFA, candidate sealing, prospective
@@ -94,9 +99,9 @@ and API.
 
 | Source | Role |
 |---|---|
-| Completed migration capsule | Immutable post-migration source of truth for the approved non-active historical foundation |
-| Existing HF Data Library parquet | Historical discovery input only, split into separate PiTrading and IEX epochs; non-PIT |
-| Existing 780-symbol Alpaca SIP capsule and 30-symbol probe | Failed qualification evidence only; native/checkpoint/snapshot/audit evidence may migrate, while derived Parquet must be regenerated |
+| Completed HFDL migration capsule | Frozen historical audit and trial-census evidence only |
+| Existing HF Data Library parquet | Retired and excluded from future work; preserved unchanged until separately authorized cleanup |
+| Existing 780-symbol Alpaca SIP capsule and 30-symbol probe | Failed qualification evidence; the exact 780-symbol canonicalized raw-payload archive may enter plan-only rehabilitation, while derived Parquet must be regenerated |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, with the first bounded canonical-bars build still pending |
 | Alpaca assets | The accepted identity release binds the immutable Alpaca asset snapshot and its frozen projection; it is identity evidence, not bar or research authority |
 | Nasdaq Trader symbol directory | The accepted identity release binds the strictly newer comprehensive Nasdaq capture and the Alpaca identity projection; retrospective membership claims remain prohibited |
@@ -234,6 +239,7 @@ python -m us_stocks_swing_model_v2.cli.qualify_free_sources --verify-nasdaq-boot
 python -m us_stocks_swing_model_v2.cli.publish_nasdaq_bootstrap
 python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
 python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
+python -m us_stocks_swing_model_v2.cli.plan_alpaca_archive_rehabilitation --help
 ```
 
 Run validation in proportion to the task. Documentation-only work needs a

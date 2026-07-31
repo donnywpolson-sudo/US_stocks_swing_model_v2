@@ -247,9 +247,17 @@
   time, and raw bytes revalidate. This proves local integrity and
   reproducibility, not independent provenance. Missing, malformed, stale-code,
   stale-registry, or non-matching receipt/snapshot evidence fails closed.
-- HF Data Library is isolated `legacy_discovery` evidence only. The existing
-  780-symbol Alpaca capsule and separate 30-symbol probe are failed source-
-  qualification evidence only. Never concatenate source epochs.
+- HF Data Library is retired and excluded from all future bridge, derivative,
+  research, training, evaluation, and WFA work. Its existing tracked machinery,
+  accepted releases, and legacy files are preserved historical audit and trial-
+  census evidence only until separately authorized cleanup. Never mix HFDL with
+  Alpaca, reactivate it, or remove its files or releases as routine work.
+- The existing 780-symbol Alpaca capsule and separate 30-symbol probe are failed
+  source-qualification evidence. The exact 780-symbol canonicalized raw-payload
+  pages may be inspected by the plan-only rehabilitation contract and later
+  republished only as separately authorized, PIT-unresolved legacy discovery
+  evidence. They are not original HTTP bytes; derived Parquet must be
+  regenerated, and no rehabilitation plan authorizes training or research.
 - Alpha Vantage and options data are excluded.
 
 ## Safety And Approval Gates

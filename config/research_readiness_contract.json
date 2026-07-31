@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.3.0-scoped-mechanical-status",
+  "contract_version": "1.4.0-hfdl-retired-alpaca-rehabilitation",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -89,7 +89,9 @@
     "historical_alpha_claim": false
   },
   "source_roles": {
-    "hfdl_history": "legacy_discovery_only",
+    "hfdl_history": "retired_excluded_preserved_evidence_only",
+    "hfdl_new_derivative_or_research_work_allowed": false,
+    "hfdl_retirement_policy": "config/hfdl_retirement_policy.json",
     "hfdl_epochs": [
       {
         "id": "HFDL_PITRADING_CONSOLIDATED",
@@ -101,7 +103,9 @@
       }
     ],
     "hfdl_epochs_may_be_silently_pooled_as_identical_feed": false,
-    "failed_legacy_alpaca_capsules": "qualification_evidence_only_not_research_bars",
+    "failed_legacy_alpaca_capsules": "qualification_evidence_only_pending_legacy_rehabilitation",
+    "alpaca_legacy_rehabilitation_policy": "config/alpaca_archive_rehabilitation_policy.json",
+    "alpaca_rehabilitated_release_ceiling": "legacy_discovery_only_pit_unresolved",
     "prospective_alpaca_and_nasdaq": "separate_immutable_epochs_after_qualification",
     "actual_free_feed_requires_entitlement_qualification_receipt": true,
     "assumed_feed_allowed": false,

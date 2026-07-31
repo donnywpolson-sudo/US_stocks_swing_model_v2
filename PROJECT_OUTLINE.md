@@ -71,15 +71,15 @@ because it served the same project mission.
 
 ## Current status
 
-`HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY`
+`ALPACA_HISTORICAL_REHABILITATION_PENDING`
 
-The controlled architecture, approved local migration, non-active historical
-foundation, accepted current identity release, active qualified Alpaca SIP
-source, first bounded active-SIP canonical-bars release, and deterministic
-historical research mechanics are complete. Canonical-bar history must grow
-through immutable, predecessor-bound successor releases before eligible-
-universe construction. The completed foundation remains legacy discovery
-evidence with unresolved point-in-time limitations.
+The controlled architecture, accepted current identity release, qualified
+active Alpaca SIP source, and first bounded active-SIP canonical-bars release
+are preserved. HFDL is retired and excluded from future derivative and research
+work; its files and releases remain frozen audit evidence pending separately
+authorized cleanup. The next historical-data path is the plan-only
+rehabilitation of the existing 780-symbol Alpaca archive, followed by separately
+authorized immutable publication and a bounded Alpaca stock/ETF backfill.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
 provider acquisition, prospective confirmation, destructive cutover, external
@@ -187,9 +187,9 @@ permission to rerun or rescue a retired hypothesis.
 
 | Source | Current role |
 |---|---|
-| Completed migration capsule | Immutable post-migration source of truth for the approved non-active historical foundation |
-| HF Data Library | `legacy_discovery` only, physically separated into pre-2022-03-04 PiTrading-consolidated and later IEX-only epochs |
-| Existing Alpaca SIP capsule and probe | Failed source-qualification evidence only; never an active feed |
+| Completed HFDL migration capsule | Frozen historical audit and trial-census evidence; excluded from future derivative and research work |
+| HF Data Library | Retired and excluded; preserved unchanged until separately authorized cleanup; never mixed with Alpaca |
+| Existing Alpaca SIP capsule and probe | Failed qualification evidence; the exact 780-symbol canonicalized raw-payload archive is eligible only for plan-only rehabilitation and separately authorized PIT-unresolved legacy-discovery publication |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, while canonical bars remain separately gated |
 | Alpaca assets | The current accepted identity release binds the immutable asset snapshot and frozen projection; it supplies asset identity but does not authorize bars or research |
 | Nasdaq Trader | The current accepted identity release binds the strictly newer comprehensive capture and Alpaca identity projection; retrospective membership remains prohibited |
@@ -233,10 +233,11 @@ Milestone state:
    migration configuration, immutable publication, causal identity/actions,
    session outcomes, research firewall, sealed bundles, fit-free inference,
    append-only ledgers, and synthetic tests.
-2. **Authorized data foundation complete**: resumable approved copy, two
+2. **Historical source transition in progress**: the prior approved copy, two
    physical HFDL epochs, deterministic offline canonicalization, pinned XNYS
    calendar, separate feature/outcome bridges, aggregate non-active release,
-   and bitemporal identity mechanics. The preserved Nasdaq snapshot is not
+   and bitemporal identity mechanics remain preserved evidence but are retired
+   from future work. The preserved Nasdaq snapshot is not
    qualified identity evidence. Two fresh captures passed the bootstrap without
    a normal-parser bypass, and their non-active continuity-baseline receipt was
    published without relabeling the preserved historical receipt. Guarded
@@ -248,10 +249,12 @@ Milestone state:
    is plan-only by default. The exact checked-in one-shot successor-refresh
    authorization is the only non-synthetic exception; it cannot create more
    than one distinct non-active build or grant research or production use.
-3. **Historical research ready mechanically**: registered nested-WFA executor,
+3. **Historical research mechanics preserved**: registered nested-WFA executor,
    dependence-aware statistics, costs, benchmarks, controls, finite gates, and
    sleeve/book robustness propagation are implemented and bound to
-   non-authorizing receipts. Real-history execution remains paused.
+   non-authorizing receipts. HFDL-backed execution is retired; Alpaca historical
+   rehabilitation, publication, and preregistration must precede any future
+   real-history execution.
 4. **Candidate research pending**: requires a separately authorized,
    predeclared, counted hypothesis and historical evaluation.
 5. **Prospective confirmation pending**: requires a sealed candidate, scoring

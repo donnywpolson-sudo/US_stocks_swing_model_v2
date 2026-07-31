@@ -6,7 +6,7 @@ Status: deterministic synthetic mechanics executor implemented and adversarially
 tested; full readiness remains blocked by the accepted real-data chain and exact
 legacy-trial census
 Harness target: `HISTORICAL_RESEARCH_READY`
-Historical evidence scope: `LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED`
+Historical evidence scope: `ALPACA_LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED`
 
 This document specifies the governance harness required before any separately
 authorized historical discovery. It grants no execution authority by itself. The
@@ -26,6 +26,12 @@ readiness receipt must be distinct and verified by no-cross-import/no-cross-writ
 tests. "Global trial ledger" below means all outcome-informed attempts in this
 stock/ETF project; outcome-informed ideas transferred from another project must
 be recorded as external exposure rather than treated as pristine.
+
+HFDL is now retired and excluded from all new bridge, derivative, training,
+evaluation, WFA, and research work. Its existing mechanics and releases remain
+frozen audit and trial-census evidence until separately authorized cleanup; the
+sections below describing those mechanics are historical documentation, not a
+continuing work path. HFDL cannot be mixed with Alpaca.
 
 The current historical source evidence lacks a point-in-time security master,
 complete delisting outcomes, and trustworthy historical stock/ETF membership.
@@ -91,12 +97,14 @@ proved by an entitlement-qualification receipt and recorded in every release; it
 is never assumed. `timeframe=1Day` and `adjustment=raw` are pinned, while `asof`
 is omitted/null unless a valid ISO mapping date is deliberately requested.
 
-Historical source roles and epochs are binding. Existing HF Data Library bars are
-legacy discovery only and retain two distinct epochs: PiTrading-consolidated
-through 2022-03-03 and IEX-only from 2022-03-04. They cannot be silently pooled as
-one identical feed. Failed legacy Alpaca capsules are qualification evidence only,
-never active research bars. A qualified prospective Alpaca feed and as-received
-Nasdaq identity/membership snapshots begin separate immutable epochs. Every feed,
+Historical source roles and epochs are binding. Existing HF Data Library bars
+are retired preserved evidence and cannot support new derivative or research
+work. Failed legacy Alpaca capsules remain qualification evidence until the
+exact 780-symbol canonicalized raw-payload archive passes the plan-only
+rehabilitation contract and receives separately authorized publication as a
+PIT-unresolved legacy-discovery release. It never becomes active source
+qualification evidence. A qualified Alpaca feed and as-received Nasdaq
+identity/membership snapshots begin separate immutable epochs. Every feed,
 methodology, or identity change creates a new release and epoch.
 
 - [Alpaca market-data plans](https://docs.alpaca.markets/us/docs/about-market-data-api)
@@ -482,7 +490,12 @@ While PIT truth remains unresolved, the historical evidence scope remains
 readiness, and live execution remain false. This document alone marks nothing
 ready and grants no execution authority.
 
-### Proxy legacy-discovery bridge planning
+### Retired proxy legacy-discovery bridge planning
+
+The HFDL bridge is retired. The checked-in CLI must fail before inspecting a
+foundation release. The following contract description is retained only to
+explain existing immutable evidence and tracked mechanics pending a separate
+cleanup gate.
 
 The versioned `LEGACY_DISCOVERY_PROXY_BRIDGE_PLAN_ONLY` contract may prepare a
 metadata-only plan for a future derivative discovery release. Planning verifies
@@ -507,7 +520,11 @@ real-history outcome access are all required before any proxy return is computed
 or any model or WFA is run. No bridge plan can support a trusted readiness,
 alpha, candidate, or production claim.
 
-### Proxy-derivative and preregistered-adapter mechanics
+### Retired proxy-derivative and preregistered-adapter mechanics
+
+No new HFDL proxy derivative, adapter, real-row access, training, evaluation,
+or WFA is permitted. Existing synthetic mechanics remain tracked only until a
+separately authorized removal phase.
 
 The versioned
 `LEGACY_DISCOVERY_PROXY_DERIVATIVE_SYNTHETIC_MECHANICS` contract implements the
