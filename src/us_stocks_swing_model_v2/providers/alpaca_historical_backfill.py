@@ -557,6 +557,8 @@ def _build_plan(
             "fresh_network_session_per_unit": True,
             "approved_plan_id_required": True,
             "approved_group_request_plan_ids_sha256_required": True,
+            "approved_continuation_plan_id_required": True,
+            "retained_complete_unit_revalidation_before_network": True,
             "owner_confirmation_environment": "FREE_SOURCE_QUALIFICATION_APPROVED=YES",
             "credentials": "PROCESS_ENVIRONMENT_ONLY",
             "atomic_snapshot_landing": True,
@@ -748,6 +750,8 @@ def _validated_plan_id(plan: Mapping[str, object]) -> str:
             "fresh_network_session_per_unit": True,
             "approved_plan_id_required": True,
             "approved_group_request_plan_ids_sha256_required": True,
+            "approved_continuation_plan_id_required": True,
+            "retained_complete_unit_revalidation_before_network": True,
             "owner_confirmation_environment": "FREE_SOURCE_QUALIFICATION_APPROVED=YES",
             "credentials": "PROCESS_ENVIRONMENT_ONLY",
             "atomic_snapshot_landing": True,
@@ -847,23 +851,15 @@ def _unit_calendar_sessions(
     return selected
 
 
-def _normalize_zero_activity_vwap_for_verification(
+def _normalize_zero_vwap_for_verification(
     bar: object,
 ) -> tuple[object, bool]:
-    """Map only Alpaca's exact zero-activity VWAP sentinel to unavailable."""
+    """Map Alpaca's exact numeric zero VWAP sentinel to unavailable."""
 
     if type(bar) is not dict:
         return bar, False
     vwap = bar.get("vw")
-    volume = bar.get("v")
-    trade_count = bar.get("n")
-    if (
-        type(vwap) in {int, float}
-        and float(vwap) == 0.0
-        and type(volume) is int
-        and volume == 0
-        and (trade_count is None or type(trade_count) is int and trade_count == 0)
-    ):
+    if type(vwap) in {int, float} and float(vwap) == 0.0:
         normalized = dict(bar)
         normalized["vw"] = None
         return normalized, True
@@ -916,7 +912,7 @@ def verify_historical_backfill_unit(
     seen_keys: set[tuple[str, object]] = set()
     observed_symbols: set[str] = set()
     observed_sessions: set[date] = set()
-    normalized_zero_activity_vwap_rows = 0
+    normalized_zero_vwap_rows = 0
     snapshot_rows: list[dict[str, object]] = []
     for page_index, snapshot in enumerate(page_list):
         request = AlpacaBarsRequest(
@@ -949,13 +945,13 @@ def verify_historical_backfill_unit(
         ):
             raise ContractError("historical backfill response schema differs")
         page_bar_count = 0
-        page_normalized_zero_activity_vwap_rows = 0
+        page_normalized_zero_vwap_rows = 0
         for symbol, bars in payload["bars"].items():
             if not isinstance(bars, list) or not bars:
                 raise ContractError("historical backfill symbol bars are empty or invalid")
             for bar in bars:
                 normalized_bar, normalized = (
-                    _normalize_zero_activity_vwap_for_verification(bar)
+                    _normalize_zero_vwap_for_verification(bar)
                 )
                 accepted = _accept_native_bar(
                     symbol=symbol,
@@ -970,8 +966,8 @@ def verify_historical_backfill_unit(
                 observed_sessions.add(session)
                 page_bar_count += 1
                 if normalized:
-                    normalized_zero_activity_vwap_rows += 1
-                    page_normalized_zero_activity_vwap_rows += 1
+                    normalized_zero_vwap_rows += 1
+                    page_normalized_zero_vwap_rows += 1
         token = payload["next_page_token"]
         if token is not None and (
             not isinstance(token, str) or not token or token in seen_tokens
@@ -991,9 +987,7 @@ def verify_historical_backfill_unit(
                 "raw_sha256": snapshot.raw_sha256,
                 "raw_bytes": snapshot.raw_path.stat().st_size,
                 "bar_count": page_bar_count,
-                "normalized_zero_activity_vwap_rows": (
-                    page_normalized_zero_activity_vwap_rows
-                ),
+                "normalized_zero_vwap_rows": page_normalized_zero_vwap_rows,
             }
         )
     zero_row_symbols = sorted(set(symbols) - observed_symbols)
@@ -1011,9 +1005,7 @@ def verify_historical_backfill_unit(
         "zero_row_symbol_count": len(zero_row_symbols),
         "zero_row_symbols": zero_row_symbols,
         "bar_count": len(seen_keys),
-        "normalized_zero_activity_vwap_rows": (
-            normalized_zero_activity_vwap_rows
-        ),
+        "normalized_zero_vwap_rows": normalized_zero_vwap_rows,
         "observed_session_count": len(observed_sessions),
         "first_observed_session": (
             min(observed_sessions).isoformat() if observed_sessions else None
@@ -1033,6 +1025,394 @@ def verify_historical_backfill_unit(
     }
 
 
+def _retained_snapshot_inventory(
+    store: AsReceivedSnapshotStore,
+) -> tuple[LandedSnapshot, ...]:
+    source_root = store.root / SOURCE_NAME
+    if not source_root.exists():
+        return ()
+    if not source_root.is_dir():
+        raise IntegrityError("historical backfill snapshot source root differs")
+    snapshots: list[LandedSnapshot] = []
+    for candidate in sorted(source_root.iterdir(), key=lambda path: path.name):
+        if not candidate.is_dir():
+            raise IntegrityError("historical backfill snapshot source tree differs")
+        snapshots.append(store.load(candidate))
+    return tuple(snapshots)
+
+
+def _ordered_retained_lineage(
+    unit: Mapping[str, object],
+    candidates: Sequence[LandedSnapshot],
+    *,
+    registry: NetworkAcquisitionRegistry,
+) -> tuple[LandedSnapshot, ...] | None:
+    if not candidates:
+        return None
+    network_plan = _network_plan_from_unit(unit, registry=registry)
+    requested_at = candidates[0].requested_at
+    if requested_at is None or any(
+        snapshot.requested_at != requested_at
+        or snapshot.request_plan_id != network_plan.plan_id
+        for snapshot in candidates
+    ):
+        raise IntegrityError("retained historical backfill request binding differs")
+    by_url: dict[str, LandedSnapshot] = {}
+    for snapshot in candidates:
+        if snapshot.url in by_url:
+            raise IntegrityError("retained historical backfill lineage is ambiguous")
+        by_url[snapshot.url] = snapshot
+    symbols = unit["symbols"]
+    window = unit["window"]
+    policy = AlpacaBarsPolicy(
+        feed="sip",
+        timeframe="1Day",
+        adjustment="raw",
+        asof=None,
+        sort="asc",
+        minimum_end_lag_minutes=20,
+        endpoint="https://data.alpaca.markets/v2/stocks/bars",
+    )
+    expected_token: str | None = None
+    seen_tokens: set[str] = set()
+    ordered: list[LandedSnapshot] = []
+    for _page_index in range(network_plan.max_pages):
+        request = AlpacaBarsRequest(
+            symbols=tuple(symbols),
+            start=parse_utc_z(str(window["start"]), "historical_backfill.start"),
+            end=parse_utc_z(str(window["end"]), "historical_backfill.end"),
+            requested_at=requested_at,
+            limit=10000,
+            page_token=expected_token,
+        )
+        snapshot = by_url.pop(request.url(policy), None)
+        if snapshot is None:
+            if by_url:
+                raise IntegrityError(
+                    "retained historical backfill lineage URL differs"
+                )
+            return None
+        try:
+            payload = json.loads(snapshot.read_verified_bytes())
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise ContractError(
+                "retained historical backfill response is invalid JSON"
+            ) from exc
+        if not isinstance(payload, dict) or "next_page_token" not in payload:
+            raise ContractError("retained historical backfill pagination differs")
+        token = payload["next_page_token"]
+        if token is not None and (
+            not isinstance(token, str) or not token or token in seen_tokens
+        ):
+            raise ContractError("retained historical backfill pagination differs")
+        ordered.append(snapshot)
+        if token is None:
+            if by_url:
+                raise IntegrityError(
+                    "retained historical backfill lineage has extra pages"
+                )
+            return tuple(ordered)
+        seen_tokens.add(token)
+        expected_token = token
+    if by_url:
+        raise IntegrityError("retained historical backfill lineage exceeds its bound")
+    return None
+
+
+def build_historical_backfill_group_continuation(
+    *,
+    backfill_plan: Mapping[str, object],
+    group_index: int,
+    snapshot_store: AsReceivedSnapshotStore,
+    calendar_sessions: Sequence[date],
+    registry: NetworkAcquisitionRegistry,
+    synthetic: bool,
+) -> dict[str, object]:
+    plan_id = _validated_plan_id(backfill_plan)
+    group, units = _selected_execution_group(
+        backfill_plan,
+        group_index=group_index,
+        registry=registry,
+    )
+    unit_by_request_id = {
+        _network_plan_from_unit(unit, registry=registry).plan_id: unit
+        for unit in units
+    }
+    inventory = _retained_snapshot_inventory(snapshot_store)
+    matching = [
+        snapshot
+        for snapshot in inventory
+        if snapshot.request_plan_id in unit_by_request_id
+    ]
+    by_request: dict[str, list[LandedSnapshot]] = {}
+    for snapshot in matching:
+        if snapshot.requested_at is None:
+            raise IntegrityError("retained historical backfill request time is absent")
+        by_request.setdefault(str(snapshot.request_plan_id), []).append(snapshot)
+
+    retained_units: list[dict[str, object]] = []
+    capture_unit_indices: list[int] = []
+    candidate_lineage_count = 0
+    incomplete_lineage_count = 0
+    superseded_valid_lineage_count = 0
+    for unit in units:
+        network_plan = _network_plan_from_unit(unit, registry=registry)
+        grouped: dict[datetime, list[LandedSnapshot]] = {}
+        for snapshot in by_request.get(network_plan.plan_id, []):
+            if snapshot.requested_at is None:
+                raise IntegrityError(
+                    "retained historical backfill request time is absent"
+                )
+            grouped.setdefault(snapshot.requested_at, []).append(snapshot)
+        valid: list[
+            tuple[datetime, tuple[LandedSnapshot, ...], dict[str, object]]
+        ] = []
+        candidate_lineage_count += len(grouped)
+        for requested_at, candidates in sorted(grouped.items()):
+            ordered = _ordered_retained_lineage(
+                unit,
+                candidates,
+                registry=registry,
+            )
+            if ordered is None:
+                incomplete_lineage_count += 1
+                continue
+            assessment = verify_historical_backfill_unit(
+                unit,
+                ordered,
+                calendar_sessions=calendar_sessions,
+                registry=registry,
+                synthetic=synthetic,
+            )
+            valid.append((requested_at, ordered, assessment))
+        if not valid:
+            capture_unit_indices.append(int(unit["unit_index"]))
+            continue
+        selected_at, selected_pages, selected_assessment = max(
+            valid,
+            key=lambda item: item[0],
+        )
+        superseded_valid_lineage_count += len(valid) - 1
+        retained_units.append(
+            {
+                "unit_index": unit["unit_index"],
+                "network_request_plan_id": network_plan.plan_id,
+                "requested_at": iso_z(selected_at),
+                "snapshot_ids": [page.snapshot_id for page in selected_pages],
+                "raw_sha256s": [page.raw_sha256 for page in selected_pages],
+                "page_count": len(selected_pages),
+                "unit_assessment_id": selected_assessment["unit_assessment_id"],
+            }
+        )
+
+    request = backfill_plan["command_census"]
+    max_pages = 3
+    max_bytes_per_page = 16777216
+    selected_snapshot_ids = [
+        snapshot_id
+        for retained in retained_units
+        for snapshot_id in retained["snapshot_ids"]
+    ]
+    matching_snapshot_ids = sorted(snapshot.snapshot_id for snapshot in matching)
+    unsigned = {
+        "schema_version": 1,
+        "plan_type": "ALPACA_SIP_HISTORICAL_BACKFILL_GROUP_CONTINUATION",
+        "mode": "SYNTHETIC_PLAN_ONLY" if synthetic else "PLAN_ONLY",
+        "backfill_plan_id": plan_id,
+        "group_index": group_index,
+        "group_request_plan_ids_sha256": group["request_plan_ids_sha256"],
+        "first_unit": group["first_unit"],
+        "last_unit": group["last_unit"],
+        "unit_count": group["unit_count"],
+        "selection_policy": (
+            "NEWEST_COMPLETE_VALID_LINEAGE_BY_REQUESTED_AT_EXACTLY_BOUND"
+        ),
+        "matching_snapshot_count": len(matching),
+        "matching_snapshot_ids_sha256": sha256_bytes(
+            canonical_json_bytes(matching_snapshot_ids)
+        ),
+        "candidate_lineage_count": candidate_lineage_count,
+        "incomplete_lineage_count": incomplete_lineage_count,
+        "superseded_valid_lineage_count": superseded_valid_lineage_count,
+        "retained_unit_count": len(retained_units),
+        "retained_page_count": len(selected_snapshot_ids),
+        "selected_snapshot_ids_sha256": sha256_bytes(
+            canonical_json_bytes(selected_snapshot_ids)
+        ),
+        "retained_units": retained_units,
+        "capture_unit_count": len(capture_unit_indices),
+        "capture_unit_indices": capture_unit_indices,
+        "capture_unit_indices_sha256": sha256_bytes(
+            canonical_json_bytes(capture_unit_indices)
+        ),
+        "command_census": {
+            "maximum_new_gets": len(capture_unit_indices) * max_pages,
+            "maximum_new_response_bytes": (
+                len(capture_unit_indices) * max_pages * max_bytes_per_page
+            ),
+            "timeout_seconds_per_get": request["timeout_seconds_per_get"],
+            "host_timeout_seconds": group["host_timeout_seconds"],
+        },
+        "execution_contract": {
+            "retained_pages_reverified_before_network": True,
+            "selected_snapshot_ids_exactly_bound": True,
+            "capture_only_missing_units": True,
+            "units_in_plan_order": True,
+            "retry": False,
+            "cleanup": False,
+            "publication": False,
+        },
+        "authorities": {
+            "provider_access": False,
+            "credential_access": False,
+            "snapshot_write": False,
+            "publication": False,
+            "activation": False,
+            "research": False,
+        },
+        "stop_conditions": [
+            "backfill plan, group, or retained snapshot census drift",
+            "snapshot identity, lineage, pagination, or verification failure",
+            "continuation plan identity or approval mismatch",
+            "request, response, timeout, landing, or output bound violation",
+            "unexpected write, retry, cleanup, publication, or activation",
+        ],
+    }
+    return {
+        **unsigned,
+        "continuation_plan_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+
+
+def build_historical_backfill_group_continuation_plan(
+    *,
+    backfill_plan: Mapping[str, object],
+    group_index: int,
+    repo_root: Path | None = None,
+) -> dict[str, object]:
+    root = (repo_root or _repo_root()).resolve(strict=True)
+    policy, _ = load_historical_backfill_policy(root)
+    registry = NetworkAcquisitionRegistry.load(
+        root / policy["network_registry"],
+        allowed_root=root,
+    )
+    accepted_root = (root / "data/vault/accepted").resolve(strict=True)
+    store = AsReceivedSnapshotStore(
+        root / policy["outputs"]["snapshot_store"],
+        allowed_root=root / "data",
+        acquisition_registry=registry,
+    )
+    return build_historical_backfill_group_continuation(
+        backfill_plan=backfill_plan,
+        group_index=group_index,
+        snapshot_store=store,
+        calendar_sessions=_calendar_sessions(root, policy, accepted_root),
+        registry=registry,
+        synthetic=False,
+    )
+
+
+def continuation_plan_summary(
+    plan: Mapping[str, object],
+) -> dict[str, object]:
+    plan_id = require_sha256(
+        plan.get("continuation_plan_id"),
+        "historical backfill continuation plan ID",
+    )
+    unsigned = {
+        key: value for key, value in plan.items() if key != "continuation_plan_id"
+    }
+    if sha256_bytes(canonical_json_bytes(unsigned)) != plan_id:
+        raise IntegrityError("historical backfill continuation plan ID differs")
+    return {
+        key: plan[key]
+        for key in (
+            "continuation_plan_id",
+            "backfill_plan_id",
+            "group_index",
+            "group_request_plan_ids_sha256",
+            "unit_count",
+            "matching_snapshot_count",
+            "matching_snapshot_ids_sha256",
+            "candidate_lineage_count",
+            "incomplete_lineage_count",
+            "superseded_valid_lineage_count",
+            "retained_unit_count",
+            "retained_page_count",
+            "selected_snapshot_ids_sha256",
+            "capture_unit_count",
+            "capture_unit_indices_sha256",
+            "command_census",
+            "execution_contract",
+            "authorities",
+            "stop_conditions",
+        )
+    }
+
+
+def _validated_continuation_plan(
+    continuation: Mapping[str, object],
+    *,
+    backfill_plan_id: str,
+    group: Mapping[str, object],
+) -> str:
+    plan_id = continuation.get("continuation_plan_id")
+    require_sha256(plan_id, "historical backfill continuation plan ID")
+    unsigned = {
+        key: value
+        for key, value in continuation.items()
+        if key != "continuation_plan_id"
+    }
+    if (
+        sha256_bytes(canonical_json_bytes(unsigned)) != plan_id
+        or continuation.get("plan_type")
+        != "ALPACA_SIP_HISTORICAL_BACKFILL_GROUP_CONTINUATION"
+        or continuation.get("backfill_plan_id") != backfill_plan_id
+        or continuation.get("group_index") != group.get("group_index")
+        or continuation.get("group_request_plan_ids_sha256")
+        != group.get("request_plan_ids_sha256")
+        or continuation.get("unit_count") != group.get("unit_count")
+    ):
+        raise IntegrityError("historical backfill continuation plan differs")
+    return str(plan_id)
+
+
+def _load_retained_pages_from_continuation(
+    continuation: Mapping[str, object],
+    *,
+    snapshot_store: AsReceivedSnapshotStore,
+) -> dict[int, tuple[LandedSnapshot, ...]]:
+    retained = continuation.get("retained_units")
+    if not isinstance(retained, list):
+        raise IntegrityError("historical backfill retained-unit plan differs")
+    loaded: dict[int, tuple[LandedSnapshot, ...]] = {}
+    for item in retained:
+        if not isinstance(item, Mapping):
+            raise IntegrityError("historical backfill retained-unit entry differs")
+        unit_index = item.get("unit_index")
+        snapshot_ids = item.get("snapshot_ids")
+        raw_hashes = item.get("raw_sha256s")
+        if (
+            type(unit_index) is not int
+            or unit_index in loaded
+            or not isinstance(snapshot_ids, list)
+            or not isinstance(raw_hashes, list)
+            or len(snapshot_ids) != len(raw_hashes)
+            or len(snapshot_ids) != item.get("page_count")
+        ):
+            raise IntegrityError("historical backfill retained-unit entry differs")
+        pages = tuple(
+            snapshot_store.load(
+                snapshot_store.root / SOURCE_NAME / str(snapshot_id)
+            )
+            for snapshot_id in snapshot_ids
+        )
+        if [page.raw_sha256 for page in pages] != raw_hashes:
+            raise IntegrityError("historical backfill retained raw identity differs")
+        loaded[unit_index] = pages
+    return loaded
+
+
 def run_historical_backfill_group(
     *,
     backfill_plan: Mapping[str, object],
@@ -1043,6 +1423,10 @@ def run_historical_backfill_group(
     calendar_sessions: Sequence[date],
     registry: NetworkAcquisitionRegistry,
     synthetic: bool,
+    continuation_plan: Mapping[str, object] | None = None,
+    retained_pages_by_unit: Mapping[
+        int, Sequence[LandedSnapshot]
+    ] | None = None,
 ) -> tuple[tuple[LandedSnapshot, ...], dict[str, object]]:
     plan_id = _validated_plan_id(backfill_plan)
     require_sha256(approved_backfill_plan_id, "approved historical backfill plan ID")
@@ -1062,10 +1446,45 @@ def run_historical_backfill_group(
         != approved_group_request_plan_ids_sha256
     ):
         raise PermissionError("approved historical backfill execution group differs")
+    if (continuation_plan is None) != (retained_pages_by_unit is None):
+        raise ContractError("historical backfill continuation inputs are incomplete")
+    continuation_plan_id: str | None = None
+    retained_map = dict(retained_pages_by_unit or {})
+    planned_retained_entries: dict[int, Mapping[str, object]] = {}
+    if continuation_plan is not None:
+        continuation_plan_id = _validated_continuation_plan(
+            continuation_plan,
+            backfill_plan_id=plan_id,
+            group=group,
+        )
+        planned_retained = {
+            item["unit_index"] for item in continuation_plan["retained_units"]
+        }
+        planned_retained_entries = {
+            item["unit_index"]: item
+            for item in continuation_plan["retained_units"]
+        }
+        planned_capture = set(continuation_plan["capture_unit_indices"])
+        selected_indices = {unit["unit_index"] for unit in units}
+        if (
+            set(retained_map) != planned_retained
+            or planned_retained & planned_capture
+            or planned_retained | planned_capture != selected_indices
+        ):
+            raise IntegrityError("historical backfill continuation unit census differs")
     assessments: list[dict[str, object]] = []
     snapshots: list[LandedSnapshot] = []
+    retained_unit_indices: list[int] = []
+    captured_unit_indices: list[int] = []
+    retained_assessments: dict[int, dict[str, object]] = {}
     for unit in units:
-        pages = tuple(capture_unit(unit))
+        unit_index = int(unit["unit_index"])
+        if unit_index not in retained_map:
+            continue
+        pages = tuple(retained_map[unit_index])
+        planned_entry = planned_retained_entries[unit_index]
+        if [page.snapshot_id for page in pages] != planned_entry["snapshot_ids"]:
+            raise IntegrityError("historical backfill retained selection differs")
         assessment = verify_historical_backfill_unit(
             unit,
             pages,
@@ -1073,6 +1492,25 @@ def run_historical_backfill_group(
             registry=registry,
             synthetic=synthetic,
         )
+        if assessment["unit_assessment_id"] != planned_entry["unit_assessment_id"]:
+            raise IntegrityError("historical backfill retained assessment differs")
+        retained_assessments[unit_index] = assessment
+    for unit in units:
+        unit_index = int(unit["unit_index"])
+        if unit_index in retained_map:
+            pages = tuple(retained_map[unit_index])
+            assessment = retained_assessments[unit_index]
+            retained_unit_indices.append(unit_index)
+        else:
+            pages = tuple(capture_unit(unit))
+            assessment = verify_historical_backfill_unit(
+                unit,
+                pages,
+                calendar_sessions=calendar_sessions,
+                registry=registry,
+                synthetic=synthetic,
+            )
+            captured_unit_indices.append(unit_index)
         snapshots.extend(pages)
         assessments.append(assessment)
     unsigned = {
@@ -1080,9 +1518,10 @@ def run_historical_backfill_group(
         "mode": (
             "SYNTHETIC_BACKFILL_GROUP_ASSESSMENT"
             if synthetic
-            else "BACKFILL_GROUP_CAPTURED_AND_VERIFIED_NOT_PUBLISHED"
+            else "BACKFILL_GROUP_VERIFIED_NOT_PUBLISHED"
         ),
         "backfill_plan_id": plan_id,
+        "continuation_plan_id": continuation_plan_id,
         "group_index": group_index,
         "group_request_plan_ids_sha256": group["request_plan_ids_sha256"],
         "first_unit": group["first_unit"],
@@ -1090,9 +1529,13 @@ def run_historical_backfill_group(
         "unit_count": len(units),
         "page_count": len(snapshots),
         "bar_count": sum(item["bar_count"] for item in assessments),
-        "normalized_zero_activity_vwap_rows": sum(
-            item["normalized_zero_activity_vwap_rows"] for item in assessments
+        "normalized_zero_vwap_rows": sum(
+            item["normalized_zero_vwap_rows"] for item in assessments
         ),
+        "retained_unit_count": len(retained_unit_indices),
+        "retained_unit_indices": retained_unit_indices,
+        "captured_unit_count": len(captured_unit_indices),
+        "captured_unit_indices": captured_unit_indices,
         "observed_symbol_unit_count": sum(
             item["observed_symbol_count"] for item in assessments
         ),
@@ -1121,6 +1564,7 @@ def execute_historical_backfill_group(
     approved_backfill_plan_id: str,
     group_index: int,
     approved_group_request_plan_ids_sha256: str,
+    approved_continuation_plan_id: str,
     api_key_id: str,
     api_secret_key: str,
     clock: TrustedClock | None = None,
@@ -1148,6 +1592,27 @@ def execute_historical_backfill_group(
         root / policy["outputs"]["snapshot_store"],
         allowed_root=root / "data",
         acquisition_registry=registry,
+    )
+    current_continuation = build_historical_backfill_group_continuation(
+        backfill_plan=current_plan,
+        group_index=group_index,
+        snapshot_store=store,
+        calendar_sessions=calendar_sessions,
+        registry=registry,
+        synthetic=False,
+    )
+    require_sha256(
+        approved_continuation_plan_id,
+        "approved historical backfill continuation plan ID",
+    )
+    if (
+        current_continuation["continuation_plan_id"]
+        != approved_continuation_plan_id
+    ):
+        raise IntegrityError("historical backfill continuation plan changed")
+    retained_pages = _load_retained_pages_from_continuation(
+        current_continuation,
+        snapshot_store=store,
     )
     request_contract = policy["request_contract"]
     bars_policy = AlpacaBarsPolicy(
@@ -1203,4 +1668,6 @@ def execute_historical_backfill_group(
         calendar_sessions=calendar_sessions,
         registry=registry,
         synthetic=False,
+        continuation_plan=current_continuation,
+        retained_pages_by_unit=retained_pages,
     )

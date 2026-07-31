@@ -16,7 +16,9 @@ from us_stocks_swing_model_v2.cli import plan_alpaca_historical_backfill as cli
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.providers.alpaca_historical_backfill import (
+    build_historical_backfill_group_continuation,
     build_historical_backfill_fixture_plan,
+    continuation_plan_summary,
     load_historical_backfill_policy,
     plan_summary,
     run_historical_backfill_group,
@@ -142,6 +144,8 @@ def _land_unit_page(
     *,
     payload: dict[str, object] | None = None,
     url: str | None = None,
+    requested_at: datetime = REQUESTED_AT,
+    retrieved_at: datetime = RETRIEVED_AT,
 ):
     allowed = tmp_path / "data"
     allowed.mkdir(exist_ok=True)
@@ -161,11 +165,20 @@ def _land_unit_page(
         http_status=200,
         raw=canonical_json_bytes(value),
         headers={"content-type": "application/json"},
-        retrieved_at=RETRIEVED_AT,
+        retrieved_at=retrieved_at,
         synthetic_permit=_permit(),
         max_bytes=16777216,
-        requested_at=REQUESTED_AT,
+        requested_at=requested_at,
         request_plan_id=unit["network_request_plan"]["plan_id"],
+    )
+
+
+def _snapshot_store(tmp_path: Path) -> AsReceivedSnapshotStore:
+    allowed = tmp_path / "data"
+    allowed.mkdir(exist_ok=True)
+    return AsReceivedSnapshotStore(
+        allowed / "snapshots",
+        allowed_root=allowed,
     )
 
 
@@ -190,6 +203,8 @@ def test_fixture_plan_is_deterministic_bounded_and_plan_only() -> None:
     assert first["execution_contract"]["groups_per_invocation"] == 1
     assert first["execution_contract"]["retry"] is False
     assert first["execution_contract"]["offline_unit_verification_before_next_unit"] is True
+    assert first["execution_contract"]["approved_continuation_plan_id_required"] is True
+    assert first["execution_contract"]["retained_complete_unit_revalidation_before_network"] is True
     assert first["evidence_boundary"] == {
         "evidence_class": "LEGACY_DISCOVERY",
         "quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
@@ -303,6 +318,46 @@ def test_cli_is_plan_only_and_prints_only_summary(monkeypatch, capsys) -> None:
     assert "request_units" not in output
 
 
+def test_cli_continuation_planning_is_network_free_and_summary_only(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    expected = _fixture_plan()
+    retained = _land_unit_page(tmp_path, expected["request_units"][0])
+    continuation = build_historical_backfill_group_continuation(
+        backfill_plan=expected,
+        group_index=1,
+        snapshot_store=_snapshot_store(tmp_path),
+        calendar_sessions=[
+            date(2016, 1, 4),
+            date(2016, 12, 30),
+            date(2017, 1, 3),
+        ],
+        registry=_registry(),
+        synthetic=True,
+    )
+    monkeypatch.setattr(cli, "build_historical_backfill_plan", lambda **_kwargs: expected)
+    monkeypatch.setattr(
+        cli,
+        "build_historical_backfill_group_continuation_plan",
+        lambda **_kwargs: continuation,
+    )
+    monkeypatch.setattr(
+        cli,
+        "execute_historical_backfill_group",
+        lambda **_kwargs: pytest.fail("network execution must not start"),
+    )
+
+    assert cli.main(["--repo-root", str(REPO), "--plan-group-continuation", "1"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["continuation_plan_id"] == continuation["continuation_plan_id"]
+    assert output["retained_unit_count"] == 1
+    assert output["retained_page_count"] == 1
+    assert retained.snapshot_id not in json.dumps(output)
+    assert "retained_units" not in output
+
+
 def test_checked_in_policy_is_non_authorizing_and_content_addressed() -> None:
     policy, policy_id = load_historical_backfill_policy(REPO)
 
@@ -382,6 +437,9 @@ def test_synthetic_group_runner_is_ordered_bounded_and_no_write_assessment(
     assert assessment["unit_count"] == 2
     assert assessment["page_count"] == 2
     assert assessment["bar_count"] == 2
+    assert assessment["normalized_zero_vwap_rows"] == 0
+    assert assessment["retained_unit_count"] == 0
+    assert assessment["captured_unit_count"] == 2
     assert assessment["zero_row_symbol_unit_count"] == 4
     assert assessment["publication"] is False
     assert assessment["activation"] is False
@@ -459,20 +517,24 @@ def test_unit_verifier_accepts_exact_two_page_terminal_lineage(
         synthetic=True,
     )
     assert assessment["bar_count"] == 2
-    assert assessment["normalized_zero_activity_vwap_rows"] == 0
+    assert assessment["normalized_zero_vwap_rows"] == 0
     assert assessment["zero_row_symbols"] == ["CCC"]
     assert assessment["terminal_pagination"] is True
 
 
-@pytest.mark.parametrize("trade_count", [0, None])
-def test_unit_verifier_normalizes_exact_zero_activity_vwap_without_mutating_raw(
+@pytest.mark.parametrize(
+    ("volume", "trade_count"),
+    [(0, 0), (0, None), (117, 6)],
+)
+def test_unit_verifier_normalizes_exact_zero_vwap_without_mutating_raw(
     tmp_path: Path,
+    volume: int,
     trade_count: int | None,
 ) -> None:
     plan = _fixture_plan()
     unit = plan["request_units"][0]
     bar = _bar(date(2016, 1, 4))
-    bar.update(v=0, n=trade_count, vw=0)
+    bar.update(v=volume, n=trade_count, vw=0)
     snapshot = _land_unit_page(
         tmp_path,
         unit,
@@ -492,24 +554,18 @@ def test_unit_verifier_normalizes_exact_zero_activity_vwap_without_mutating_raw(
     )
 
     assert assessment["bar_count"] == 1
-    assert assessment["normalized_zero_activity_vwap_rows"] == 1
-    assert assessment["pages"][0]["normalized_zero_activity_vwap_rows"] == 1
+    assert assessment["normalized_zero_vwap_rows"] == 1
+    assert assessment["pages"][0]["normalized_zero_vwap_rows"] == 1
     assert snapshot.read_verified_bytes() == raw_before
 
 
-@pytest.mark.parametrize(
-    ("volume", "trade_count"),
-    [(1, 0), (0, 1)],
-)
-def test_unit_verifier_rejects_zero_vwap_with_positive_activity(
+def test_unit_verifier_rejects_negative_vwap(
     tmp_path: Path,
-    volume: int,
-    trade_count: int,
 ) -> None:
     plan = _fixture_plan()
     unit = plan["request_units"][0]
     bar = _bar(date(2016, 1, 4))
-    bar.update(v=volume, n=trade_count, vw=0)
+    bar.update(v=117, n=6, vw=-1)
     snapshot = _land_unit_page(
         tmp_path,
         unit,
@@ -524,6 +580,192 @@ def test_unit_verifier_rejects_zero_vwap_with_positive_activity(
             unit,
             (snapshot,),
             calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30)],
+            registry=_registry(),
+            synthetic=True,
+        )
+
+
+def test_continuation_plan_reuses_verified_pages_and_captures_only_missing_units(
+    tmp_path: Path,
+) -> None:
+    plan = _fixture_plan()
+    first_unit, second_unit = plan["request_units"]
+    retained = _land_unit_page(tmp_path, first_unit)
+    continuation = build_historical_backfill_group_continuation(
+        backfill_plan=plan,
+        group_index=1,
+        snapshot_store=_snapshot_store(tmp_path),
+        calendar_sessions=[
+            date(2016, 1, 4),
+            date(2016, 12, 30),
+            date(2017, 1, 3),
+        ],
+        registry=_registry(),
+        synthetic=True,
+    )
+
+    assert continuation["retained_unit_count"] == 1
+    assert continuation["retained_page_count"] == 1
+    assert continuation["capture_unit_count"] == 1
+    assert continuation["capture_unit_indices"] == [second_unit["unit_index"]]
+    assert continuation["command_census"]["maximum_new_gets"] == 3
+    assert continuation["command_census"]["maximum_new_response_bytes"] == 50331648
+    assert continuation_plan_summary(continuation)["continuation_plan_id"] == (
+        continuation["continuation_plan_id"]
+    )
+    tampered = json.loads(json.dumps(continuation))
+    tampered["retained_unit_count"] = 2
+    with pytest.raises(IntegrityError, match="continuation plan ID differs"):
+        continuation_plan_summary(tampered)
+
+    capture_order: list[int] = []
+
+    def capture(unit):
+        capture_order.append(unit["unit_index"])
+        return (_land_unit_page(tmp_path, unit),)
+
+    snapshots, assessment = run_historical_backfill_group(
+        backfill_plan=plan,
+        approved_backfill_plan_id=plan["backfill_plan_id"],
+        group_index=1,
+        approved_group_request_plan_ids_sha256=plan["execution_groups"][0][
+            "request_plan_ids_sha256"
+        ],
+        capture_unit=capture,
+        calendar_sessions=[
+            date(2016, 1, 4),
+            date(2016, 12, 30),
+            date(2017, 1, 3),
+        ],
+        registry=_registry(),
+        synthetic=True,
+        continuation_plan=continuation,
+        retained_pages_by_unit={first_unit["unit_index"]: (retained,)},
+    )
+
+    assert capture_order == [second_unit["unit_index"]]
+    assert len(snapshots) == 2
+    assert assessment["continuation_plan_id"] == continuation["continuation_plan_id"]
+    assert assessment["retained_unit_indices"] == [first_unit["unit_index"]]
+    assert assessment["captured_unit_indices"] == [second_unit["unit_index"]]
+
+
+def test_continuation_runner_rejects_retained_substitution_before_capture(
+    tmp_path: Path,
+) -> None:
+    plan = _fixture_plan()
+    first_unit = plan["request_units"][0]
+    _land_unit_page(tmp_path, first_unit)
+    continuation = build_historical_backfill_group_continuation(
+        backfill_plan=plan,
+        group_index=1,
+        snapshot_store=_snapshot_store(tmp_path),
+        calendar_sessions=[
+            date(2016, 1, 4),
+            date(2016, 12, 30),
+            date(2017, 1, 3),
+        ],
+        registry=_registry(),
+        synthetic=True,
+    )
+    later_request = REQUESTED_AT + timedelta(days=1)
+    substitute = _land_unit_page(
+        tmp_path,
+        first_unit,
+        requested_at=later_request,
+        retrieved_at=later_request + timedelta(minutes=1),
+    )
+    captured = False
+
+    def capture(_unit):
+        nonlocal captured
+        captured = True
+        return ()
+
+    with pytest.raises(IntegrityError, match="retained selection differs"):
+        run_historical_backfill_group(
+            backfill_plan=plan,
+            approved_backfill_plan_id=plan["backfill_plan_id"],
+            group_index=1,
+            approved_group_request_plan_ids_sha256=plan["execution_groups"][0][
+                "request_plan_ids_sha256"
+            ],
+            capture_unit=capture,
+            calendar_sessions=[
+                date(2016, 1, 4),
+                date(2016, 12, 30),
+                date(2017, 1, 3),
+            ],
+            registry=_registry(),
+            synthetic=True,
+            continuation_plan=continuation,
+            retained_pages_by_unit={first_unit["unit_index"]: (substitute,)},
+        )
+    assert captured is False
+
+
+def test_continuation_plan_selects_newest_complete_valid_lineage(
+    tmp_path: Path,
+) -> None:
+    plan = _fixture_plan()
+    unit = plan["request_units"][0]
+    old_requested = REQUESTED_AT - timedelta(days=1)
+    old = _land_unit_page(
+        tmp_path,
+        unit,
+        requested_at=old_requested,
+        retrieved_at=old_requested + timedelta(minutes=1),
+    )
+    new = _land_unit_page(tmp_path, unit)
+
+    continuation = build_historical_backfill_group_continuation(
+        backfill_plan=plan,
+        group_index=1,
+        snapshot_store=_snapshot_store(tmp_path),
+        calendar_sessions=[
+            date(2016, 1, 4),
+            date(2016, 12, 30),
+            date(2017, 1, 3),
+        ],
+        registry=_registry(),
+        synthetic=True,
+    )
+
+    selected = continuation["retained_units"][0]
+    assert selected["snapshot_ids"] == [new.snapshot_id]
+    assert selected["snapshot_ids"] != [old.snapshot_id]
+    assert continuation["candidate_lineage_count"] == 2
+    assert continuation["superseded_valid_lineage_count"] == 1
+
+
+def test_continuation_plan_rejects_equal_time_lineage_ambiguity(
+    tmp_path: Path,
+) -> None:
+    plan = _fixture_plan()
+    unit = plan["request_units"][0]
+    _land_unit_page(tmp_path, unit)
+    changed = _bar(date(2016, 1, 4))
+    changed["vw"] = 101.0
+    _land_unit_page(
+        tmp_path,
+        unit,
+        payload={
+            "bars": {unit["symbols"][0]: [changed]},
+            "next_page_token": None,
+        },
+        retrieved_at=RETRIEVED_AT + timedelta(minutes=1),
+    )
+
+    with pytest.raises(IntegrityError, match="lineage is ambiguous"):
+        build_historical_backfill_group_continuation(
+            backfill_plan=plan,
+            group_index=1,
+            snapshot_store=_snapshot_store(tmp_path),
+            calendar_sessions=[
+                date(2016, 1, 4),
+                date(2016, 12, 30),
+                date(2017, 1, 3),
+            ],
             registry=_registry(),
             synthetic=True,
         )
@@ -599,6 +841,8 @@ def test_cli_rejects_execution_approval_drift_before_environment_access(
                 "0" * 64,
                 "--approved-group-request-plan-ids-sha256",
                 plan["execution_groups"][0]["request_plan_ids_sha256"],
+                "--approved-continuation-plan-id",
+                "0" * 64,
             ]
         )
 
@@ -606,3 +850,37 @@ def test_cli_rejects_execution_approval_drift_before_environment_access(
     assert "api.env" not in source
     assert "--execute-group" in source
     assert "FREE_SOURCE_QUALIFICATION_APPROVED" in source
+
+
+def test_cli_rejects_continuation_approval_drift_before_environment_access(
+    monkeypatch,
+) -> None:
+    plan = _fixture_plan()
+    monkeypatch.setattr(cli, "build_historical_backfill_plan", lambda **_kwargs: plan)
+    monkeypatch.setattr(
+        cli,
+        "build_historical_backfill_group_continuation_plan",
+        lambda **_kwargs: {"continuation_plan_id": "1" * 64},
+    )
+    monkeypatch.setattr(
+        cli,
+        "execute_historical_backfill_group",
+        lambda **_kwargs: pytest.fail("execution must not start"),
+    )
+    monkeypatch.delenv("FREE_SOURCE_QUALIFICATION_APPROVED", raising=False)
+
+    with pytest.raises(PermissionError, match="continuation plan ID differs"):
+        cli.main(
+            [
+                "--repo-root",
+                str(REPO),
+                "--execute-group",
+                "1",
+                "--approved-plan-id",
+                plan["backfill_plan_id"],
+                "--approved-group-request-plan-ids-sha256",
+                plan["execution_groups"][0]["request_plan_ids_sha256"],
+                "--approved-continuation-plan-id",
+                "0" * 64,
+            ]
+        )

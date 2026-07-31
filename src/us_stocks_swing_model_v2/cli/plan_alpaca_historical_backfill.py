@@ -7,7 +7,9 @@ from pathlib import Path
 
 from ..clock import TrustedClock
 from ..providers.alpaca_historical_backfill import (
+    build_historical_backfill_group_continuation_plan,
     build_historical_backfill_plan,
+    continuation_plan_summary,
     execute_historical_backfill_group,
     plan_summary,
 )
@@ -27,12 +29,18 @@ def parser() -> argparse.ArgumentParser:
     )
     value.add_argument("--repo-root", type=Path, default=_repo_root())
     value.add_argument(
+        "--plan-group-continuation",
+        type=int,
+        help="plan exact retained-page reuse for one group without network or writes",
+    )
+    value.add_argument(
         "--execute-group",
         type=int,
         help="execute exactly one separately approved plan group",
     )
     value.add_argument("--approved-plan-id")
     value.add_argument("--approved-group-request-plan-ids-sha256")
+    value.add_argument("--approved-continuation-plan-id")
     return value
 
 
@@ -42,16 +50,34 @@ def main(argv: list[str] | None = None) -> int:
     approval_values = (
         args.approved_plan_id,
         args.approved_group_request_plan_ids_sha256,
+        args.approved_continuation_plan_id,
     )
     if args.execute_group is None:
         if any(value is not None for value in approval_values):
             parser().error("execution approvals require --execute-group")
+        if args.plan_group_continuation is not None:
+            continuation = build_historical_backfill_group_continuation_plan(
+                backfill_plan=plan,
+                group_index=args.plan_group_continuation,
+                repo_root=args.repo_root,
+            )
+            print(
+                json.dumps(
+                    continuation_plan_summary(continuation),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
         print(json.dumps(plan_summary(plan), indent=2, sort_keys=True))
         return 0
+    if args.plan_group_continuation is not None:
+        parser().error("--plan-group-continuation cannot accompany --execute-group")
     if any(value is None for value in approval_values):
         parser().error(
             "--execute-group requires --approved-plan-id and "
-            "--approved-group-request-plan-ids-sha256"
+            "--approved-group-request-plan-ids-sha256 and "
+            "--approved-continuation-plan-id"
         )
     if args.approved_plan_id != plan["backfill_plan_id"]:
         raise PermissionError("approved historical backfill plan ID differs")
@@ -66,6 +92,18 @@ def main(argv: list[str] | None = None) -> int:
         != args.approved_group_request_plan_ids_sha256
     ):
         raise PermissionError("approved historical backfill execution group differs")
+    continuation = build_historical_backfill_group_continuation_plan(
+        backfill_plan=plan,
+        group_index=args.execute_group,
+        repo_root=args.repo_root,
+    )
+    if (
+        args.approved_continuation_plan_id
+        != continuation["continuation_plan_id"]
+    ):
+        raise PermissionError(
+            "approved historical backfill continuation plan ID differs"
+        )
     if os.environ.get("FREE_SOURCE_QUALIFICATION_APPROVED") != "YES":
         raise PermissionError(
             "--execute-group requires FREE_SOURCE_QUALIFICATION_APPROVED=YES"
@@ -81,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         approved_group_request_plan_ids_sha256=(
             args.approved_group_request_plan_ids_sha256
         ),
+        approved_continuation_plan_id=args.approved_continuation_plan_id,
         api_key_id=api_key_id,
         api_secret_key=api_secret_key,
         clock=TrustedClock.production(),
@@ -90,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "schema_version": 1,
-                "mode": "BACKFILL_GROUP_CAPTURED_AND_VERIFIED_NOT_PUBLISHED",
+                "mode": "BACKFILL_GROUP_VERIFIED_NOT_PUBLISHED",
                 "backfill_plan_id": plan["backfill_plan_id"],
+                "continuation_plan_id": continuation["continuation_plan_id"],
                 "group_index": args.execute_group,
                 "snapshot_count": len(snapshots),
                 "snapshots": [

@@ -292,14 +292,29 @@ oversized response, landing ambiguity, or verification failure stops the group
 without retry or cleanup. The 1,800-second group host timeout is enforced by
 the owner-operated host invocation.
 
+Before a later attempt, `--plan-group-continuation` performs a no-network,
+no-write inventory of the exact immutable snapshot store. For each unit it
+revalidates complete retained lineages, explicitly selects the newest valid
+lineage by request time, binds every selected snapshot and superseded lineage
+into a content-addressed continuation plan, and reduces request and byte bounds
+to only units still requiring capture. Equal-time ambiguity, tampering,
+unexpected URLs, invalid pagination, or failed row verification stops planning.
+Execution requires the separately approved continuation-plan ID and rederives
+the complete plan before credential access or network-session creation. It
+revalidates selected pages again in group order and calls Alpaca only for the
+remaining units; retained evidence is never rewritten or cleaned up.
+
 Offline verification must require terminal pagination, requested-symbol and
 pinned-session containment, unique symbol/session rows, valid raw daily OHLCV
 and timestamps, and explicit exclusions for requested symbols with no returned
-history. Alpaca's exact zero-activity sentinel (`v=0`, `n=0` or null, and
-`vw=0`) is normalized process-locally to unavailable VWAP before validation and
-is counted in the assessment without changing the retained raw response. A
-zero VWAP with any positive activity remains invalid. Verification cannot
-require every current symbol to have existed in every historical session.
+history. Alpaca's exact numeric `vw=0` sentinel is normalized process-locally
+to unavailable VWAP before validation and counted in the assessment. It does so
+without changing the retained raw response. This applies with or without
+reported activity because VWAP is ancillary provider metadata, not a selected
+model feature; nonzero VWAP must still be finite and positive, while OHLC,
+volume, trade-count, timestamp, and session invariants remain strict.
+Verification cannot require every current symbol to have existed in every
+historical session.
 
 The process-local group assessment content-addresses the exact plan, group,
 unit assessments, landed snapshot identities, row counts, and zero-history

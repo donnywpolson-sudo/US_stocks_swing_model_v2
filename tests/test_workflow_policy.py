@@ -197,5 +197,7 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED" in network
     assert "fresh single-use local network session" in network
     assert "verified before the next unit begins" in network
-    assert "exact zero-activity sentinel" in network
+    assert "exact numeric `vw=0` sentinel" in network
     assert "without changing the retained raw response" in network
+    assert "--plan-group-continuation" in network
+    assert "calls Alpaca only for the" in network
