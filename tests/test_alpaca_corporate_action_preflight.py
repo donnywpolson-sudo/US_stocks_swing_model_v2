@@ -107,7 +107,10 @@ def test_execution_uses_one_bound_page_and_verifies_it(tmp_path: Path, monkeypat
 def test_cli_executes_only_the_matching_approved_plan(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     plan = {"plan_id": "d" * 64}
     observed: dict[str, object] = {}
-    monkeypatch.setattr(cli_module, "build_corporate_action_preflight", lambda **kwargs: plan)
+    def build(**kwargs):
+        observed["release_directory"] = kwargs["release_directory"]
+        return plan
+    monkeypatch.setattr(cli_module, "build_corporate_action_preflight", build)
     monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
     def execute(**kwargs):
         observed.update(kwargs)
@@ -121,4 +124,5 @@ def test_cli_executes_only_the_matching_approved_plan(monkeypatch: pytest.Monkey
     ]) == 0
     assert observed["plan"] is plan
     assert observed["approved_plan_id"] == "d" * 64
+    assert observed["release_directory"] == (REPO / "synthetic-release").resolve()
     assert '"mode": "CAPTURED_AND_VERIFIED_NOT_PUBLISHED"' in capsys.readouterr().out

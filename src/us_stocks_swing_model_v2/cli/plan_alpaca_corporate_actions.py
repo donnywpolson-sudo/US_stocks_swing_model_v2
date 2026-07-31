@@ -28,8 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execute-network", action="store_true")
     parser.add_argument("--approved-plan-id")
     args = parser.parse_args(argv)
+    root = _repo_root()
     symbols = tuple(args.symbols.split(","))
-    plan = build_corporate_action_preflight(release_directory=args.release_directory, accepted_root=_repo_root() / "data" / "vault" / "accepted", start=args.start, end=args.end, symbols=symbols, max_pages=args.max_pages, created_at=args.created_at, repo_root=_repo_root())
+    plan = build_corporate_action_preflight(release_directory=(root / args.release_directory).resolve(), accepted_root=root / "data" / "vault" / "accepted", start=args.start, end=args.end, symbols=symbols, max_pages=args.max_pages, created_at=args.created_at, repo_root=root)
     if not args.execute_network:
         if args.approved_plan_id is not None:
             parser.error("--approved-plan-id requires --execute-network")
@@ -45,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         api_key_id=os.environ.get("APCA_API_KEY_ID", ""),
         api_secret_key=os.environ.get("APCA_API_SECRET_KEY", ""),
         clock=TrustedClock.production(),
-        repo_root=_repo_root(),
+        repo_root=root,
     )
     print(json.dumps({"mode": "CAPTURED_AND_VERIFIED_NOT_PUBLISHED", **result}, indent=2, sort_keys=True))
     return 0
