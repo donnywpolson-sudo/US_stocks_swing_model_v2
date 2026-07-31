@@ -873,6 +873,7 @@ def verify_historical_backfill_unit(
     calendar_sessions: Sequence[date],
     registry: NetworkAcquisitionRegistry,
     synthetic: bool,
+    _canonical_row_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     network_plan = _network_plan_from_unit(unit, registry=registry)
     symbols = unit.get("symbols")
@@ -914,6 +915,15 @@ def verify_historical_backfill_unit(
     observed_sessions: set[date] = set()
     normalized_zero_vwap_rows = 0
     snapshot_rows: list[dict[str, object]] = []
+    identity_by_symbol = {
+        symbol: (asset_id, security_type)
+        for symbol, asset_id, security_type in zip(
+            symbols,
+            asset_ids,
+            security_types,
+            strict=True,
+        )
+    }
     for page_index, snapshot in enumerate(page_list):
         request = AlpacaBarsRequest(
             symbols=tuple(symbols),
@@ -962,6 +972,28 @@ def verify_historical_backfill_unit(
                 session = accepted[1]
                 if session not in allowed_sessions:
                     raise ContractError("historical backfill bar is outside the pinned calendar window")
+                if _canonical_row_sink is not None:
+                    asset_id, security_type = identity_by_symbol[symbol]
+                    _canonical_row_sink(
+                        {
+                            "provider_symbol": symbol,
+                            "asset_id": asset_id,
+                            "security_type": security_type,
+                            "session": session,
+                            "open": accepted[2],
+                            "high": accepted[3],
+                            "low": accepted[4],
+                            "close": accepted[5],
+                            "volume": accepted[6],
+                            "trade_count": accepted[7],
+                            "vwap": accepted[8],
+                            "bar_event_at": accepted[0],
+                            "available_at": snapshot.retrieved_at,
+                            "retrieved_at": snapshot.retrieved_at,
+                            "source_snapshot_id": snapshot.snapshot_id,
+                            "request_plan_id": network_plan.plan_id,
+                        }
+                    )
                 observed_symbols.add(symbol)
                 observed_sessions.add(session)
                 page_bar_count += 1
@@ -1127,6 +1159,7 @@ def build_historical_backfill_group_continuation(
     calendar_sessions: Sequence[date],
     registry: NetworkAcquisitionRegistry,
     synthetic: bool,
+    _inventory: Sequence[LandedSnapshot] | None = None,
 ) -> dict[str, object]:
     plan_id = _validated_plan_id(backfill_plan)
     group, units = _selected_execution_group(
@@ -1138,7 +1171,11 @@ def build_historical_backfill_group_continuation(
         _network_plan_from_unit(unit, registry=registry).plan_id: unit
         for unit in units
     }
-    inventory = _retained_snapshot_inventory(snapshot_store)
+    inventory = tuple(
+        _inventory
+        if _inventory is not None
+        else _retained_snapshot_inventory(snapshot_store)
+    )
     matching = [
         snapshot
         for snapshot in inventory
@@ -1357,6 +1394,7 @@ def build_historical_backfill_complete_corpus(
     calendar_sessions: Sequence[date],
     registry: NetworkAcquisitionRegistry,
     synthetic: bool,
+    _inventory: Sequence[LandedSnapshot] | None = None,
 ) -> dict[str, object]:
     """Revalidate every group and bind one complete, no-write input corpus."""
 
@@ -1369,6 +1407,15 @@ def build_historical_backfill_complete_corpus(
         range(1, len(groups) + 1)
     ):
         raise IntegrityError("historical backfill group ordering differs")
+
+    inventory = tuple(
+        _inventory
+        if _inventory is not None
+        else _retained_snapshot_inventory(snapshot_store)
+    )
+    inventory_by_id = {snapshot.snapshot_id: snapshot for snapshot in inventory}
+    if len(inventory_by_id) != len(inventory):
+        raise IntegrityError("historical backfill snapshot inventory is ambiguous")
 
     continuation_ids: list[str] = []
     selected_snapshot_ids: list[str] = []
@@ -1384,6 +1431,7 @@ def build_historical_backfill_complete_corpus(
             calendar_sessions=calendar_sessions,
             registry=registry,
             synthetic=synthetic,
+            _inventory=inventory,
         )
         if (
             continuation["capture_unit_count"] != 0
@@ -1400,9 +1448,11 @@ def build_historical_backfill_complete_corpus(
                 zip(retained["snapshot_ids"], retained["raw_sha256s"], strict=True),
                 start=1,
             ):
-                snapshot = snapshot_store.load(
-                    snapshot_store.root / SOURCE_NAME / str(snapshot_id)
-                )
+                snapshot = inventory_by_id.get(str(snapshot_id))
+                if snapshot is None:
+                    raise IntegrityError(
+                        "historical backfill complete-corpus snapshot is absent"
+                    )
                 raw = snapshot.read_verified_bytes()
                 if snapshot.raw_sha256 != expected_raw_sha256:
                     raise IntegrityError(

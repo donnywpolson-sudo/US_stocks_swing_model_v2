@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "1.0.0",
+  "policy_version": "1.1.0",
   "project": "US_stocks_swing_model_v2",
   "mode": "ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLAN_ONLY",
   "backfill_policy_id": "80cddbdc241a1b38d3a2205ce40bf50c1d4e8784ff768433dd8c366deda19719",
@@ -17,9 +17,13 @@
     "dataset": "alpaca_historical_daily_bars",
     "source_epoch": "alpaca_sip_current_identity_seeded_20160104_20260710_v1",
     "role": "legacy_discovery_only",
-    "quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+    "quality_state": "LEGACY_CAVEATED",
+    "input_quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
     "canonical_shard": "calendar_year",
     "expected_shard_count": 11,
+    "bars_prefix": "bars",
+    "source_evidence_manifest_path": "source_evidence_manifest.json",
+    "snapshot_evidence_prefix": "source_snapshots",
     "copy_exact_snapshot_evidence": true,
     "regenerate_canonical_parquet": true,
     "active_source_eligible": false,
@@ -35,9 +39,9 @@
   },
   "implementation": {
     "plan_only": true,
-    "release_builder_implemented": false,
+    "release_builder_implemented": true,
     "publication_execution_implemented": false,
-    "release_id_deferred_until_deterministic_builder": true
+    "release_id_deferred_until_deterministic_builder": false
   },
   "authorities": {
     "provider_access": false,
@@ -57,7 +61,7 @@
     "missing ambiguous incomplete duplicated or superseded lineage",
     "snapshot receipt headers raw bytes pagination or assessment mismatch",
     "completeness census or content identity mismatch",
-    "release construction or publication requested before implementation review",
+    "publication requested before implementation review",
     "network credential activation research training or HFDL request"
   ]
 }

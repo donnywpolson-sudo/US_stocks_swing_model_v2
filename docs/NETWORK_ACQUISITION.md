@@ -341,13 +341,13 @@ the selected snapshot, raw-byte, header, receipt, continuation, and unit-
 assessment censuses. Missing, ambiguous, duplicated, incomplete, non-terminal,
 tampered, or locally unverified evidence fails closed.
 
-The resulting publication plan binds a future
-`alpaca_historical_daily_bars` release with
-`legacy_discovery_only` role and
-`CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED` quality. It requires exact snapshot-
-evidence preservation and deterministic calendar-year Parquet regeneration.
-The current contract deliberately defers the release ID because the shard
-builder and publication execution are not implemented. The plan grants no
+The resulting publication plan binds an exact deterministic
+`alpaca_historical_daily_bars` release with `legacy_discovery_only` role and
+accepted-manifest quality `LEGACY_CAVEATED`. Rows retain the narrower input
+quality `CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED`. The builder preserves exact
+snapshot evidence, regenerates deterministic calendar-year Parquet, and
+computes the complete release ID without writing. Publication execution remains
+unimplemented and separately authorized. The plan grants no
 publication, activation, eligible-universe, feature, outcome, training,
 evaluation, research, provider, credential, or HFDL authority.
 
@@ -356,9 +356,8 @@ python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill_publicati
   --created-at <exact-production-UTC-Z>
 ```
 
-Implementing the deterministic shard builder is a separate local phase.
-Publishing one exact accepted release is a later, separately bounded generated-
-evidence gate after its prospective release identity is known.
+Publishing the exact built release is a later, separately bounded generated-
+evidence gate.
 
 ## Landed evidence
 

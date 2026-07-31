@@ -239,7 +239,6 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "Offline completeness and publication planning" in network
     assert "plan_alpaca_historical_backfill_publication" in network
     assert "release ID" in network
-    assert (
-        "shard builder and publication execution are not implemented"
-        in " ".join(network.split())
-    )
+    normalized_network = " ".join(network.split())
+    assert "computes the complete release ID without writing" in normalized_network
+    assert "Publication execution remains unimplemented" in normalized_network

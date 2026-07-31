@@ -265,6 +265,52 @@ def test_complete_corpus_rejects_a_missing_unit(tmp_path: Path) -> None:
         )
 
 
+def test_complete_corpus_inventories_retained_snapshots_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = json.loads(json.dumps(_fixture_plan()))
+    plan["execution_groups"] = [
+        {
+            "group_index": index,
+            "first_unit": unit["unit_index"],
+            "last_unit": unit["unit_index"],
+            "unit_count": 1,
+            "maximum_gets": 3,
+            "maximum_response_bytes": 3 * 16777216,
+            "host_timeout_seconds": 1800,
+            "request_plan_ids_sha256": sha256_bytes(
+                canonical_json_bytes([unit["network_request_plan"]["plan_id"]])
+            ),
+        }
+        for index, unit in enumerate(plan["request_units"], start=1)
+    ]
+    unsigned = {key: value for key, value in plan.items() if key != "backfill_plan_id"}
+    plan["backfill_plan_id"] = sha256_bytes(canonical_json_bytes(unsigned))
+    for unit in plan["request_units"]:
+        _land_unit_page(tmp_path, unit)
+    store = _snapshot_store(tmp_path)
+    original = backfill._retained_snapshot_inventory
+    calls = 0
+
+    def counted_inventory(snapshot_store):
+        nonlocal calls
+        calls += 1
+        return original(snapshot_store)
+
+    monkeypatch.setattr(backfill, "_retained_snapshot_inventory", counted_inventory)
+    complete = build_historical_backfill_complete_corpus(
+        backfill_plan=plan,
+        snapshot_store=store,
+        calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30), date(2017, 1, 3)],
+        registry=_registry(),
+        synthetic=True,
+    )
+
+    assert complete["group_count"] == 2
+    assert calls == 1
+
+
 def test_request_units_pin_sip_contract_boundaries_and_order() -> None:
     plan = _fixture_plan()
     units = plan["request_units"]
