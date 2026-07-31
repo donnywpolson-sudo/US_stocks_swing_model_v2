@@ -75,9 +75,17 @@ def test_checked_in_source_roles_and_exclusions_are_fail_closed() -> None:
     capsule = sources["alpaca_sip_qualification_legacy"]
     assert capsule["quality_status"].startswith("fail_")
     assert "780_stock_symbols" in capsule["scope"]
-    policy = sources["alpaca_basic_delayed_sip"]["request_contract"]
+    alpaca = sources["alpaca_basic_delayed_sip"]
+    assert alpaca["enabled_for_active_pipeline"] is True
+    assert alpaca["status"] == "active_sip_qualified_pending_canonical_bars"
+    assert alpaca["qualification_receipt"] == (
+        "data/vault/accepted/alpaca_feed_qualification/"
+        "8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2/"
+        "alpaca_feed_qualification_receipt.json"
+    )
+    policy = alpaca["request_contract"]
     assert policy == {
-        "qualified_feed": None,
+        "qualified_feed": "sip",
         "qualification_candidates": ["sip", "iex"],
         "timeframe": "1Day",
         "adjustment": "raw",

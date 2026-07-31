@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import shutil
 
 import pytest
 
@@ -32,6 +31,19 @@ from us_stocks_swing_model_v2.providers.alpaca_source_cutover import (
 
 
 REPO = Path(__file__).resolve().parents[1]
+
+
+def _inactive_source_baseline() -> tuple[bytes, dict[str, object]]:
+    path = REPO / "config" / "sources.json"
+    current_raw = path.read_bytes()
+    baseline = json.loads(current_raw)
+    source = baseline["sources"]["alpaca_basic_delayed_sip"]
+    source["enabled_for_active_pipeline"] = False
+    source["request_contract"]["qualified_feed"] = None
+    source["status"] = "empty_pending_bounded_sip_vs_iex_qualification"
+    source.pop("qualification_receipt", None)
+    raw = cutover._render_config(baseline, baseline_raw=current_raw)
+    return raw, baseline
 
 
 def _publication_clock() -> TrustedClock:
@@ -93,7 +105,8 @@ def _fixture_context(tmp_path: Path):
     )
     config_path = tmp_path / "config" / "sources.json"
     config_path.parent.mkdir()
-    shutil.copyfile(REPO / "config" / "sources.json", config_path)
+    baseline_raw, _ = _inactive_source_baseline()
+    config_path.write_bytes(baseline_raw)
     cutover_permit = SyntheticOnlyPermit.create(
         fixture_id="alpaca-source-cutover",
         scope=FIXTURE_SCOPE,
@@ -123,7 +136,7 @@ def test_fixture_plan_is_content_addressed_and_non_authorizing(
 
 def test_fixture_cutover_changes_only_declared_source_fields(tmp_path: Path) -> None:
     policy, publication, config_path, permit, plan = _fixture_context(tmp_path)
-    baseline = json.loads((REPO / "config" / "sources.json").read_text("utf-8"))
+    _, baseline = _inactive_source_baseline()
     result = apply_alpaca_source_cutover_fixture(
         plan=plan,
         source_config_path=config_path,
@@ -203,7 +216,7 @@ def test_fixture_cutover_rejects_wrong_permit_and_release_tampering(
             permit=permit,
             repo_root=REPO,
         )
-    assert config_path.read_bytes() == (REPO / "config" / "sources.json").read_bytes()
+    assert config_path.read_bytes() == _inactive_source_baseline()[0]
 
 
 def test_production_plan_builder_is_no_write_and_binds_exact_release(
@@ -238,6 +251,12 @@ def test_production_plan_builder_is_no_write_and_binds_exact_release(
     }
     monkeypatch.setattr(cutover, "_closure", lambda *args: closure)
     monkeypatch.setattr(cutover, "validate_environment_lock", lambda path: "d" * 64)
+    baseline_raw, baseline_config = _inactive_source_baseline()
+    monkeypatch.setattr(
+        cutover,
+        "_json_file",
+        lambda *args, **kwargs: (baseline_raw, baseline_config),
+    )
     plan = cutover.build_alpaca_source_cutover_plan(repo_root=REPO)
     plan_id = plan.pop("activation_plan_id")
     assert plan_id == sha256_bytes(canonical_json_bytes(plan))
@@ -271,6 +290,24 @@ def test_production_activation_rejects_authority_before_writes(
             repo_root=REPO,
         )
     assert tuple(tmp_path.rglob("*")) == ()
+
+
+def test_post_write_validator_accepts_only_trimmed_expected_porcelain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cutover,
+        "_run_git",
+        lambda *args: "M config/sources.json",
+    )
+    cutover._require_expected_activation_worktree(REPO)
+    monkeypatch.setattr(
+        cutover,
+        "_run_git",
+        lambda *args: "M config/sources.json\n?? unexpected.txt",
+    )
+    with pytest.raises(IntegrityError, match="unexpected worktree"):
+        cutover._require_expected_activation_worktree(REPO)
 
 
 def test_cli_defaults_to_plan_only_without_writes(

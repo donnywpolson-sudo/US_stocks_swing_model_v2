@@ -489,6 +489,13 @@ def _apply_prevalidated_plan(
     )
 
 
+def _require_expected_activation_worktree(root: Path) -> None:
+    if _run_git(root, "status", "--porcelain=v1", "--untracked-files=all") != (
+        "M config/sources.json"
+    ):
+        raise IntegrityError("Alpaca source cutover produced an unexpected worktree")
+
+
 def activate_alpaca_source(
     *,
     approved_plan_id: str,
@@ -510,10 +517,7 @@ def activate_alpaca_source(
         policy=policy,
         source_config_path=Path(plan["source_config_path"]),
     )
-    if _run_git(root, "status", "--porcelain=v1", "--untracked-files=all") != (
-        " M config/sources.json"
-    ):
-        raise IntegrityError("Alpaca source cutover produced an unexpected worktree")
+    _require_expected_activation_worktree(root)
     return result
 
 
