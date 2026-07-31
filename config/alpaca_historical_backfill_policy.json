@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "policy_type": "ALPACA_SIP_HISTORICAL_BACKFILL_PLAN_ONLY",
+  "source_key": "alpaca_basic_delayed_sip",
+  "source_name": "alpaca_sip_historical_backfill",
+  "evidence_class": "LEGACY_DISCOVERY",
+  "quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+  "identity_release": {
+    "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+    "relative_directory": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+    "identity_snapshot_id": "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6",
+    "identity_snapshots_sha256": "839d57e5d2637086d4590beae30015f1acac6c45cac7a8e6743817514aae3644"
+  },
+  "rehabilitated_release": {
+    "release_id": "20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",
+    "relative_directory": "data/vault/accepted/alpaca_legacy_daily_bars/20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",
+    "bars_sha256": "481b37ea134c72864ade2efcc400c9bdf8ce7b577d5c5b9ed17ecd8818968b90",
+    "symbol_count": 780
+  },
+  "calendar_release": {
+    "release_id": "055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
+    "relative_directory": "data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1"
+  },
+  "source_config": {
+    "path": "config/sources.json",
+    "sha256": "57636a3d08f92a656c50a628d26ec7da6591308ea52fb331188d5ee3463f08aa"
+  },
+  "selection": {
+    "eligible": true,
+    "active": true,
+    "membership_present": true,
+    "security_types": ["ETF", "STOCK"],
+    "expected_eligible_count": 10072,
+    "expected_eligible_symbols_sha256": "c65ae502ad71486cfbbc344a1968e105b2b989b592b982d4f9dca2c318b32e2f",
+    "expected_overlap_count": 657,
+    "expected_overlap_symbols_sha256": "b13b400b23929261c4804ae152c95058188b7ef2321a2d99eab3528c817ddc8e",
+    "expected_missing_count": 9415,
+    "expected_missing_symbols_sha256": "1f6ed8101032cf31359eb358be10cd0883178a5c0567f0ffadcbaffe92608f63",
+    "expected_legacy_only_count": 123,
+    "expected_legacy_only_symbols_sha256": "a8b4044a761be00733c1a83f51edaf9cf7ba088237873b0dbd73bb490501b0b8"
+  },
+  "window": {
+    "first_session": "2016-01-04",
+    "last_session": "2026-07-10",
+    "shard": "calendar_year",
+    "expected_session_count": 2644
+  },
+  "batching": {
+    "symbols_per_batch": 100,
+    "batches_per_execution_group": 5,
+    "max_initial_url_bytes": 4096
+  },
+  "request_contract": {
+    "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+    "feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "asof": null,
+    "sort": "asc",
+    "limit": 10000,
+    "minimum_end_lag_minutes": 20,
+    "timeout_seconds": 30,
+    "host_timeout_seconds_per_execution_group": 1800,
+    "max_pages_per_unit": 3,
+    "max_response_bytes_per_page": 16777216
+  },
+  "network_registry": "config/alpaca_historical_backfill_network_registry.json",
+  "outputs": {
+    "snapshot_store": "data/vault/qualification/as_received/alpaca_sip_historical_backfill",
+    "work_root": "data/w/alpaca_sip_historical_backfill",
+    "plan_disposition": "PROCESS_LOCAL_CONVERSATION_ONLY",
+    "publication": false
+  },
+  "authorities": {
+    "provider_access": false,
+    "credential_access": false,
+    "snapshot_write": false,
+    "offline_verification": false,
+    "publication": false,
+    "activation": false,
+    "research": false
+  }
+}

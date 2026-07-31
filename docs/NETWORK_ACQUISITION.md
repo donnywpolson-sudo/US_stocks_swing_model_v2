@@ -230,6 +230,67 @@ predecessor. Publication does not activate another source, select a current
 bars release for downstream consumers, build an eligible universe, or
 authorize features, outcomes, research, prediction, or trading.
 
+## Plan-only Alpaca SIP historical backfill
+
+The accepted rehabilitated archive is immutable legacy-discovery evidence for
+780 symbols through `2026-07-10`. The historical-backfill planner compares its
+verified provider-symbol census with the accepted current identity snapshot.
+It selects only currently eligible, active, present `STOCK` and `ETF` rows and
+then excludes symbols already represented in the rehabilitated release.
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill
+```
+
+The command is credential-free, network-free, and no-write. It verifies the
+clean main repository, active SIP request policy, accepted identity release,
+accepted rehabilitated release, pinned XNYS calendar, isolated historical-
+backfill network registry, and code/config/environment closures. The checked-in
+cohort is 10,072 eligible stocks/ETFs: 657 overlap the rehabilitated archive,
+leaving 9,415 current-identity-seeded symbols for the prospective backfill.
+
+The plan sorts symbols, forms at most 100-symbol batches, and crosses them with
+11 calendar-year windows covering the 2,644 XNYS sessions from `2016-01-04`
+through `2026-07-10`. Each request unit pins:
+
+```text
+GET https://data.alpaca.markets/v2/stocks/bars
+feed=sip
+timeframe=1Day
+adjustment=raw
+asof omitted
+sort=asc
+limit=10000
+timeout=30 seconds
+maximum pages=3
+maximum response bytes per page=16,777,216
+```
+
+Annual end timestamps use the verified provider-safe boundary one second before
+the following Eastern midnight. The full request-unit packet is
+content-addressed process-locally; the CLI reports only its identity, census,
+group bounds, and non-authorizing metadata rather than printing every URL.
+Suggested execution groups contain at most five symbol batches, but they grant
+no provider authority. A later execution gate must bind the exact overall plan
+and exact group and must separately authorize process-local credential
+handling, bounded calls, atomic ignored snapshot landing, and immediate offline
+verification.
+
+Offline verification must require terminal pagination, requested-symbol and
+pinned-session containment, unique symbol/session rows, valid raw daily OHLCV
+and timestamps, and explicit exclusions for requested symbols with no returned
+history. It cannot require every current symbol to have existed in every
+historical session.
+
+This is deliberately not a historical membership reconstruction. The cohort is
+seeded from one current identity snapshot, so any eventual bars remain
+`LEGACY_DISCOVERY` with
+`CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED` quality. They cannot establish
+survivorship-safe coverage, confirmation, source activation, eligibility,
+features, outcomes, WFA readiness, or research authority. HFDL is excluded.
+Execution, verification, publication, and any merge with the rehabilitated
+release remain separate gates.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,

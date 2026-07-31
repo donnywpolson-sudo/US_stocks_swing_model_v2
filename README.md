@@ -52,7 +52,7 @@ split-normalized outcomes rather than legacy stage paths or row shifts.
 
 Current milestone:
 
-`ALPACA_HISTORICAL_REHABILITATION_PENDING`
+`ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED`
 
 HFDL is retired and excluded from all future derivative and research work. Its
 existing files, tracked machinery, and accepted releases remain untouched as
@@ -60,13 +60,18 @@ historical audit and trial-census evidence until separately authorized cleanup.
 They will not be mixed with Alpaca.
 
 The active historical path is now Alpaca-only. The existing 780-symbol Alpaca
-SIP archive has intact canonicalized provider payloads, but it must pass the
-checked-in rehabilitation inspector and immutable publisher contract, then
-receive separately authorized publication before it can serve as PIT-unresolved
-legacy discovery evidence. The publisher copies only the validated compressed
-page evidence and regenerates deterministic Parquet; it never copies the legacy
-derived Parquet. The release cannot become active qualification evidence or
-authorize research.
+SIP archive has been rehabilitated into immutable release
+`20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1`.
+The release preserves the validated compressed page evidence and regenerated
+deterministic Parquet; it is PIT-unresolved legacy discovery evidence, not
+active qualification evidence or research authority.
+
+The checked-in historical-backfill planner now derives the current eligible
+stock/ETF cohort absent from that release and emits deterministic annual SIP
+request units without credentials, network access, or writes. Because the
+cohort comes from a current identity snapshot, any eventual backfill remains
+current-identity-seeded and PIT-unresolved. Provider execution, offline
+verification, publication, and downstream use remain separate gates.
 
 The architecture and authorized rebuild boundary are complete. Historical
 hypothesis evaluation, real-history WFA, candidate sealing, prospective
@@ -104,7 +109,8 @@ and API.
 |---|---|
 | Completed HFDL migration capsule | Frozen historical audit and trial-census evidence only |
 | Existing HF Data Library parquet | Retired and excluded from future work; preserved unchanged until separately authorized cleanup |
-| Existing 780-symbol Alpaca SIP capsule and 30-symbol probe | Failed qualification evidence; the exact 198-page, 780-symbol canonicalized raw-payload archive may enter plan-only rehabilitation, while derived Parquet must be regenerated |
+| Rehabilitated 780-symbol Alpaca SIP archive | Accepted immutable PIT-unresolved legacy-discovery release; never active source qualification or survivorship-safe evidence |
+| Current-identity-seeded Alpaca SIP backfill | Plan-only contract implemented for the stock/ETF cohort missing from the rehabilitated release; execution and publication remain unauthorized |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, with the first bounded canonical-bars build still pending |
 | Alpaca assets | The accepted identity release binds the immutable Alpaca asset snapshot and its frozen projection; it is identity evidence, not bar or research authority |
 | Nasdaq Trader symbol directory | The accepted identity release binds the strictly newer comprehensive Nasdaq capture and the Alpaca identity projection; retrospective membership claims remain prohibited |
@@ -244,6 +250,7 @@ python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
 python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
 python -m us_stocks_swing_model_v2.cli.plan_alpaca_archive_rehabilitation --help
 python -m us_stocks_swing_model_v2.cli.publish_alpaca_archive_rehabilitation --help
+python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill --help
 ```
 
 Run validation in proportion to the task. Documentation-only work needs a

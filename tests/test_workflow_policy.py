@@ -178,14 +178,20 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     )
     sources = (ROOT / "config" / "sources.json").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    network = (ROOT / "docs" / "NETWORK_ACQUISITION.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "HF Data Library is retired and excluded" in agents
     assert "Never mix HFDL with" in agents
     assert "HFDL is retired and excluded" in outline
     assert "HFDL bridge is retired" in harness
-    assert "ALPACA_HISTORICAL_REHABILITATION_PENDING" in outline
+    assert "ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED" in outline
     assert "hfdl_retirement_policy.json" in sources
     assert "alpaca_archive_rehabilitation_policy.json" in sources
     assert "alpaca_archive_rehabilitation_publication_policy.json" in sources
     assert "validated 198 compressed payload pages" in harness
-    assert "regenerates deterministic Parquet" in readme
+    assert "regenerated" in readme
+    assert "deterministic Parquet" in readme
+    assert "Plan-only Alpaca SIP historical backfill" in network
+    assert "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED" in network

@@ -71,17 +71,20 @@ because it served the same project mission.
 
 ## Current status
 
-`ALPACA_HISTORICAL_REHABILITATION_PENDING`
+`ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED`
 
 The controlled architecture, accepted current identity release, qualified
 active Alpaca SIP source, and first bounded active-SIP canonical-bars release
 are preserved. HFDL is retired and excluded from future derivative and research
 work; its files and releases remain frozen audit evidence pending separately
-authorized cleanup. The next historical-data path is the plan-only
-rehabilitation of the existing 198-page, 780-symbol Alpaca archive. The
-checked-in immutable publisher contract copies only validated page evidence and
-regenerates canonical Parquet under a caveated `legacy_discovery_only` release;
-real publication and the bounded Alpaca stock/ETF backfill remain separately
+authorized cleanup. The 198-page, 780-symbol Alpaca archive is now preserved as
+accepted immutable release
+`20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1`
+under a caveated `legacy_discovery_only` role. A checked-in no-network,
+no-write planner derives the current eligible stock/ETF cohort absent from that
+release and creates deterministic annual SIP request units. That planned
+backfill remains current-identity-seeded and PIT-unresolved; provider
+execution, verification, publication, and downstream use remain separately
 authorized.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
@@ -255,10 +258,11 @@ Milestone state:
 3. **Historical research mechanics preserved**: registered nested-WFA executor,
    dependence-aware statistics, costs, benchmarks, controls, finite gates, and
    sleeve/book robustness propagation are implemented and bound to
-   non-authorizing receipts. HFDL-backed execution is retired; Alpaca historical
-   rehabilitation now has a synthetic-tested immutable publisher contract, but
-   real publication, the successor stock/ETF backfill, and preregistration must
-   precede any future real-history execution.
+   non-authorizing receipts. HFDL-backed execution is retired. The rehabilitated
+   Alpaca archive is published as caveated legacy discovery, and the missing
+   current stock/ETF cohort now has a synthetic-tested, plan-only SIP backfill
+   contract. Backfill execution, offline verification, accepted publication,
+   and preregistration must precede any future real-history execution.
 4. **Candidate research pending**: requires a separately authorized,
    predeclared, counted hypothesis and historical evaluation.
 5. **Prospective confirmation pending**: requires a sealed candidate, scoring
