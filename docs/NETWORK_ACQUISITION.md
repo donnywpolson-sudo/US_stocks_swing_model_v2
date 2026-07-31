@@ -137,6 +137,60 @@ release, plan, or config drift stops before the write. The cutover performs no
 provider or credential access and does not build canonical bars or authorize
 research.
 
+## First bounded active-SIP canonical bars
+
+The first active canonical-bars contract is intentionally limited to AAPL and
+SPY for the completed `2026-07-30` XNYS session. It uses a dedicated network
+registry so adding the active lane cannot relabel or invalidate the historical
+SIP/IEX qualification snapshots.
+
+The checked-in CLI is plan-only by default:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.acquire_canonical_bars
+```
+
+Planning is credential-free, network-free, and no-write. It revalidates the
+clean main commit, active SIP source configuration, accepted qualification,
+accepted identity release, pinned calendar, isolated acquisition registry,
+code/config/environment closures, and this exact request:
+
+```text
+GET https://data.alpaca.markets/v2/stocks/bars
+symbols=AAPL,SPY
+start=2026-07-30T04:00:00Z
+end=2026-07-30T23:30:00Z
+feed=sip
+timeframe=1Day
+adjustment=raw
+asof omitted
+sort=asc
+limit=10000
+```
+
+Execution additionally requires `--execute-network`, the exact approved
+acquisition plan ID, `FREE_SOURCE_QUALIFICATION_APPROVED=YES`, and credentials
+supplied only through `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the process
+environment. The contract permits one GET, one page, one attempt, a 30-second
+HTTP timeout, a 120-second host timeout, and 1,048,576 response bytes. A
+continuation token stops after the first immutable snapshot; it never causes a
+second request.
+
+The active lane uses schema-v2 snapshot receipts to preserve both request and
+retrieval time while remaining backward-compatible with the preserved
+schema-v1 qualification snapshots. Offline verification requires exactly one
+valid daily row for each symbol on `2026-07-30`, binds both asset UUIDs and the
+pinned XNYS session, and derives a canonical candidate without writing a
+release.
+
+Accepted publication is a later, separately approved no-network invocation
+bound to the exact publication plan and
+`ALPACA_CANONICAL_BARS_PUBLICATION_APPROVED=YES`. It may create one immutable
+`alpaca_daily_bars` release containing `bars.parquet`,
+`canonical_bar_receipt.json`, and `release_manifest.json`. The release is
+`active_historical` source evidence only. It does not authorize an eligible
+universe, features, outcomes, research, prediction, or trading.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,

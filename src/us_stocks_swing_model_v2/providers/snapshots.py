@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 SAFE_SOURCE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024
 SNAPSHOT_FILES = {"raw.bin", "headers.json", "receipt.json"}
-RECEIPT_FIELDS = {
+RECEIPT_V1_FIELDS = {
     "schema_version",
     "source",
     "url",
@@ -49,6 +49,10 @@ RECEIPT_FIELDS = {
     "time_authority",
     "synthetic_permit_id",
     "snapshot_id",
+}
+RECEIPT_V2_FIELDS = RECEIPT_V1_FIELDS | {
+    "requested_at",
+    "request_plan_id",
 }
 ALLOWED_RESPONSE_HEADERS = frozenset(
     {
@@ -342,6 +346,8 @@ class LandedSnapshot:
     acquisition_capability_id: str
     time_authority: str
     synthetic_permit_id: str | None
+    requested_at: datetime | None
+    request_plan_id: str | None
     acquisition_registry: NetworkAcquisitionRegistry | None = field(
         default=None,
         repr=False,
@@ -412,6 +418,8 @@ class AsReceivedSnapshotStore:
         retrieved_at: datetime,
         synthetic_permit: SyntheticOnlyPermit,
         max_bytes: int = MAX_SNAPSHOT_BYTES,
+        requested_at: datetime | None = None,
+        request_plan_id: str | None = None,
     ) -> LandedSnapshot:
         permit = require_synthetic_permit(
             synthetic_permit,
@@ -429,6 +437,8 @@ class AsReceivedSnapshotStore:
             time_authority="SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE",
             synthetic_permit_id=permit.permit_id,
             max_bytes=max_bytes,
+            requested_at=requested_at,
+            request_plan_id=request_plan_id,
         )
 
     def _land_network_response(
@@ -443,6 +453,8 @@ class AsReceivedSnapshotStore:
         headers: Mapping[str, str],
         clock: TrustedClock,
         max_bytes: int = MAX_SNAPSHOT_BYTES,
+        requested_at: datetime | None = None,
+        request_plan_id: str | None = None,
     ) -> LandedSnapshot:
         if self.acquisition_registry is None:
             raise ContractError("network landing requires a loader-pinned acquisition registry")
@@ -503,6 +515,8 @@ class AsReceivedSnapshotStore:
                 time_authority=trusted_clock.mode,
                 synthetic_permit_id=None,
                 max_bytes=max_bytes,
+                requested_at=requested_at,
+                request_plan_id=request_plan_id,
             ),
         )
 
@@ -520,6 +534,8 @@ class AsReceivedSnapshotStore:
         time_authority: str,
         synthetic_permit_id: str | None,
         max_bytes: int,
+        requested_at: datetime | None = None,
+        request_plan_id: str | None = None,
     ) -> LandedSnapshot:
         if not SAFE_SOURCE.fullmatch(source):
             raise ContractError("snapshot source must be a safe identifier")
@@ -534,8 +550,24 @@ class AsReceivedSnapshotStore:
             raise ContractError("snapshot response is empty, oversized, or has an invalid byte bound")
         normalized_headers = normalize_response_headers(headers)
         raw_hash = sha256_bytes(raw)
+        if (requested_at is None) != (request_plan_id is None):
+            raise ContractError(
+                "snapshot request time and request plan ID must be supplied together"
+            )
+        request_binding: dict[str, object] = {}
+        schema_version = 1
+        if requested_at is not None:
+            requested = require_aware_utc(requested_at, "requested_at")
+            if requested > retrieved:
+                raise ContractError("snapshot retrieval cannot predate its request")
+            require_sha256(request_plan_id, "request_plan_id")
+            schema_version = 2
+            request_binding = {
+                "requested_at": iso_z(requested),
+                "request_plan_id": request_plan_id,
+            }
         unsigned = {
-            "schema_version": 1,
+            "schema_version": schema_version,
             "source": source,
             "url": validated_url,
             "http_status": http_status,
@@ -547,6 +579,7 @@ class AsReceivedSnapshotStore:
             "acquisition_capability_id": acquisition_capability_id,
             "time_authority": time_authority,
             "synthetic_permit_id": synthetic_permit_id,
+            **request_binding,
         }
         snapshot_id = sha256_bytes(canonical_json_bytes(unsigned))
         source_root = self.root / source
@@ -636,10 +669,18 @@ def _load_snapshot(
         raw = (directory / "raw.bin").read_bytes()
     except (OSError, json.JSONDecodeError) as exc:
         raise IntegrityError("snapshot receipt/raw bytes are invalid") from exc
-    if set(receipt) != RECEIPT_FIELDS or not isinstance(headers, dict):
+    schema_version = receipt.get("schema_version")
+    expected_fields = (
+        RECEIPT_V1_FIELDS
+        if schema_version == 1
+        else RECEIPT_V2_FIELDS
+        if schema_version == 2
+        else set()
+    )
+    if set(receipt) != expected_fields or not isinstance(headers, dict):
         raise IntegrityError("snapshot receipt fields differ from the exact contract")
-    if type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1:
-        raise IntegrityError("snapshot schema_version must be integer one")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise IntegrityError("snapshot schema_version must be integer one or two")
     if type(receipt["http_status"]) is not int or type(receipt["raw_bytes"]) is not int:
         raise IntegrityError("snapshot numeric receipt fields must be exact integers")
     if (
@@ -679,6 +720,28 @@ def _load_snapshot(
             "synthetic_permit_id",
         )
     }
+    requested_at: datetime | None = None
+    request_plan_id: str | None = None
+    if schema_version == 2:
+        try:
+            requested_at = parse_utc_z(
+                receipt["requested_at"],
+                "snapshot.requested_at",
+            )
+            request_plan_id = require_sha256(
+                receipt["request_plan_id"],
+                "snapshot.request_plan_id",
+            )
+            receipt_retrieved_at = parse_utc_z(
+                receipt["retrieved_at"],
+                "snapshot.retrieved_at",
+            )
+        except ContractError as exc:
+            raise IntegrityError(str(exc)) from exc
+        if requested_at > receipt_retrieved_at:
+            raise IntegrityError("snapshot retrieval predates its request")
+        unsigned["requested_at"] = receipt["requested_at"]
+        unsigned["request_plan_id"] = request_plan_id
     expected = sha256_bytes(canonical_json_bytes(unsigned))
     if receipt["snapshot_id"] != expected:
         raise IntegrityError("snapshot ID differs from receipt")
@@ -747,6 +810,8 @@ def _load_snapshot(
         acquisition_capability_id=str(receipt["acquisition_capability_id"]),
         time_authority=time_authority,
         synthetic_permit_id=(str(synthetic_permit_id) if synthetic_permit_id is not None else None),
+        requested_at=requested_at,
+        request_plan_id=request_plan_id,
         acquisition_registry=(
             acquisition_registry
             if acquisition_mode == "NETWORK_AS_RECEIVED"

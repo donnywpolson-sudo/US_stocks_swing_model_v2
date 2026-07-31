@@ -194,6 +194,8 @@ def guarded_fetch_json(
     authorization_session: LocalNetworkExecutionSession | None = None,
     page_index: int = 0,
     expected_page_token: str | None = None,
+    source: str | None = None,
+    max_response_bytes: int | None = None,
 ) -> HttpResponseEvidence:
     if not network_enabled or os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
         raise NetworkGuardError(
@@ -202,6 +204,17 @@ def guarded_fetch_json(
     if not api_key_id or not api_secret_key:
         raise ContractError("Alpaca credentials must be supplied from the environment")
     trusted_clock = require_trusted_clock(clock)
+    response_limit = (
+        MAX_ALPACA_RESPONSE_BYTES
+        if max_response_bytes is None
+        else max_response_bytes
+    )
+    if (
+        type(response_limit) is not int
+        or not 1 <= response_limit <= MAX_ALPACA_RESPONSE_BYTES
+    ):
+        raise ContractError("Alpaca response limit is outside the allowed bound")
+    request_source = source or f"alpaca_{policy.feed}_qualification"
     request.validate_against_trusted_time(
         policy,
         trusted_clock.now(),
@@ -209,10 +222,10 @@ def guarded_fetch_json(
     url = request.url(policy)
     request_attempt = assert_local_network_request(
         authorization_session,
-        source=f"alpaca_{policy.feed}_qualification",
+        source=request_source,
         url=url,
         timeout_seconds=timeout_seconds,
-        max_response_bytes=MAX_ALPACA_RESPONSE_BYTES,
+        max_response_bytes=response_limit,
         page_index=page_index,
         expected_page_token=expected_page_token,
         clock=trusted_clock,
@@ -226,7 +239,7 @@ def guarded_fetch_json(
         with open_without_redirects(
             http_request, timeout_seconds=timeout_seconds
         ) as response:
-            payload_bytes = response.read(MAX_ALPACA_RESPONSE_BYTES + 1)
+            payload_bytes = response.read(response_limit + 1)
             headers = normalize_response_headers(
                 {
                     key.lower(): value
@@ -237,7 +250,7 @@ def guarded_fetch_json(
             status = int(response.status)
             response_url = str(response.geturl())
     except HTTPError as response:
-        payload_bytes = response.read(MAX_ALPACA_RESPONSE_BYTES + 1)
+        payload_bytes = response.read(response_limit + 1)
         headers = normalize_response_headers(
             {
                 key.lower(): value
@@ -249,7 +262,7 @@ def guarded_fetch_json(
         response_url = str(response.geturl())
     if response_url != url:
         raise ContractError("Alpaca response redirected away from the exact approved request URL")
-    if len(payload_bytes) > MAX_ALPACA_RESPONSE_BYTES:
+    if len(payload_bytes) > response_limit:
         raise ContractError("Alpaca response exceeded the bounded byte limit")
     evidence = HttpResponseEvidence(
         url=url,
@@ -281,11 +294,19 @@ def guarded_fetch_landed_pages(
     max_pages: int = 10,
     clock: TrustedClock | None = None,
     authorization_session: LocalNetworkExecutionSession | None = None,
+    source: str | None = None,
+    timeout_seconds: int = 30,
+    max_response_bytes: int | None = None,
 ) -> tuple[LandedSnapshot, ...]:
     if not 1 <= max_pages <= MAX_QUALIFICATION_PAGES:
         raise ContractError(f"max_pages must be in [1,{MAX_QUALIFICATION_PAGES}]")
     pages: list[LandedSnapshot] = []
     trusted_clock = require_trusted_clock(clock)
+    response_limit = (
+        MAX_ALPACA_RESPONSE_BYTES
+        if max_response_bytes is None
+        else max_response_bytes
+    )
     request = initial
     seen_tokens: set[str] = set()
     for page_index in range(max_pages):
@@ -299,17 +320,27 @@ def guarded_fetch_landed_pages(
             authorization_session=authorization_session,
             page_index=page_index,
             expected_page_token=request.page_token,
+            source=source,
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=response_limit,
         )
-        source = f"alpaca_{policy.feed}_qualification"
+        request_source = source or f"alpaca_{policy.feed}_qualification"
         snapshot = snapshot_store._land_network_response(
             transport_evidence=evidence.transport_evidence,
-            source=source,
+            source=request_source,
             requested_url=evidence.url,
             response_url=evidence.response_url,
             http_status=evidence.status,
             raw=evidence.raw_bytes,
             headers=evidence.headers,
             clock=trusted_clock,
+            max_bytes=response_limit,
+            requested_at=initial.requested_at if source is not None else None,
+            request_plan_id=(
+                authorization_session.plan.plan_id
+                if source is not None and authorization_session is not None
+                else None
+            ),
         )
         pages.append(snapshot)
         # Pagination may be parsed only from re-verified bytes after the atomic
