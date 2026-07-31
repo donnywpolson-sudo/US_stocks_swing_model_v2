@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0",
+  "project": "US_stocks_swing_model_v2",
+  "mode": "ALPACA_LEGACY_ARCHIVE_REHABILITATION_PUBLICATION_PLAN_ONLY_BY_DEFAULT",
+  "rehabilitation_policy_id": "d809d1eafeaec891a195eaa597e78bb5b94bf84f5de9d6d42e20118967985d38",
+  "hfdl_retirement_policy_id": "e99faafdf19a1818fedbfb308c3a22124c25999e19fd70d8e4917b77339f8776",
+  "assessment_binding": {
+    "plan_id": "cbff5e58eb3ccd3220aec14e0ed5ad7608ab411c57a9ff1b028a0fb7c5452c7c",
+    "page_census_sha256": "c0cfa56cf31c915cd647b57352feed883d8ce3646f7e6064f17fe6148a566295",
+    "provenance_census_sha256": "f7be2cc69380e36f68431516e9038dce52f9bd5c7bb1c7b41b7a18bd4b087de9",
+    "metadata_evidence_census_sha256": "8a38508bf064a4f00aefd481289d6560032e32782d508bd1a6ff1d9eb9cba904",
+    "symbols": 780,
+    "pages": 198,
+    "chunks": 16,
+    "rows": 1878977,
+    "event_start": "2016-01-04",
+    "event_end": "2026-07-10",
+    "compressed_bytes": 54343446,
+    "uncompressed_bytes": 200732774
+  },
+  "release_contract": {
+    "dataset": "alpaca_legacy_daily_bars",
+    "source_epoch": "alpaca_sip_legacy_canonicalized_payload_20160104_20260710_v1",
+    "role": "legacy_discovery_only",
+    "quality_state": "LEGACY_CAVEATED",
+    "bars_path": "bars.parquet",
+    "source_evidence_manifest_path": "source_evidence_manifest.json",
+    "receipt_path": "rehabilitation_receipt.json",
+    "native_page_prefix": "native_pages",
+    "copy_exact_page_count": 198,
+    "regenerate_derived_parquet": true,
+    "copy_legacy_derived_parquet": false,
+    "active_source_eligible": false,
+    "training_authorized": false,
+    "research_authorized": false
+  },
+  "outputs": {
+    "accepted_root": "data/vault/accepted",
+    "work_root": "data/w/alpaca_archive_rehabilitation",
+    "tracked": false,
+    "ignored_generated_evidence": true,
+    "publication_count": 1,
+    "overwrite_or_replace_existing_release": false
+  },
+  "production_execution": {
+    "plan_only_default": true,
+    "approved_plan_id_required": true,
+    "confirmation_environment_variable": "ALPACA_ARCHIVE_REHABILITATION_PUBLICATION_APPROVED",
+    "confirmation_value": "YES",
+    "network_calls": 0,
+    "credential_access": false,
+    "retry_authorized": false,
+    "cleanup_authorized": false
+  },
+  "synthetic_execution": {
+    "permit_scope": "SYNTHETIC_ALPACA_ARCHIVE_REHABILITATION_PUBLICATION",
+    "fixture_root_required": true,
+    "real_archive_allowed": false,
+    "generated_evidence_eligible": false
+  },
+  "code_closure_paths": [
+    "src/us_stocks_swing_model_v2/alpaca_archive_rehabilitation.py",
+    "src/us_stocks_swing_model_v2/alpaca_archive_rehabilitation_publisher.py",
+    "src/us_stocks_swing_model_v2/canonical/alpaca.py",
+    "src/us_stocks_swing_model_v2/canonical/parquet.py",
+    "src/us_stocks_swing_model_v2/cli/publish_alpaca_archive_rehabilitation.py",
+    "src/us_stocks_swing_model_v2/hfdl_retirement.py",
+    "src/us_stocks_swing_model_v2/releases.py"
+  ],
+  "config_closure_paths": [
+    "config/alpaca_archive_rehabilitation_policy.json",
+    "config/alpaca_archive_rehabilitation_publication_policy.json",
+    "config/environment.lock.json",
+    "config/hfdl_retirement_policy.json",
+    "config/sources.json"
+  ],
+  "authorities": {
+    "provider_access": false,
+    "credential_access": false,
+    "source_activation": false,
+    "eligible_universe_build": false,
+    "feature_or_outcome_build": false,
+    "training": false,
+    "evaluation": false,
+    "research": false,
+    "hfdl_use": false,
+    "hfdl_cleanup": false
+  },
+  "stop_conditions": [
+    "repository_or_policy_binding_mismatch",
+    "assessment_or_archive_identity_mismatch",
+    "source_page_or_pagination_mismatch",
+    "derived_legacy_parquet_requested",
+    "bar_schema_key_order_or_ohlcv_mismatch",
+    "output_census_hash_or_release_identity_mismatch",
+    "unexpected_existing_stage_or_release",
+    "partial_ambiguous_or_non_atomic_publication",
+    "hfdl_input_mixing_or_cleanup_request",
+    "network_credential_activation_research_or_training_request"
+  ]
+}

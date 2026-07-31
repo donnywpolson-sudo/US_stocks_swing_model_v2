@@ -107,6 +107,14 @@ qualification evidence. A qualified Alpaca feed and as-received Nasdaq
 identity/membership snapshots begin separate immutable epochs. Every feed,
 methodology, or identity change creates a new release and epoch.
 
+The rehabilitation publisher is plan-only by default. Its frozen release
+contract accepts exactly the validated 198 compressed payload pages, copies
+those pages as independent immutable evidence, and regenerates deterministic
+canonical Parquet from their JSON payloads. It rejects legacy derived Parquet,
+HFDL input, identity or availability claims, activation, and research authority.
+Synthetic publication tests exercise mechanics only; real evidence publication
+requires a separate exact plan and execution gate.
+
 - [Alpaca market-data plans](https://docs.alpaca.markets/us/docs/about-market-data-api)
 - [Alpaca historical-bars reference](https://docs.alpaca.markets/us/reference/stockbarsingle-1)
 - [Alpaca market-data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq)

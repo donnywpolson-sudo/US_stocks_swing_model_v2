@@ -177,6 +177,7 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
         encoding="utf-8"
     )
     sources = (ROOT / "config" / "sources.json").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "HF Data Library is retired and excluded" in agents
     assert "Never mix HFDL with" in agents
@@ -185,3 +186,6 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "ALPACA_HISTORICAL_REHABILITATION_PENDING" in outline
     assert "hfdl_retirement_policy.json" in sources
     assert "alpaca_archive_rehabilitation_policy.json" in sources
+    assert "alpaca_archive_rehabilitation_publication_policy.json" in sources
+    assert "validated 198 compressed payload pages" in harness
+    assert "regenerates deterministic Parquet" in readme

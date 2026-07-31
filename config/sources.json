@@ -38,7 +38,8 @@
       "role": "failed_qualification_evidence_pending_legacy_rehabilitation",
       "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/data/providers/alpaca_sip_v1/run_summary.json",
       "rehabilitation_policy": "config/alpaca_archive_rehabilitation_policy.json",
-      "scope": "780_stock_symbols_1878977_daily_sip_rows_396_native_json_gz_pages",
+      "rehabilitation_publication_policy": "config/alpaca_archive_rehabilitation_publication_policy.json",
+      "scope": "780_stock_symbols_1878977_daily_sip_rows_198_native_json_gz_pages",
       "quality_status": "fail_coverage_0_98638_three_gaps_22357_unmapped_survivorship_fail_stock_only",
       "prohibitions": [
         "treat_as_full_history",

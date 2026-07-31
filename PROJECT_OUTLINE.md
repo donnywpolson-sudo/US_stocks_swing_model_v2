@@ -78,8 +78,11 @@ active Alpaca SIP source, and first bounded active-SIP canonical-bars release
 are preserved. HFDL is retired and excluded from future derivative and research
 work; its files and releases remain frozen audit evidence pending separately
 authorized cleanup. The next historical-data path is the plan-only
-rehabilitation of the existing 780-symbol Alpaca archive, followed by separately
-authorized immutable publication and a bounded Alpaca stock/ETF backfill.
+rehabilitation of the existing 198-page, 780-symbol Alpaca archive. The
+checked-in immutable publisher contract copies only validated page evidence and
+regenerates canonical Parquet under a caveated `legacy_discovery_only` release;
+real publication and the bounded Alpaca stock/ETF backfill remain separately
+authorized.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
 provider acquisition, prospective confirmation, destructive cutover, external
@@ -189,7 +192,7 @@ permission to rerun or rescue a retired hypothesis.
 |---|---|
 | Completed HFDL migration capsule | Frozen historical audit and trial-census evidence; excluded from future derivative and research work |
 | HF Data Library | Retired and excluded; preserved unchanged until separately authorized cleanup; never mixed with Alpaca |
-| Existing Alpaca SIP capsule and probe | Failed qualification evidence; the exact 780-symbol canonicalized raw-payload archive is eligible only for plan-only rehabilitation and separately authorized PIT-unresolved legacy-discovery publication |
+| Existing Alpaca SIP capsule and probe | Failed qualification evidence; the exact 198-page, 780-symbol canonicalized raw-payload archive is eligible only for plan-only rehabilitation and separately authorized PIT-unresolved legacy-discovery publication |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, while canonical bars remain separately gated |
 | Alpaca assets | The current accepted identity release binds the immutable asset snapshot and frozen projection; it supplies asset identity but does not authorize bars or research |
 | Nasdaq Trader | The current accepted identity release binds the strictly newer comprehensive capture and Alpaca identity projection; retrospective membership remains prohibited |
@@ -253,8 +256,9 @@ Milestone state:
    dependence-aware statistics, costs, benchmarks, controls, finite gates, and
    sleeve/book robustness propagation are implemented and bound to
    non-authorizing receipts. HFDL-backed execution is retired; Alpaca historical
-   rehabilitation, publication, and preregistration must precede any future
-   real-history execution.
+   rehabilitation now has a synthetic-tested immutable publisher contract, but
+   real publication, the successor stock/ETF backfill, and preregistration must
+   precede any future real-history execution.
 4. **Candidate research pending**: requires a separately authorized,
    predeclared, counted hypothesis and historical evaluation.
 5. **Prospective confirmation pending**: requires a sealed candidate, scoring
