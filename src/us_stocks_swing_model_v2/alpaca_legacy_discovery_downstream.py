@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
+from datetime import date
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .common import canonical_json_bytes, reject_link, require_sha256, sha256_bytes, sha256_file
 from .errors import ContractError, IntegrityError
@@ -24,6 +26,65 @@ DISCOVERY_PROXY = {
     "generated_evidence_write_authorized": False,
     "training_or_evaluation_authorized": False,
 }
+
+
+def build_raw_price_proxy_outcomes(
+    sessions: Sequence[date], bars: Sequence[Mapping[str, object]]
+) -> tuple[dict[str, object], ...]:
+    """Build only untrusted five-session raw-price proxy outcomes in memory."""
+
+    ordered_sessions = tuple(sessions)
+    if (
+        not ordered_sessions
+        or tuple(sorted(ordered_sessions)) != ordered_sessions
+        or len(set(ordered_sessions)) != len(ordered_sessions)
+        or any(type(value) is not date for value in ordered_sessions)
+    ):
+        raise ContractError("proxy sessions must be sorted unique exact dates")
+    by_symbol: dict[str, dict[date, Mapping[str, object]]] = {}
+    for row in bars:
+        if type(row) is not dict or set(row) != {"symbol", "session", "open", "close"}:
+            raise ContractError("proxy bar fields differ")
+        symbol, session = row["symbol"], row["session"]
+        if type(symbol) is not str or not symbol or symbol != symbol.strip().upper() or type(session) is not date:
+            raise ContractError("proxy bar identity differs")
+        if session not in ordered_sessions:
+            raise ContractError("proxy bar session is outside the pinned calendar")
+        if session in by_symbol.setdefault(symbol, {}):
+            raise ContractError("proxy bars contain a duplicate symbol/session")
+        by_symbol[symbol][session] = row
+    outcomes: list[dict[str, object]] = []
+    for symbol in sorted(by_symbol):
+        for index, decision_session in enumerate(ordered_sessions[:-5]):
+            entry_session, exit_session = ordered_sessions[index + 1], ordered_sessions[index + 5]
+            entry = by_symbol[symbol].get(entry_session)
+            exit_bar = by_symbol[symbol].get(exit_session)
+            entry_open = entry["open"] if entry is not None else None
+            exit_close = exit_bar["close"] if exit_bar is not None else None
+            valid = (
+                type(entry_open) in {int, float}
+                and not isinstance(entry_open, bool)
+                and type(exit_close) in {int, float}
+                and not isinstance(exit_close, bool)
+                and math.isfinite(float(entry_open))
+                and math.isfinite(float(exit_close))
+                and float(entry_open) > 0
+                and float(exit_close) > 0
+            )
+            outcomes.append({
+                "symbol": symbol,
+                "decision_session": decision_session,
+                "entry_session": entry_session,
+                "exit_session": exit_session,
+                "entry_open": float(entry_open) if valid else None,
+                "exit_close": float(exit_close) if valid else None,
+                "proxy_return": float(exit_close) / float(entry_open) - 1.0 if valid else None,
+                "status": "READY_UNTRUSTED_RAW_PRICE_PROXY" if valid else "UNRESOLVED_RAW_HORIZON",
+                "target_semantics": DISCOVERY_PROXY["target_semantics"],
+                "historical_proxy": True,
+                "canonical_target_equivalent": False,
+            })
+    return tuple(outcomes)
 
 
 def _repo_root() -> Path:

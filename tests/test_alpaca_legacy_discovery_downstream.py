@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from us_stocks_swing_model_v2.alpaca_legacy_discovery_downstream import build_downstream_plan, load_contract
+from us_stocks_swing_model_v2.alpaca_legacy_discovery_downstream import (
+    build_downstream_plan,
+    build_raw_price_proxy_outcomes,
+    load_contract,
+)
 from us_stocks_swing_model_v2.common import canonical_json_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, build_manifest
@@ -61,3 +66,22 @@ def test_downstream_plan_rejects_source_caveat_drift(tmp_path: Path) -> None:
 def test_contract_is_content_addressed() -> None:
     contract = load_contract(REPO)
     assert len(contract["contract_id"]) == 64
+
+
+def test_raw_price_proxy_preserves_unresolved_horizons_and_never_claims_canonical_target() -> None:
+    sessions = tuple(date(2020, 1, day) for day in range(2, 9))
+    bars = [
+        {"symbol": "AAPL", "session": session, "open": 100.0, "close": 100.0 + index}
+        for index, session in enumerate(sessions)
+    ] + [
+        {"symbol": "SPY", "session": session, "open": 200.0, "close": 200.0}
+        for session in sessions[:-1]
+    ]
+    outcomes = build_raw_price_proxy_outcomes(sessions, bars)
+    ready = next(row for row in outcomes if row["symbol"] == "AAPL" and row["decision_session"] == sessions[0])
+    unresolved = next(row for row in outcomes if row["symbol"] == "SPY" and row["decision_session"] == sessions[1])
+    assert ready["proxy_return"] == pytest.approx(0.05)
+    assert ready["status"] == "READY_UNTRUSTED_RAW_PRICE_PROXY"
+    assert unresolved["proxy_return"] is None
+    assert unresolved["status"] == "UNRESOLVED_RAW_HORIZON"
+    assert all(row["canonical_target_equivalent"] is False for row in outcomes)
