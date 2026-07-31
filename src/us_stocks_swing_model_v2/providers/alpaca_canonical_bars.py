@@ -282,10 +282,30 @@ def _identity_bindings(
     snapshots = payload.get("snapshots")
     if not isinstance(snapshots, list) or len(snapshots) != 1:
         raise IntegrityError("identity release snapshot census differs")
-    snapshot = snapshots[0]
+    selected = _selected_asset_ids(
+        snapshots[0],
+        expected_snapshot_id=binding["identity_snapshot_id"],
+        expected_asset_ids=binding["asset_ids"],
+    )
+    return (
+        {
+            "release_id": manifest.release_id,
+            "identity_snapshot_id": binding["identity_snapshot_id"],
+        },
+        selected,
+    )
+
+
+def _selected_asset_ids(
+    snapshot: object,
+    *,
+    expected_snapshot_id: str,
+    expected_asset_ids: Mapping[str, str],
+) -> dict[str, str]:
+    require_sha256(expected_snapshot_id, "identity.expected_snapshot_id")
     if (
         not isinstance(snapshot, dict)
-        or snapshot.get("identity_snapshot_id") != binding["identity_snapshot_id"]
+        or snapshot.get("snapshot_id") != expected_snapshot_id
         or not isinstance(snapshot.get("rows"), list)
     ):
         raise IntegrityError("identity snapshot identity differs")
@@ -300,6 +320,7 @@ def _identity_bindings(
             or row.get("active") is not True
             or row.get("membership_present") is not True
             or row.get("security_type") not in {"STOCK", "ETF"}
+            or row.get("identity_snapshot_id") != expected_snapshot_id
             or not isinstance(row.get("asset_id"), str)
             or not row["asset_id"]
         ):
@@ -307,15 +328,9 @@ def _identity_bindings(
         selected[symbol] = row["asset_id"]
     if set(selected) != {"AAPL", "SPY"}:
         raise IntegrityError("identity release lacks exact AAPL/SPY bindings")
-    if selected != binding.get("asset_ids"):
+    if selected != expected_asset_ids:
         raise IntegrityError("identity asset UUID bindings differ from policy")
-    return (
-        {
-            "release_id": manifest.release_id,
-            "identity_snapshot_id": binding["identity_snapshot_id"],
-        },
-        dict(sorted(selected.items())),
-    )
+    return dict(sorted(selected.items()))
 
 
 def _calendar_binding(

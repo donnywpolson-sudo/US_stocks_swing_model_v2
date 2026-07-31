@@ -16,6 +16,7 @@ from us_stocks_swing_model_v2.providers.alpaca_canonical_bars import (
     BARS_FILENAME,
     RECEIPT_FILENAME,
     SOURCE_NAME,
+    _selected_asset_ids,
     build_canonical_bars_candidate,
     build_canonical_bars_fixture_plan,
     build_canonical_bars_publication_plan,
@@ -27,6 +28,13 @@ from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
 REPO = Path(__file__).resolve().parents[1]
 REQUESTED_AT = datetime(2026, 7, 31, 0, 30, tzinfo=timezone.utc)
 RETRIEVED_AT = datetime(2026, 7, 31, 0, 31, tzinfo=timezone.utc)
+IDENTITY_SNAPSHOT_ID = (
+    "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6"
+)
+ASSET_IDS = {
+    "AAPL": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+    "SPY": "b28f4066-5c6d-479b-a2af-85dc1a8f16fb",
+}
 
 
 def _clock() -> TrustedClock:
@@ -76,6 +84,53 @@ def _payload(*, next_page_token: str | None = None) -> bytes:
             "next_page_token": next_page_token,
         }
     )
+
+
+def _identity_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "snapshot_id": IDENTITY_SNAPSHOT_ID,
+        "rows": [
+            {
+                "symbol": symbol,
+                "asset_id": ASSET_IDS[symbol],
+                "eligible": True,
+                "active": True,
+                "membership_present": True,
+                "security_type": "STOCK" if symbol == "AAPL" else "ETF",
+                "identity_snapshot_id": IDENTITY_SNAPSHOT_ID,
+            }
+            for symbol in ("AAPL", "SPY")
+        ],
+    }
+
+
+def test_identity_snapshot_validator_uses_accepted_snapshot_id_schema() -> None:
+    assert _selected_asset_ids(
+        _identity_snapshot(),
+        expected_snapshot_id=IDENTITY_SNAPSHOT_ID,
+        expected_asset_ids=ASSET_IDS,
+    ) == ASSET_IDS
+
+
+def test_identity_snapshot_validator_rejects_old_or_row_drifted_binding() -> None:
+    old_shape = _identity_snapshot()
+    old_shape["identity_snapshot_id"] = old_shape.pop("snapshot_id")
+    with pytest.raises(IntegrityError, match="snapshot identity differs"):
+        _selected_asset_ids(
+            old_shape,
+            expected_snapshot_id=IDENTITY_SNAPSHOT_ID,
+            expected_asset_ids=ASSET_IDS,
+        )
+
+    row_drift = _identity_snapshot()
+    row_drift["rows"][0]["identity_snapshot_id"] = "0" * 64
+    with pytest.raises(IntegrityError, match="not eligible and exact"):
+        _selected_asset_ids(
+            row_drift,
+            expected_snapshot_id=IDENTITY_SNAPSHOT_ID,
+            expected_asset_ids=ASSET_IDS,
+        )
 
 
 def _snapshot(
