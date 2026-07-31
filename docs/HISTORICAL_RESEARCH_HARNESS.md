@@ -506,3 +506,36 @@ complete preregistration, counted-trial binding, and separately authorized
 real-history outcome access are all required before any proxy return is computed
 or any model or WFA is run. No bridge plan can support a trusted readiness,
 alpha, candidate, or production claim.
+
+### Proxy-derivative and preregistered-adapter mechanics
+
+The versioned
+`LEGACY_DISCOVERY_PROXY_DERIVATIVE_SYNTHETIC_MECHANICS` contract implements the
+next local mechanics layer without opening real historical rows. Before a future
+real derivative may be attempted, its source-closure verifier must perform full
+accepted-release verification for the foundation set and for one epoch's
+causal-bar, feature-input, and outcome-input releases. It then requires the
+foundation set's exact component census plus exact component manifests, payload
+hashes, censuses, provenance, calendar and causal-bar bindings, epoch and event
+bounds, source adjustment, and the unchanged discovery-only evidence ceiling.
+The PiTrading-consolidated and IEX-only epochs must be verified and derived
+separately.
+
+The in-memory synthetic materializer proves four fail-closed transformations:
+proxy eligibility with no persistent asset or trusted sleeve claim, the frozen
+four-feature projection, the explicitly source-adjusted proxy return, and an
+exact-key WFA input join that preserves every unresolved row. It rejects extra
+fields, unsorted or duplicate keys, feature/outcome census drift, a preexisting
+matured target, caveat drift, and any attempt to treat the proxy as the canonical
+split-normalized target. This surface requires an exact content-addressed
+synthetic-only permit and cannot publish evidence.
+
+The preregistered adapter binds one derivative and one source epoch to a counted
+`REGISTERED_HISTORICAL_DISCOVERY` trial specification, declaration, registry
+binding, ledger head, charter, feature, proxy-label, split, cost, robustness,
+code, commit, and environment identities. It emits hashes and counts only for a
+synthetic fixture. Its executor entrypoint is null and it grants no real-history
+access, outcome unlock, generated write, training, evaluation, WFA, trusted
+sleeve, candidate, readiness, or alpha authority. A future accepted derivative
+publication, real-history preregistration, outcome-access permit, and execution
+gate remain separately designed and authorized actions.

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "project": "US_stocks_swing_model_v2",
+  "contract_type": "LEGACY_DISCOVERY_PROXY_DERIVATIVE_SYNTHETIC_MECHANICS",
+  "bridge_contract_id": "e4ee1cccd52cb5a0af5f574eea07c46793ef522f928a6bb08ed8e017b0cfdfb3",
+  "source_closure": {
+    "required_output_kinds": [
+      "causal_bars",
+      "feature_inputs",
+      "outcome_inputs"
+    ],
+    "role": "legacy_discovery_only",
+    "quality_state": "LEGACY_CAVEATED",
+    "evidence_class": "LEGACY_DISCOVERY",
+    "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
+    "source_adjustment": "hfdl_clean_source_adjusted",
+    "point_in_time_safe": false,
+    "epochs_may_be_pooled": false,
+    "required_source_epochs": [
+      "hfdl_pitrading_consolidated",
+      "hfdl_iex_only"
+    ],
+    "full_foundation_set_verification_required": true,
+    "component_payload_hash_verification_required": true,
+    "component_provenance_verification_required": true
+  },
+  "proxy_derivative": {
+    "sample_key": [
+      "source_epoch",
+      "source_series_id",
+      "decision_session"
+    ],
+    "feature_names": [
+      "close_to_close_return_1",
+      "intraday_return",
+      "range_fraction",
+      "log1p_volume"
+    ],
+    "feature_ready_status": "PRICE_INPUT_READY_PIT_UNRESOLVED",
+    "outcome_ready_input_status": "BLOCKED_ACTION_AND_DELISTING_EVIDENCE",
+    "target_semantics": "HFDL_SOURCE_ADJUSTED_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1",
+    "target_formula": "(exit_close / entry_open) - 1",
+    "canonical_split_normalized_target_equivalent": false,
+    "membership_evidence_status": "UNKNOWN_NOT_AS_RECEIVED",
+    "security_type_evidence_status": "UNKNOWN_NOT_AS_RECEIVED",
+    "action_evidence_status": "UNAVAILABLE_NOT_AS_RECEIVED",
+    "delisting_evidence_status": "UNAVAILABLE_NOT_AS_RECEIVED",
+    "source_series_id_is_persistent_asset_identity": false,
+    "preserve_every_input_row": true,
+    "trusted_sleeves": [],
+    "diagnostic_sleeves": [
+      "proxy_unknown_long",
+      "proxy_unknown_short"
+    ]
+  },
+  "preregistered_adapter": {
+    "mode": "PREREGISTERED_INPUT_ADAPTER_ONLY",
+    "evidence_class": "REGISTERED_HISTORICAL_DISCOVERY",
+    "required_bindings": [
+      "trial_declaration_id",
+      "trial_registry_binding_id",
+      "trial_ledger_head_id",
+      "charter_id",
+      "feature_spec_id",
+      "proxy_label_spec_id",
+      "split_spec_id",
+      "cost_spec_id",
+      "robustness_policy_id",
+      "code_commit",
+      "code_hash",
+      "environment_id"
+    ],
+    "accepted_derivative_release_required_for_real_use": true,
+    "epochs_registered_separately": true,
+    "executor_entrypoint": null,
+    "real_history_execution_authorized": false
+  },
+  "synthetic_mechanics": {
+    "derivative_permit_scope": "SYNTHETIC_LEGACY_DISCOVERY_PROXY_DERIVATIVE",
+    "adapter_permit_scope": "SYNTHETIC_LEGACY_DISCOVERY_PREREGISTERED_ADAPTER",
+    "fixture_root_required": true,
+    "generated_evidence_eligible": false,
+    "alpha_evidence": false,
+    "candidate_eligible": false
+  },
+  "authorities": {
+    "real_row_access": false,
+    "proxy_outcome_computation_on_real_rows": false,
+    "generated_evidence_write": false,
+    "derivative_publication": false,
+    "training": false,
+    "evaluation": false,
+    "real_history_wfa": false,
+    "candidate_sealing": false,
+    "trusted_readiness_claim": false,
+    "alpha_claim": false
+  },
+  "stop_conditions": [
+    "source_release_or_payload_hash_mismatch",
+    "component_provenance_or_census_mismatch",
+    "source_epoch_pooling_or_relabeling",
+    "source_adjustment_or_target_semantics_mismatch",
+    "missing_extra_duplicate_or_unsorted_sample_key",
+    "feature_or_outcome_schema_mismatch",
+    "unresolved_row_drop",
+    "missing_or_mismatched_preregistration_binding",
+    "executor_or_real_history_authority_request",
+    "trusted_sleeve_candidate_or_alpha_claim"
+  ],
+  "contract_id": "7bc0ee0174fec39ab898e7bb94c586ecd9b9c7be7c6570df9e43756a74c0b01e"
+}
