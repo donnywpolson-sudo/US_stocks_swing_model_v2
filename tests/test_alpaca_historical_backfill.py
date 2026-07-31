@@ -459,8 +459,74 @@ def test_unit_verifier_accepts_exact_two_page_terminal_lineage(
         synthetic=True,
     )
     assert assessment["bar_count"] == 2
+    assert assessment["normalized_zero_activity_vwap_rows"] == 0
     assert assessment["zero_row_symbols"] == ["CCC"]
     assert assessment["terminal_pagination"] is True
+
+
+@pytest.mark.parametrize("trade_count", [0, None])
+def test_unit_verifier_normalizes_exact_zero_activity_vwap_without_mutating_raw(
+    tmp_path: Path,
+    trade_count: int | None,
+) -> None:
+    plan = _fixture_plan()
+    unit = plan["request_units"][0]
+    bar = _bar(date(2016, 1, 4))
+    bar.update(v=0, n=trade_count, vw=0)
+    snapshot = _land_unit_page(
+        tmp_path,
+        unit,
+        payload={
+            "bars": {unit["symbols"][0]: [bar]},
+            "next_page_token": None,
+        },
+    )
+    raw_before = snapshot.read_verified_bytes()
+
+    assessment = verify_historical_backfill_unit(
+        unit,
+        (snapshot,),
+        calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30)],
+        registry=_registry(),
+        synthetic=True,
+    )
+
+    assert assessment["bar_count"] == 1
+    assert assessment["normalized_zero_activity_vwap_rows"] == 1
+    assert assessment["pages"][0]["normalized_zero_activity_vwap_rows"] == 1
+    assert snapshot.read_verified_bytes() == raw_before
+
+
+@pytest.mark.parametrize(
+    ("volume", "trade_count"),
+    [(1, 0), (0, 1)],
+)
+def test_unit_verifier_rejects_zero_vwap_with_positive_activity(
+    tmp_path: Path,
+    volume: int,
+    trade_count: int,
+) -> None:
+    plan = _fixture_plan()
+    unit = plan["request_units"][0]
+    bar = _bar(date(2016, 1, 4))
+    bar.update(v=volume, n=trade_count, vw=0)
+    snapshot = _land_unit_page(
+        tmp_path,
+        unit,
+        payload={
+            "bars": {unit["symbols"][0]: [bar]},
+            "next_page_token": None,
+        },
+    )
+
+    with pytest.raises(ContractError, match="violates OHLCV invariants"):
+        verify_historical_backfill_unit(
+            unit,
+            (snapshot,),
+            calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30)],
+            registry=_registry(),
+            synthetic=True,
+        )
 
 
 @pytest.mark.parametrize(

@@ -295,8 +295,11 @@ the owner-operated host invocation.
 Offline verification must require terminal pagination, requested-symbol and
 pinned-session containment, unique symbol/session rows, valid raw daily OHLCV
 and timestamps, and explicit exclusions for requested symbols with no returned
-history. It cannot require every current symbol to have existed in every
-historical session.
+history. Alpaca's exact zero-activity sentinel (`v=0`, `n=0` or null, and
+`vw=0`) is normalized process-locally to unavailable VWAP before validation and
+is counted in the assessment without changing the retained raw response. A
+zero VWAP with any positive activity remains invalid. Verification cannot
+require every current symbol to have existed in every historical session.
 
 The process-local group assessment content-addresses the exact plan, group,
 unit assessments, landed snapshot identities, row counts, and zero-history

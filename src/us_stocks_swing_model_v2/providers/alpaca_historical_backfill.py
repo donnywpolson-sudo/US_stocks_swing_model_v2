@@ -847,6 +847,29 @@ def _unit_calendar_sessions(
     return selected
 
 
+def _normalize_zero_activity_vwap_for_verification(
+    bar: object,
+) -> tuple[object, bool]:
+    """Map only Alpaca's exact zero-activity VWAP sentinel to unavailable."""
+
+    if type(bar) is not dict:
+        return bar, False
+    vwap = bar.get("vw")
+    volume = bar.get("v")
+    trade_count = bar.get("n")
+    if (
+        type(vwap) in {int, float}
+        and float(vwap) == 0.0
+        and type(volume) is int
+        and volume == 0
+        and (trade_count is None or type(trade_count) is int and trade_count == 0)
+    ):
+        normalized = dict(bar)
+        normalized["vw"] = None
+        return normalized, True
+    return bar, False
+
+
 def verify_historical_backfill_unit(
     unit: Mapping[str, object],
     pages: Sequence[LandedSnapshot],
@@ -893,6 +916,7 @@ def verify_historical_backfill_unit(
     seen_keys: set[tuple[str, object]] = set()
     observed_symbols: set[str] = set()
     observed_sessions: set[date] = set()
+    normalized_zero_activity_vwap_rows = 0
     snapshot_rows: list[dict[str, object]] = []
     for page_index, snapshot in enumerate(page_list):
         request = AlpacaBarsRequest(
@@ -925,13 +949,17 @@ def verify_historical_backfill_unit(
         ):
             raise ContractError("historical backfill response schema differs")
         page_bar_count = 0
+        page_normalized_zero_activity_vwap_rows = 0
         for symbol, bars in payload["bars"].items():
             if not isinstance(bars, list) or not bars:
                 raise ContractError("historical backfill symbol bars are empty or invalid")
             for bar in bars:
+                normalized_bar, normalized = (
+                    _normalize_zero_activity_vwap_for_verification(bar)
+                )
                 accepted = _accept_native_bar(
                     symbol=symbol,
-                    bar=bar,
+                    bar=normalized_bar,
                     eastern=NEW_YORK,
                     seen_keys=seen_keys,
                 )
@@ -941,6 +969,9 @@ def verify_historical_backfill_unit(
                 observed_symbols.add(symbol)
                 observed_sessions.add(session)
                 page_bar_count += 1
+                if normalized:
+                    normalized_zero_activity_vwap_rows += 1
+                    page_normalized_zero_activity_vwap_rows += 1
         token = payload["next_page_token"]
         if token is not None and (
             not isinstance(token, str) or not token or token in seen_tokens
@@ -960,6 +991,9 @@ def verify_historical_backfill_unit(
                 "raw_sha256": snapshot.raw_sha256,
                 "raw_bytes": snapshot.raw_path.stat().st_size,
                 "bar_count": page_bar_count,
+                "normalized_zero_activity_vwap_rows": (
+                    page_normalized_zero_activity_vwap_rows
+                ),
             }
         )
     zero_row_symbols = sorted(set(symbols) - observed_symbols)
@@ -977,6 +1011,9 @@ def verify_historical_backfill_unit(
         "zero_row_symbol_count": len(zero_row_symbols),
         "zero_row_symbols": zero_row_symbols,
         "bar_count": len(seen_keys),
+        "normalized_zero_activity_vwap_rows": (
+            normalized_zero_activity_vwap_rows
+        ),
         "observed_session_count": len(observed_sessions),
         "first_observed_session": (
             min(observed_sessions).isoformat() if observed_sessions else None
@@ -1053,6 +1090,9 @@ def run_historical_backfill_group(
         "unit_count": len(units),
         "page_count": len(snapshots),
         "bar_count": sum(item["bar_count"] for item in assessments),
+        "normalized_zero_activity_vwap_rows": sum(
+            item["normalized_zero_activity_vwap_rows"] for item in assessments
+        ),
         "observed_symbol_unit_count": sum(
             item["observed_symbol_count"] for item in assessments
         ),
