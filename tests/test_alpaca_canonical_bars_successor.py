@@ -32,8 +32,8 @@ from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
 
 
 REPO = Path(__file__).resolve().parents[1]
-REQUESTED_AT = datetime(2026, 8, 7, 4, 19, 59, tzinfo=timezone.utc)
-RETRIEVED_AT = datetime(2026, 8, 7, 4, 20, tzinfo=timezone.utc)
+REQUESTED_AT = datetime(2026, 8, 1, 4, 19, 59, tzinfo=timezone.utc)
+RETRIEVED_AT = datetime(2026, 8, 1, 4, 20, tzinfo=timezone.utc)
 ASSET_IDS = {
     "AAPL": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
     "SPY": "b28f4066-5c6d-479b-a2af-85dc1a8f16fb",
@@ -122,12 +122,12 @@ def test_successor_fixture_plan_is_deterministic_bounded_and_no_write() -> None:
         "url": (
             "https://data.alpaca.markets/v2/stocks/bars?"
             "symbols=AAPL%2CSPY&start=2026-07-31T04%3A00%3A00Z&"
-            "end=2026-08-07T03%3A59%3A59Z&timeframe=1Day&"
+            "end=2026-08-01T03%3A59%3A59Z&timeframe=1Day&"
             "adjustment=raw&feed=sip&sort=asc&limit=10000"
         ),
         "symbols": ["AAPL", "SPY"],
         "start": "2026-07-31T04:00:00Z",
-        "end": "2026-08-07T03:59:59Z",
+        "end": "2026-08-01T03:59:59Z",
         "feed": "sip",
         "timeframe": "1Day",
         "adjustment": "raw",
@@ -137,14 +137,14 @@ def test_successor_fixture_plan_is_deterministic_bounded_and_no_write() -> None:
         "expected_sessions": [
             item.isoformat() for item in EXPECTED_DELTA_SESSIONS
         ],
-        "expected_delta_rows": 10,
+        "expected_delta_rows": 2,
     }
-    assert first["earliest_execution_at"] == "2026-08-07T04:19:59Z"
+    assert first["earliest_execution_at"] == "2026-08-01T04:19:59Z"
     assert first["network_request_plan"]["max_pages"] == 1
     assert first["network_request_plan"]["timeout_seconds"] == 30
     assert first["network_request_plan"]["max_response_bytes"] == 1048576
     assert first["host_timeout_seconds"] == 120
-    assert first["cumulative"]["row_count"] == 12
+    assert first["cumulative"]["row_count"] == 4
     assert not any(first["authorities"].values())
 
 
@@ -160,8 +160,8 @@ def test_successor_builds_exact_cumulative_candidate(tmp_path: Path) -> None:
     )
 
     assert candidate.table.schema == ACTIVE_ALPACA_SCHEMA
-    assert candidate.delta_row_count == 10
-    assert candidate.row_count == 12
+    assert candidate.delta_row_count == 2
+    assert candidate.row_count == 4
     assert candidate.delta_sessions == EXPECTED_DELTA_SESSIONS
     assert candidate.sessions == EXPECTED_CUMULATIVE_SESSIONS
     assert candidate.predecessor_release_id == "f" * 64
@@ -187,7 +187,7 @@ def test_successor_builds_exact_cumulative_candidate(tmp_path: Path) -> None:
         ),
         (
             lambda value: value["bars"]["AAPL"].pop(),
-            "five exact rows",
+            "one exact row",
         ),
         (
             lambda value: value["bars"]["SPY"][0].update(
@@ -199,7 +199,7 @@ def test_successor_builds_exact_cumulative_candidate(tmp_path: Path) -> None:
             lambda value: value["bars"]["AAPL"].append(
                 dict(value["bars"]["AAPL"][0])
             ),
-            "five exact rows",
+            "one exact row",
         ),
     ],
 )
@@ -281,8 +281,8 @@ def test_successor_publication_plan_is_exact_and_production_rejects_synthetic(
     )
 
     assert publication["predecessor_release_id"] == "f" * 64
-    assert publication["delta_row_count"] == 10
-    assert publication["cumulative_row_count"] == 12
+    assert publication["delta_row_count"] == 2
+    assert publication["cumulative_row_count"] == 4
     assert publication["publication_count"] == 1
     assert [item["path"] for item in publication["outputs"]] == [
         BARS_FILENAME,

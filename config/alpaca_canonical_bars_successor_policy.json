@@ -20,26 +20,16 @@
   },
   "delta_window": {
     "start": "2026-07-31T04:00:00Z",
-    "end": "2026-08-07T03:59:59Z",
-    "sessions": [
-      "2026-07-31",
-      "2026-08-03",
-      "2026-08-04",
-      "2026-08-05",
-      "2026-08-06"
-    ],
-    "row_count": 10
+    "end": "2026-08-01T03:59:59Z",
+    "sessions": ["2026-07-31"],
+    "row_count": 2
   },
   "cumulative_sessions": [
     "2026-07-30",
-    "2026-07-31",
-    "2026-08-03",
-    "2026-08-04",
-    "2026-08-05",
-    "2026-08-06"
+    "2026-07-31"
   ],
-  "cumulative_row_count": 12,
-  "earliest_execution_at": "2026-08-07T04:19:59Z",
+  "cumulative_row_count": 4,
+  "earliest_execution_at": "2026-08-01T04:19:59Z",
   "request_contract": {
     "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
     "feed": "sip",

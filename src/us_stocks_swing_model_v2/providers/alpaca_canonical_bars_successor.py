@@ -57,10 +57,6 @@ PUBLICATION_CONFIRMATION_TOKEN = (
 PUBLICATION_CONFIRMATION_VALUE = "YES"
 EXPECTED_DELTA_SESSIONS = (
     date(2026, 7, 31),
-    date(2026, 8, 3),
-    date(2026, 8, 4),
-    date(2026, 8, 5),
-    date(2026, 8, 6),
 )
 EXPECTED_CUMULATIVE_SESSIONS = (date(2026, 7, 30), *EXPECTED_DELTA_SESSIONS)
 
@@ -120,9 +116,9 @@ def _load_policy(root: Path) -> dict[str, Any]:
     policy = _json_object(root / POLICY_PATH, label="successor bars policy")
     expected_window = {
         "start": "2026-07-31T04:00:00Z",
-        "end": "2026-08-07T03:59:59Z",
+        "end": "2026-08-01T03:59:59Z",
         "sessions": [item.isoformat() for item in EXPECTED_DELTA_SESSIONS],
-        "row_count": 10,
+        "row_count": 2,
     }
     expected_request = {
         "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
@@ -153,8 +149,8 @@ def _load_policy(root: Path) -> dict[str, Any]:
         or policy.get("delta_window") != expected_window
         or policy.get("cumulative_sessions")
         != [item.isoformat() for item in EXPECTED_CUMULATIVE_SESSIONS]
-        or policy.get("cumulative_row_count") != 12
-        or policy.get("earliest_execution_at") != "2026-08-07T04:19:59Z"
+        or policy.get("cumulative_row_count") != 4
+        or policy.get("earliest_execution_at") != "2026-08-01T04:19:59Z"
         or policy.get("request_contract") != expected_request
     ):
         raise ContractError("successor bars policy identity differs")
@@ -188,7 +184,7 @@ def _calendar_binding(
     rows = [
         row
         for row in loaded.schedule.to_pylist()
-        if date(2026, 7, 31) <= row["session"] <= date(2026, 8, 6)
+        if row["session"] == date(2026, 7, 31)
     ]
     if [row["session"] for row in rows] != list(EXPECTED_DELTA_SESSIONS):
         raise IntegrityError("successor pinned calendar session binding differs")
@@ -359,10 +355,6 @@ def _fixture_context(root: Path, predecessor_table: pa.Table) -> dict[str, objec
             "sessions": [item.isoformat() for item in EXPECTED_DELTA_SESSIONS],
             "close_ats": [
                 "2026-07-31T20:00:00Z",
-                "2026-08-03T20:00:00Z",
-                "2026-08-04T20:00:00Z",
-                "2026-08-05T20:00:00Z",
-                "2026-08-06T20:00:00Z",
             ],
         },
         "predecessor": predecessor,
@@ -442,11 +434,11 @@ def _build_plan(context: Mapping[str, object], *, synthetic: bool) -> dict[str, 
             "sort": "asc",
             "limit": 10000,
             "expected_sessions": policy["delta_window"]["sessions"],
-            "expected_delta_rows": 10,
+            "expected_delta_rows": 2,
         },
         "cumulative": {
             "sessions": policy["cumulative_sessions"],
-            "row_count": 12,
+            "row_count": 4,
         },
         "earliest_execution_at": policy["earliest_execution_at"],
         "network_request_plan": network_plan.as_dict(),
@@ -605,8 +597,8 @@ def build_successor_bars_candidate(
     asset_ids = acquisition_plan["asset_ids"]
     for symbol in ("AAPL", "SPY"):
         rows = payload["bars"][symbol]
-        if not isinstance(rows, list) or len(rows) != 5:
-            raise ContractError(f"successor requires five exact rows: {symbol}")
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ContractError(f"successor requires one exact row: {symbol}")
         parsed_sessions: list[date] = []
         for bar in rows:
             (
@@ -678,7 +670,7 @@ def build_successor_bars_candidate(
         (row["provider_symbol"], row["session"])
         for row in cumulative.to_pylist()
     ]
-    if delta.num_rows != 10 or cumulative.num_rows != 12 or actual_keys != expected_keys:
+    if delta.num_rows != 2 or cumulative.num_rows != 4 or actual_keys != expected_keys:
         raise IntegrityError("successor cumulative session matrix differs")
     bars_bytes = deterministic_parquet_bytes(
         cumulative,
@@ -700,8 +692,8 @@ def build_successor_bars_candidate(
         "cumulative_sessions": [
             item.isoformat() for item in EXPECTED_CUMULATIVE_SESSIONS
         ],
-        "delta_row_count": 10,
-        "row_count": 12,
+        "delta_row_count": 2,
+        "row_count": 4,
         "schema_fingerprint": SCHEMA_FINGERPRINT,
         "bars_sha256": sha256_bytes(bars_bytes),
         "trust_eligible": not synthetic,
@@ -716,8 +708,8 @@ def build_successor_bars_candidate(
         snapshot_raw_sha256=snapshot.raw_sha256,
         requested_at=snapshot.requested_at,
         retrieved_at=snapshot.retrieved_at,
-        delta_row_count=10,
-        row_count=12,
+        delta_row_count=2,
+        row_count=4,
         symbols=("AAPL", "SPY"),
         delta_sessions=EXPECTED_DELTA_SESSIONS,
         sessions=EXPECTED_CUMULATIVE_SESSIONS,
@@ -836,9 +828,9 @@ def _publication_artifacts(
         "role": role,
         "quality_state": quality,
         "created_at": iso_z(candidate.retrieved_at),
-        "row_count": 12,
+        "row_count": 4,
         "event_start": "2026-07-30",
-        "event_end": "2026-08-06",
+        "event_end": "2026-07-31",
         "upstream_release_ids": upstream,
         "schema_fingerprint": SCHEMA_FINGERPRINT,
         "code_hash": acquisition_plan["code_closure"]["closure_sha256"],
@@ -900,8 +892,8 @@ def build_successor_bars_publication_plan(
             Path(accepted_root).resolve() / manifest.dataset / manifest.release_id
         ),
         "receipt_id": receipt_id,
-        "delta_row_count": 10,
-        "cumulative_row_count": 12,
+        "delta_row_count": 2,
+        "cumulative_row_count": 4,
         "outputs": [
             {
                 "path": BARS_FILENAME,
@@ -948,9 +940,9 @@ def verify_successor_bars_release(
         or manifest.source_epoch != SOURCE_EPOCH
         or manifest.role != ROLE
         or manifest.quality_state != QUALITY_STATE
-        or manifest.row_count != 12
+        or manifest.row_count != 4
         or manifest.event_start != "2026-07-30"
-        or manifest.event_end != "2026-08-06"
+        or manifest.event_end != "2026-07-31"
         or [entry.path for entry in manifest.files]
         != [BARS_FILENAME, RECEIPT_FILENAME]
         or (
@@ -971,7 +963,7 @@ def verify_successor_bars_release(
         != "ALPACA_CANONICAL_DAILY_BARS_SUCCESSOR"
         or receipt.get("status")
         != "PASS_CUMULATIVE_CANONICAL_BARS_NOT_RESEARCH_AUTHORITY"
-        or receipt.get("row_count") != 12
+        or receipt.get("row_count") != 4
         or receipt.get("cumulative_sessions")
         != [item.isoformat() for item in EXPECTED_CUMULATIVE_SESSIONS]
         or receipt.get("schema_fingerprint") != SCHEMA_FINGERPRINT
@@ -1000,7 +992,7 @@ def verify_successor_bars_release(
         or predecessor.get("event_start") != "2026-07-30"
         or predecessor.get("event_end") != "2026-07-30"
         or not isinstance(delta_snapshot, dict)
-        or delta_snapshot.get("row_count") != 10
+        or delta_snapshot.get("row_count") != 2
         or delta_snapshot.get("sessions")
         != [item.isoformat() for item in EXPECTED_DELTA_SESSIONS]
         or not all(

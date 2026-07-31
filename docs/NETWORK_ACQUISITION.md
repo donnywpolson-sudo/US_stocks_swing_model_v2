@@ -203,10 +203,10 @@ python -m us_stocks_swing_model_v2.cli.accumulate_canonical_bars
 
 It binds the accepted first release as its exact predecessor and plans one SIP
 GET for AAPL and SPY from `2026-07-31T04:00:00Z` through
-`2026-08-07T03:59:59Z`. The required delta sessions are `2026-07-31`,
-`2026-08-03`, `2026-08-04`, `2026-08-05`, and `2026-08-06`. Execution cannot
-begin before `2026-08-07T04:19:59Z`, preserving the active source's 20-minute
-minimum end lag.
+`2026-08-01T03:59:59Z`. The required delta session is `2026-07-31`. Execution
+cannot begin before `2026-08-01T04:19:59Z`, preserving both the observed
+provider end-boundary behavior and the active source's 20-minute minimum end
+lag.
 
 The request remains exactly one GET, one page, one attempt, a 30-second HTTP
 timeout, a 120-second host timeout, and at most 1,048,576 response bytes.
@@ -215,13 +215,13 @@ extra, malformed, or duplicate session, source or repository drift,
 predecessor mismatch, timeout, or response-bound failure stops without a
 second request.
 
-Offline verification requires ten exact delta rows and combines them
+Offline verification requires two exact delta rows and combines them
 process-locally with the predecessor's two rows. A prospective successor
-publication contains a complete twelve-row canonical table covering the six
-sessions from `2026-07-30` through `2026-08-06`; it is not a delta-only
-release. The receipt and manifest bind the predecessor release and bars hash,
-the new snapshot, both asset UUIDs, the accepted qualification, identity and
-calendar releases, and the code/config/environment closures.
+publication contains a complete four-row canonical table covering
+`2026-07-30` and `2026-07-31`; it is not a delta-only release. The receipt and
+manifest bind the predecessor release and bars hash, the new snapshot, both
+asset UUIDs, the accepted qualification, identity and calendar releases, and
+the code/config/environment closures.
 
 Successor publication is a separate no-network gate requiring the exact plan
 ID and `ALPACA_CANONICAL_BARS_SUCCESSOR_PUBLICATION_APPROVED=YES`. It creates
