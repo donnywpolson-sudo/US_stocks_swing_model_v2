@@ -129,6 +129,27 @@ def test_windows_powershell_51_json_transport_is_preflighted() -> None:
         assert "before provider access" in " ".join(contract.split())
 
 
+def test_high_reasoning_requires_the_smallest_proportional_design() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")
+    normalized_agents = " ".join(agents.split())
+    normalized_workflow = " ".join(workflow.split())
+
+    assert "simplest correct design" in normalized_agents
+    assert "Start with the existing implementation" in normalized_agents
+    assert "speculative extension points" in normalized_agents
+    assert "duplicate planners or validators" in normalized_agents
+    assert "more than five tracked paths" in normalized_agents
+    assert "smallest correct solution" in normalized_workflow
+    assert "one direct change over a new module" in normalized_workflow
+    assert "generic framework for one use" in normalized_workflow
+    assert "internal simplicity checkpoint" in normalized_workflow
+    assert (
+        "Simplicity never weakens an evidence or safety gate"
+        in normalized_workflow
+    )
+
+
 def test_external_phase_covers_verification_without_approval_essay() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")

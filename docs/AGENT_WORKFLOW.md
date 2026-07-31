@@ -73,6 +73,24 @@ Every bounded read group ends with the exact checked-in completion footer.
 Missing or truncated footer output stops the invocation as incomplete without
 an external measurement command, retry, or later command.
 
+## Simplicity Check
+
+High reasoning means selecting and verifying the smallest correct solution.
+It does not justify extra layers. Begin with the existing implementation and
+prefer one direct change over a new module, CLI, schema, policy, wrapper, or
+state machine. Do not implement future-phase machinery, a generic framework
+for one use, or a second source of truth unless the current acceptance criteria
+demonstrably require it.
+
+Before writing a change that touches more than five tracked paths or introduces
+more than one new implementation concept, perform an internal simplicity
+checkpoint. Name the required outcome, the smallest viable alternative, why
+existing code cannot satisfy it, and which proposed artifacts can be omitted.
+Escalate to the user only when this reveals a real scope or product decision.
+Tests and documentation must remain proportional and should reuse existing
+coverage rather than duplicating it. Simplicity never weakens an evidence or
+safety gate.
+
 ## Live Checkpoint
 
 Long workflows keep one concise checkpoint:

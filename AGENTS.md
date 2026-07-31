@@ -188,6 +188,31 @@
   success by fewer avoidable approvals, handoff-only commits, process launches,
   and repeated diagnostics while retaining the same evidence and stop rules.
 
+### Simplicity And Proportionality
+
+- Use high reasoning to find the simplest correct design, not to maximize the
+  number of abstractions, files, identities, gates, or defensive layers.
+- Start with the existing implementation and contract. Prefer a direct edit or
+  reuse of one existing path over a new module, CLI, policy, schema, wrapper,
+  state machine, or publication layer. Add one only when a concrete acceptance
+  criterion cannot be met safely without it.
+- Do not build speculative extension points, generic frameworks for one use,
+  duplicate planners or validators, parallel sources of truth, or future-phase
+  machinery that the current outcome does not require.
+- Before the first write, state the current outcome and the smallest viable
+  change. If the proposed solution changes more than five tracked paths or adds
+  more than one new implementation concept, perform a simplicity checkpoint:
+  identify each added concept, why existing code cannot serve it, and what can
+  be omitted. This checkpoint is internal unless it exposes a genuine scope or
+  user-decision boundary.
+- Keep validation proportional to the change. Reuse focused existing tests,
+  add only cases that protect new behavior, and do not create duplicate policy
+  assertions or ceremony that does not catch a realistic failure.
+- Prefer consolidating or removing unnecessary local complexity when doing so
+  is within scope and preserves compatibility and evidence. Never weaken a
+  scientific, secret, provider, destructive-action, or accepted-release gate
+  in the name of simplicity.
+
 ## Project-Specific Rules
 
 ### Accepted Release Contract
