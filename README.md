@@ -52,7 +52,7 @@ split-normalized outcomes rather than legacy stage paths or row shifts.
 
 Current milestone:
 
-`ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED`
+`ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED`
 
 HFDL is retired and excluded from all future derivative and research work. Its
 existing files, tracked machinery, and accepted releases remain untouched as
@@ -66,12 +66,15 @@ The release preserves the validated compressed page evidence and regenerated
 deterministic Parquet; it is PIT-unresolved legacy discovery evidence, not
 active qualification evidence or research authority.
 
-The checked-in historical-backfill planner now derives the current eligible
+The checked-in historical-backfill workflow derives the current eligible
 stock/ETF cohort absent from that release and emits deterministic annual SIP
-request units without credentials, network access, or writes. Because the
-cohort comes from a current identity snapshot, any eventual backfill remains
-current-identity-seeded and PIT-unresolved. Provider execution, offline
-verification, publication, and downstream use remain separate gates.
+request units. All 19 bounded groups have been captured as immutable ignored
+snapshot evidence. A separate no-network, no-write completeness and
+publication planner revalidates every unit and selected page before binding a
+prospective release contract. Because the cohort comes from a current identity
+snapshot, the evidence remains current-identity-seeded and PIT-unresolved.
+The deterministic release builder, publication, and downstream use remain
+separate gates.
 
 The architecture and authorized rebuild boundary are complete. Historical
 hypothesis evaluation, real-history WFA, candidate sealing, prospective
@@ -110,7 +113,7 @@ and API.
 | Completed HFDL migration capsule | Frozen historical audit and trial-census evidence only |
 | Existing HF Data Library parquet | Retired and excluded from future work; preserved unchanged until separately authorized cleanup |
 | Rehabilitated 780-symbol Alpaca SIP archive | Accepted immutable PIT-unresolved legacy-discovery release; never active source qualification or survivorship-safe evidence |
-| Current-identity-seeded Alpaca SIP backfill | Plan-only contract implemented for the stock/ETF cohort missing from the rehabilitated release; execution and publication remain unauthorized |
+| Current-identity-seeded Alpaca SIP backfill | All 19 capture groups are retained; the checked-in completeness/publication planner is no-network and no-write, while deterministic release construction and publication remain unavailable and unauthorized |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, with the first bounded canonical-bars build still pending |
 | Alpaca assets | The accepted identity release binds the immutable Alpaca asset snapshot and its frozen projection; it is identity evidence, not bar or research authority |
 | Nasdaq Trader symbol directory | The accepted identity release binds the strictly newer comprehensive Nasdaq capture and the Alpaca identity projection; retrospective membership claims remain prohibited |

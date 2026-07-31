@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0",
+  "project": "US_stocks_swing_model_v2",
+  "mode": "ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLAN_ONLY",
+  "backfill_policy_id": "80cddbdc241a1b38d3a2205ce40bf50c1d4e8784ff768433dd8c366deda19719",
+  "completeness_contract": {
+    "expected_group_count": 19,
+    "expected_unit_count": 1045,
+    "expected_symbol_count": 9415,
+    "expected_window_count": 11,
+    "require_zero_capture_units": true,
+    "require_zero_incomplete_lineages": true,
+    "require_local_integrity": true
+  },
+  "release_contract": {
+    "dataset": "alpaca_historical_daily_bars",
+    "source_epoch": "alpaca_sip_current_identity_seeded_20160104_20260710_v1",
+    "role": "legacy_discovery_only",
+    "quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+    "canonical_shard": "calendar_year",
+    "expected_shard_count": 11,
+    "copy_exact_snapshot_evidence": true,
+    "regenerate_canonical_parquet": true,
+    "active_source_eligible": false,
+    "training_authorized": false,
+    "research_authorized": false
+  },
+  "outputs": {
+    "accepted_root": "data/vault/accepted",
+    "work_root": "data/w/alpaca_historical_backfill_publication",
+    "tracked": false,
+    "ignored_generated_evidence": true,
+    "overwrite_or_replace_existing_release": false
+  },
+  "implementation": {
+    "plan_only": true,
+    "release_builder_implemented": false,
+    "publication_execution_implemented": false,
+    "release_id_deferred_until_deterministic_builder": true
+  },
+  "authorities": {
+    "provider_access": false,
+    "credential_access": false,
+    "snapshot_write": false,
+    "publication": false,
+    "activation": false,
+    "eligible_universe_build": false,
+    "feature_or_outcome_build": false,
+    "training": false,
+    "evaluation": false,
+    "research": false,
+    "hfdl_use": false
+  },
+  "stop_conditions": [
+    "repository policy registry calendar or accepted-input drift",
+    "missing ambiguous incomplete duplicated or superseded lineage",
+    "snapshot receipt headers raw bytes pagination or assessment mismatch",
+    "completeness census or content identity mismatch",
+    "release construction or publication requested before implementation review",
+    "network credential activation research training or HFDL request"
+  ]
+}

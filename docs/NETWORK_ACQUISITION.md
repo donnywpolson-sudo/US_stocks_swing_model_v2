@@ -332,6 +332,34 @@ features, outcomes, WFA readiness, or research authority. HFDL is excluded.
 Execution, verification, publication, and any merge with the rehabilitated
 release remain separate gates.
 
+### Offline completeness and publication planning
+
+`plan_alpaca_historical_backfill_publication` is no-network and no-write. It
+rebuilds the current backfill plan, revalidates every retained lineage in all
+19 groups, requires all 1,045 request units to be complete, and content-addresses
+the selected snapshot, raw-byte, header, receipt, continuation, and unit-
+assessment censuses. Missing, ambiguous, duplicated, incomplete, non-terminal,
+tampered, or locally unverified evidence fails closed.
+
+The resulting publication plan binds a future
+`alpaca_historical_daily_bars` release with
+`legacy_discovery_only` role and
+`CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED` quality. It requires exact snapshot-
+evidence preservation and deterministic calendar-year Parquet regeneration.
+The current contract deliberately defers the release ID because the shard
+builder and publication execution are not implemented. The plan grants no
+publication, activation, eligible-universe, feature, outcome, training,
+evaluation, research, provider, credential, or HFDL authority.
+
+```text
+python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill_publication \
+  --created-at <exact-production-UTC-Z>
+```
+
+Implementing the deterministic shard builder is a separate local phase.
+Publishing one exact accepted release is a later, separately bounded generated-
+evidence gate after its prospective release identity is known.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,

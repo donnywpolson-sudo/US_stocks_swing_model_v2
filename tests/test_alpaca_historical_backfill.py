@@ -16,6 +16,7 @@ from us_stocks_swing_model_v2.cli import plan_alpaca_historical_backfill as cli
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2.providers.alpaca_historical_backfill import (
+    build_historical_backfill_complete_corpus,
     build_historical_backfill_group_continuation,
     build_historical_backfill_fixture_plan,
     continuation_plan_summary,
@@ -213,6 +214,55 @@ def test_fixture_plan_is_deterministic_bounded_and_plan_only() -> None:
         "may_support_confirmation": False,
         "hfdl_included": False,
     }
+
+
+def test_complete_corpus_revalidates_every_unit_without_writes(tmp_path: Path) -> None:
+    plan = _fixture_plan()
+    for unit in plan["request_units"]:
+        _land_unit_page(tmp_path, unit)
+    store = _snapshot_store(tmp_path)
+
+    first = build_historical_backfill_complete_corpus(
+        backfill_plan=plan,
+        snapshot_store=store,
+        calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30), date(2017, 1, 3)],
+        registry=_registry(),
+        synthetic=True,
+    )
+    second = build_historical_backfill_complete_corpus(
+        backfill_plan=plan,
+        snapshot_store=store,
+        calendar_sessions=[date(2016, 1, 4), date(2016, 12, 30), date(2017, 1, 3)],
+        registry=_registry(),
+        synthetic=True,
+    )
+
+    assert first == second
+    assert first["mode"] == "SYNTHETIC_NO_WRITE"
+    assert first["group_count"] == 1
+    assert first["unit_count"] == 2
+    assert first["page_count"] == 2
+    assert first["raw_bytes"] > 0
+    assert len(first["page_evidence"]) == 2
+    assert not any(first["authorities"].values())
+
+
+def test_complete_corpus_rejects_a_missing_unit(tmp_path: Path) -> None:
+    plan = _fixture_plan()
+    _land_unit_page(tmp_path, plan["request_units"][0])
+
+    with pytest.raises(IntegrityError, match="corpus is incomplete"):
+        build_historical_backfill_complete_corpus(
+            backfill_plan=plan,
+            snapshot_store=_snapshot_store(tmp_path),
+            calendar_sessions=[
+                date(2016, 1, 4),
+                date(2016, 12, 30),
+                date(2017, 1, 3),
+            ],
+            registry=_registry(),
+            synthetic=True,
+        )
 
 
 def test_request_units_pin_sip_contract_boundaries_and_order() -> None:

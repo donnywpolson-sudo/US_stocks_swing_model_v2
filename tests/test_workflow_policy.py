@@ -198,7 +198,9 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "Never mix HFDL with" in agents
     assert "HFDL is retired and excluded" in outline
     assert "HFDL bridge is retired" in harness
-    assert "ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED" in outline
+    assert (
+        "ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED" in outline
+    )
     assert "hfdl_retirement_policy.json" in sources
     assert "alpaca_archive_rehabilitation_policy.json" in sources
     assert "alpaca_archive_rehabilitation_publication_policy.json" in sources
@@ -213,3 +215,10 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "without changing the retained raw response" in network
     assert "--plan-group-continuation" in network
     assert "calls Alpaca only for the" in network
+    assert "Offline completeness and publication planning" in network
+    assert "plan_alpaca_historical_backfill_publication" in network
+    assert "release ID" in network
+    assert (
+        "shard builder and publication execution are not implemented"
+        in " ".join(network.split())
+    )

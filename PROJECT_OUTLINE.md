@@ -71,7 +71,7 @@ because it served the same project mission.
 
 ## Current status
 
-`ALPACA_HISTORICAL_BACKFILL_PLANNING_IMPLEMENTED`
+`ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED`
 
 The controlled architecture, accepted current identity release, qualified
 active Alpaca SIP source, and first bounded active-SIP canonical-bars release
@@ -80,12 +80,13 @@ work; its files and releases remain frozen audit evidence pending separately
 authorized cleanup. The 198-page, 780-symbol Alpaca archive is now preserved as
 accepted immutable release
 `20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1`
-under a caveated `legacy_discovery_only` role. A checked-in no-network,
-no-write planner derives the current eligible stock/ETF cohort absent from that
-release and creates deterministic annual SIP request units. That planned
-backfill remains current-identity-seeded and PIT-unresolved; provider
-execution, verification, publication, and downstream use remain separately
-authorized.
+under a caveated `legacy_discovery_only` role. The current eligible stock/ETF
+cohort absent from that release has been captured in 19 bounded Alpaca SIP
+groups. A checked-in no-network, no-write planner now revalidates the complete
+retained corpus and prepares a content-addressed immutable-release publication
+contract. The release builder and publication execution remain deliberately
+unimplemented, and downstream use remains separately authorized. The backfill
+continues to be current-identity-seeded and PIT-unresolved.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
 provider acquisition, prospective confirmation, destructive cutover, external

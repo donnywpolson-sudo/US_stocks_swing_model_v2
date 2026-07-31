@@ -1350,6 +1350,174 @@ def continuation_plan_summary(
     }
 
 
+def build_historical_backfill_complete_corpus(
+    *,
+    backfill_plan: Mapping[str, object],
+    snapshot_store: AsReceivedSnapshotStore,
+    calendar_sessions: Sequence[date],
+    registry: NetworkAcquisitionRegistry,
+    synthetic: bool,
+) -> dict[str, object]:
+    """Revalidate every group and bind one complete, no-write input corpus."""
+
+    plan_id = _validated_plan_id(backfill_plan)
+    groups = backfill_plan.get("execution_groups")
+    units = backfill_plan.get("request_units")
+    if not isinstance(groups, list) or not groups or not isinstance(units, list):
+        raise IntegrityError("historical backfill complete-corpus census differs")
+    if [group.get("group_index") for group in groups] != list(
+        range(1, len(groups) + 1)
+    ):
+        raise IntegrityError("historical backfill group ordering differs")
+
+    continuation_ids: list[str] = []
+    selected_snapshot_ids: list[str] = []
+    unit_assessment_ids: list[str] = []
+    page_evidence: list[dict[str, object]] = []
+    observed_unit_indices: list[int] = []
+    for group in groups:
+        group_index = int(group["group_index"])
+        continuation = build_historical_backfill_group_continuation(
+            backfill_plan=backfill_plan,
+            group_index=group_index,
+            snapshot_store=snapshot_store,
+            calendar_sessions=calendar_sessions,
+            registry=registry,
+            synthetic=synthetic,
+        )
+        if (
+            continuation["capture_unit_count"] != 0
+            or continuation["incomplete_lineage_count"] != 0
+            or continuation["retained_unit_count"] != continuation["unit_count"]
+        ):
+            raise IntegrityError("historical backfill corpus is incomplete")
+        continuation_ids.append(str(continuation["continuation_plan_id"]))
+        for retained in continuation["retained_units"]:
+            unit_index = int(retained["unit_index"])
+            observed_unit_indices.append(unit_index)
+            unit_assessment_ids.append(str(retained["unit_assessment_id"]))
+            for page_index, (snapshot_id, expected_raw_sha256) in enumerate(
+                zip(retained["snapshot_ids"], retained["raw_sha256s"], strict=True),
+                start=1,
+            ):
+                snapshot = snapshot_store.load(
+                    snapshot_store.root / SOURCE_NAME / str(snapshot_id)
+                )
+                raw = snapshot.read_verified_bytes()
+                if snapshot.raw_sha256 != expected_raw_sha256:
+                    raise IntegrityError(
+                        "historical backfill complete-corpus raw identity differs"
+                    )
+                if not synthetic and not snapshot.local_integrity_verified:
+                    raise IntegrityError(
+                        "historical backfill corpus lacks local integrity"
+                    )
+                selected_snapshot_ids.append(snapshot.snapshot_id)
+                page_evidence.append(
+                    {
+                        "unit_index": unit_index,
+                        "page_index": page_index,
+                        "snapshot_id": snapshot.snapshot_id,
+                        "request_plan_id": snapshot.request_plan_id,
+                        "requested_at": (
+                            iso_z(snapshot.requested_at)
+                            if snapshot.requested_at is not None
+                            else None
+                        ),
+                        "retrieved_at": iso_z(snapshot.retrieved_at),
+                        "raw_bytes": len(raw),
+                        "raw_sha256": snapshot.raw_sha256,
+                        "headers_sha256": sha256_file(snapshot.root / "headers.json"),
+                        "receipt_sha256": sha256_file(snapshot.root / "receipt.json"),
+                    }
+                )
+    expected_unit_indices = [int(unit["unit_index"]) for unit in units]
+    if observed_unit_indices != expected_unit_indices:
+        raise IntegrityError("historical backfill complete-corpus unit census differs")
+    if len(selected_snapshot_ids) != len(set(selected_snapshot_ids)):
+        raise IntegrityError("historical backfill complete-corpus snapshot is reused")
+
+    unsigned = {
+        "schema_version": 1,
+        "plan_type": "ALPACA_SIP_HISTORICAL_BACKFILL_COMPLETE_CORPUS",
+        "mode": "SYNTHETIC_NO_WRITE" if synthetic else "OFFLINE_NO_WRITE",
+        "backfill_plan_id": plan_id,
+        "repository": dict(backfill_plan["repository"]),
+        "policy_id": backfill_plan["policy_id"],
+        "network_registry_id": backfill_plan["network_registry_id"],
+        "group_count": len(groups),
+        "unit_count": len(units),
+        "page_count": len(page_evidence),
+        "raw_bytes": sum(int(page["raw_bytes"]) for page in page_evidence),
+        "group_continuation_ids_sha256": sha256_bytes(
+            canonical_json_bytes(continuation_ids)
+        ),
+        "unit_assessment_ids_sha256": sha256_bytes(
+            canonical_json_bytes(unit_assessment_ids)
+        ),
+        "selected_snapshot_ids_sha256": sha256_bytes(
+            canonical_json_bytes(selected_snapshot_ids)
+        ),
+        "page_evidence_census_sha256": sha256_bytes(
+            canonical_json_bytes(page_evidence)
+        ),
+        "group_continuation_ids": continuation_ids,
+        "page_evidence": page_evidence,
+        "evidence_boundary": dict(backfill_plan["evidence_boundary"]),
+        "authorities": {
+            "provider_access": False,
+            "credential_access": False,
+            "snapshot_write": False,
+            "publication": False,
+            "activation": False,
+            "research": False,
+        },
+        "stop_conditions": [
+            "backfill plan, policy, registry, or repository drift",
+            "missing, ambiguous, incomplete, duplicated, or superseded selected lineage",
+            "snapshot receipt, headers, raw bytes, pagination, or unit assessment mismatch",
+            "unexpected network, credential access, write, publication, or activation",
+        ],
+    }
+    return {
+        **unsigned,
+        "complete_corpus_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+
+
+def build_historical_backfill_complete_corpus_plan(
+    *,
+    backfill_plan: Mapping[str, object] | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, object]:
+    """Build the production completeness identity without network or writes."""
+
+    root = (repo_root or _repo_root()).resolve(strict=True)
+    current = build_historical_backfill_plan(repo_root=root)
+    if backfill_plan is not None and backfill_plan.get("backfill_plan_id") != current[
+        "backfill_plan_id"
+    ]:
+        raise IntegrityError("supplied historical backfill plan is stale")
+    policy, _ = load_historical_backfill_policy(root)
+    accepted_root = (root / "data/vault/accepted").resolve(strict=True)
+    registry = NetworkAcquisitionRegistry.load(
+        root / policy["network_registry"],
+        allowed_root=root,
+    )
+    snapshot_store = AsReceivedSnapshotStore(
+        (root / policy["outputs"]["snapshot_store"]).resolve(strict=True),
+        allowed_root=(root / "data").resolve(strict=True),
+        acquisition_registry=registry,
+    )
+    return build_historical_backfill_complete_corpus(
+        backfill_plan=current,
+        snapshot_store=snapshot_store,
+        calendar_sessions=_calendar_sessions(root, policy, accepted_root),
+        registry=registry,
+        synthetic=False,
+    )
+
+
 def _validated_continuation_plan(
     continuation: Mapping[str, object],
     *,
