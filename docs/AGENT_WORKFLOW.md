@@ -13,6 +13,36 @@ corrective cycles. Those steps proceed without serial “do that” prompts.
 A plain-language implementation or fix request is sufficient; the user does not
 need to reproduce a formal authorization paragraph.
 
+## Goal-Pursuit Envelope
+
+Treat a request to pursue, continue, or implement an outcome as one plan to its
+next real durable-state or external gate. Complete all necessary read-only
+discovery, design, local implementation, focused checks, corrective cycles, and
+plan-only work without asking between those routine steps. After an authorized
+commit, automatically run the safe no-network, no-write planning needed to
+describe the next real gate.
+
+One goal-pursuit authorization stays active across all of those internal
+milestones. Never ask the user to approve, paste, or restate permission between
+them; provide meaningful progress and continue autonomously. Stop only when a
+different action class or an evidenced scope, safety, or semantic change falls
+outside the current envelope.
+
+When repeated units share known bounds, present one campaign gate for their
+full census, order, aggregate and per-unit limits, verification, and
+stop-on-first-failure rule. Once confirmed, plan, execute, and verify each unit
+in sequence without approval churn. Commit, publication, activation,
+destructive work, and unknown-evidence-dependent external actions remain
+separate boundaries.
+
+Do not request a micro-commit after each passing local patch. Accumulate the
+attributable changes until the goal's local done criteria are met, then request
+one commit gate. Plan-only commands, metadata inspection, and no-write
+assessments are routine preparation, so prepare the next external gate
+automatically and ask only for its bounded external action. Do not detour into
+non-blocking hardening or cleanup; record it in the checkpoint unless it blocks
+the goal, fails acceptance, or the user adds it to scope.
+
 Actions are classified before execution:
 
 - `LOCAL_CORRECTABLE`: reversible repository-local work.

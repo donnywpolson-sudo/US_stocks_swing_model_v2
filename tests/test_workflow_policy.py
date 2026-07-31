@@ -117,6 +117,24 @@ def test_future_workflows_bundle_local_work_and_trigger_durable_retrospectives()
     assert "unchanged safety and evidence quality" in workflow
 
 
+def test_goal_pursuit_envelope_batches_routine_work_and_known_campaigns() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")
+
+    for contract in (agents, workflow):
+        assert "goal-pursuit envelope" in contract.lower()
+        assert "stop-on-first-failure" in contract
+        assert "plan-only" in contract
+        assert "stays active across" in contract
+        assert "Never ask the user to approve, paste, or restate permission" in contract
+    assert "without asking again between successful units" in agents
+    assert "without approval churn" in workflow
+    for contract in (agents, workflow):
+        assert "micro-commit" in contract
+        assert "Plan-only" in contract or "plan-only" in contract
+        assert "non-blocking hardening" in contract
+
+
 def test_windows_powershell_51_json_transport_is_preflighted() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")

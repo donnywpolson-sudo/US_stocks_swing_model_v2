@@ -131,6 +131,43 @@
 
 ### Workflow Efficiency Guardrails
 
+- Treat a request to pursue, continue, or implement an outcome as a
+  **goal-pursuit envelope**. First establish its done criteria, then complete
+  every safe read-only and `LOCAL_CORRECTABLE` step needed to reach the next
+  real durable-state or external gate. Do not split necessary discovery,
+  design, implementation, focused validation, diagnosis, or plan-only work
+  into separate user prompts.
+- One goal-pursuit authorization stays active across its internal milestones.
+  Never ask the user to approve, paste, or restate permission between those
+  steps; report meaningful progress and continue autonomously. Stop only for a
+  genuinely different action class or an evidenced scope, safety, or semantic
+  change that the current goal-pursuit envelope did not cover.
+- After an authorized commit completes, automatically perform the safe
+  no-network, no-write planning and identity checks needed to define the next
+  genuine gate. Ask only when that next gate changes durable state, calls a
+  provider, needs credentials, or has a material effect outside the repository.
+- For repeated homogeneous work with known per-unit bounds (for example,
+  source-capture groups), offer one campaign gate that binds the full unit
+  census, order, aggregate and per-unit limits, verification, and
+  stop-on-first-failure rule. After direct confirmation, plan, execute, and
+  verify the units sequentially without asking again between successful units.
+- Do not present a serial gate for a planner, an implementation, a focused
+  test, a corrective cycle, or a no-write assessment when it is already a
+  necessary part of the active goal-pursuit envelope. A separate commit,
+  publication, activation, destructive action, or unknown-evidence-dependent
+  external action remains a real boundary.
+- Do not request a micro-commit merely because one local patch passes. Keep
+  attributable local changes together until the active goal's local done
+  criteria are met, then request one commit gate for the complete local phase.
+  Split earlier only when the user requests it or preserving a verified state
+  is necessary before an unrelated or external action.
+- Treat a plan-only command, metadata inspection, and no-write assessment as
+  routine preparation, not an approval gate. Prepare the next external gate
+  automatically, then request one direct confirmation for the bounded external
+  action itself.
+- Do not divert an active goal into a non-blocking hardening or cleanup idea.
+  Record it in the checkpoint and continue; implement it only when it blocks
+  the goal, fails an acceptance criterion, or the user includes it in scope.
 - Treat authorization as a bounded phase envelope, not a one-command coupon.
   Once the user requests a local implementation or review, execute every
   routine `LOCAL_CORRECTABLE` step needed for its stated completion criteria.
