@@ -28,6 +28,7 @@ from us_stocks_swing_model_v2.providers.alpaca_historical_backfill_publication i
     build_historical_backfill_publication_plan_from_corpus,
     build_historical_backfill_release,
     load_historical_backfill_publication_policy,
+    publish_historical_backfill_fixture,
     publication_plan_summary,
 )
 from us_stocks_swing_model_v2.providers.snapshots import (
@@ -171,7 +172,7 @@ def test_checked_in_policy_has_builder_but_is_non_authorizing() -> None:
     assert policy["release_contract"]["quality_state"] == QUALITY_STATE
     assert policy["release_contract"]["input_quality_state"] == INPUT_QUALITY_STATE
     assert policy["implementation"]["release_builder_implemented"] is True
-    assert policy["implementation"]["publication_execution_implemented"] is False
+    assert policy["implementation"]["publication_execution_implemented"] is True
     assert all(value is False for value in policy["authorities"].values())
     assert "src/us_stocks_swing_model_v2/canonical/alpaca.py" in CODE_CLOSURE_PATHS
     assert "src/us_stocks_swing_model_v2/canonical/parquet.py" in CODE_CLOSURE_PATHS
@@ -190,6 +191,11 @@ def test_release_builder_is_deterministic_and_copies_exact_evidence(
     assert first.manifest.event_start == "2016-01-04"
     assert len(first.shard_census) == 1
     assert len(first.copied_files) == 3
+    assert all(
+        path.startswith("source_snapshots/")
+        and len(path.split("/")[1]) == 20
+        for path, _source in first.copied_files
+    )
     assert first.evidence_manifest_id == second.evidence_manifest_id
     shard = dict(first.generated_files)["bars/year=2016.parquet"]
     table = pq.read_table(pa.BufferReader(shard))
@@ -262,4 +268,42 @@ def test_cli_emits_exact_release_identity_without_execution_or_writes(
         build.manifest.release_id
     )
     assert output["release_builder_implemented"] is True
-    assert output["publication_implemented"] is False
+    assert output["publication_implemented"] is True
+
+
+def test_synthetic_publication_is_atomic_and_rejects_stage_reuse(tmp_path: Path) -> None:
+    policy, policy_id, build = _fixture(tmp_path)
+    # Keep this synthetic publication below the pytest run root but avoid its
+    # long per-test path, which would mask the publisher contract on Windows.
+    short_root = tmp_path.parent / "backfill-publication"
+    accepted = (short_root / "accepted").resolve()
+    work = (short_root / "work").resolve()
+    plan = build_historical_backfill_publication_plan_from_corpus(
+        release_build=build,
+        policy=policy,
+        publication_policy_id=policy_id,
+        accepted_root=accepted,
+        work_root=work,
+        created_at=CREATED_AT,
+        code_closure_sha256="b" * 64,
+        config_closure_sha256="c" * 64,
+        environment_id="d" * 64,
+    )
+
+    published = publish_historical_backfill_fixture(
+        release_build=build,
+        plan=plan,
+        accepted_root=accepted,
+        work_root=work,
+    )
+
+    assert published.release_id == build.manifest.release_id
+    assert (published.release_directory / "bars/year=2016.parquet").is_file()
+    assert (published.release_directory / "source_snapshots").is_dir()
+    with pytest.raises(IntegrityError, match="stage already exists"):
+        publish_historical_backfill_fixture(
+            release_build=build,
+            plan=plan,
+            accepted_root=accepted,
+            work_root=work,
+        )

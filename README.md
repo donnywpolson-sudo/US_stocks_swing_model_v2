@@ -113,7 +113,7 @@ and API.
 | Completed HFDL migration capsule | Frozen historical audit and trial-census evidence only |
 | Existing HF Data Library parquet | Retired and excluded from future work; preserved unchanged until separately authorized cleanup |
 | Rehabilitated 780-symbol Alpaca SIP archive | Accepted immutable PIT-unresolved legacy-discovery release; never active source qualification or survivorship-safe evidence |
-| Current-identity-seeded Alpaca SIP backfill | All 19 capture groups are retained; the checked-in deterministic builder is no-network and no-write, while release publication remains unavailable and unauthorized |
+| Current-identity-seeded Alpaca SIP backfill | All 19 capture groups are retained; the checked-in deterministic builder is no-network and no-write, while an exact separately authorized publication can create only a caveated legacy-discovery release |
 | Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, with the first bounded canonical-bars build still pending |
 | Alpaca assets | The accepted identity release binds the immutable Alpaca asset snapshot and its frozen projection; it is identity evidence, not bar or research authority |
 | Nasdaq Trader symbol directory | The accepted identity release binds the strictly newer comprehensive Nasdaq capture and the Alpaca identity projection; retrospective membership claims remain prohibited |
@@ -254,6 +254,8 @@ python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
 python -m us_stocks_swing_model_v2.cli.plan_alpaca_archive_rehabilitation --help
 python -m us_stocks_swing_model_v2.cli.publish_alpaca_archive_rehabilitation --help
 python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill --help
+python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill_publication --help
+python -m us_stocks_swing_model_v2.cli.publish_alpaca_historical_backfill --help
 ```
 
 Run validation in proportion to the task. Documentation-only work needs a

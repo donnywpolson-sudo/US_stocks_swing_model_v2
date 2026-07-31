@@ -40,7 +40,7 @@
   "implementation": {
     "plan_only": true,
     "release_builder_implemented": true,
-    "publication_execution_implemented": false,
+    "publication_execution_implemented": true,
     "release_id_deferred_until_deterministic_builder": false
   },
   "authorities": {

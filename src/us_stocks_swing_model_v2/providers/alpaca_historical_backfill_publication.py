@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import json
+import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -10,6 +11,8 @@ import pyarrow as pa
 
 from ..canonical.parquet import deterministic_parquet_bytes
 from ..common import (
+    assert_exact_tree,
+    atomic_write_new,
     canonical_json_bytes,
     parse_utc_z,
     reject_link,
@@ -20,7 +23,12 @@ from ..common import (
 )
 from ..environment import validate_environment_lock
 from ..errors import ContractError, IntegrityError
-from ..releases import ReleaseFile, ReleaseManifest
+from ..releases import (
+    AtomicReleasePublisher,
+    ReleaseFile,
+    ReleaseManifest,
+    verify_accepted_release,
+)
 from .alpaca_historical_backfill import (
     _calendar_sessions,
     _retained_snapshot_inventory,
@@ -43,6 +51,9 @@ QUALITY_STATE = "LEGACY_CAVEATED"
 INPUT_QUALITY_STATE = "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED"
 EVIDENCE_MANIFEST_PATH = "source_evidence_manifest.json"
 SNAPSHOT_EVIDENCE_PREFIX = "source_snapshots"
+SNAPSHOT_EVIDENCE_DIRECTORY_LENGTH = 20
+PUBLICATION_CONFIRMATION_TOKEN = "ALPACA_HISTORICAL_BACKFILL_PUBLICATION_APPROVED"
+PUBLICATION_CONFIRMATION_VALUE = "YES"
 
 HISTORICAL_BACKFILL_SCHEMA = pa.schema(
     [
@@ -77,6 +88,7 @@ CODE_CLOSURE_PATHS = (
     "src/us_stocks_swing_model_v2/providers/alpaca_historical_backfill.py",
     "src/us_stocks_swing_model_v2/providers/alpaca_historical_backfill_publication.py",
     "src/us_stocks_swing_model_v2/cli/plan_alpaca_historical_backfill_publication.py",
+    "src/us_stocks_swing_model_v2/cli/publish_alpaca_historical_backfill.py",
     "src/us_stocks_swing_model_v2/providers/snapshots.py",
     "src/us_stocks_swing_model_v2/releases.py",
 )
@@ -97,6 +109,14 @@ class HistoricalBackfillReleaseBuild:
     copied_files: tuple[tuple[str, Path], ...]
     shard_census: tuple[dict[str, object], ...]
     evidence_manifest_id: str
+
+
+@dataclass(frozen=True)
+class HistoricalBackfillPublication:
+    publication_plan_id: str
+    release_id: str
+    release_directory: Path
+    work_directory: Path
 
 
 def _repo_root() -> Path:
@@ -165,7 +185,7 @@ def load_historical_backfill_publication_policy(
     if implementation != {
         "plan_only": True,
         "release_builder_implemented": True,
-        "publication_execution_implemented": False,
+        "publication_execution_implemented": True,
         "release_id_deferred_until_deterministic_builder": False,
     }:
         raise ContractError("backfill publication implementation state differs")
@@ -361,7 +381,13 @@ def build_historical_backfill_release(
         snapshot = inventory_by_id[str(entry["snapshot_id"])]
         for filename in ("headers.json", "raw.bin", "receipt.json"):
             source = snapshot.root / filename
-            relative = f"{SNAPSHOT_EVIDENCE_PREFIX}/{snapshot.snapshot_id}/{filename}"
+            # The immutable evidence manifest retains the full snapshot ID.
+            # A checked 20-hex directory prefix keeps the accepted release
+            # readable on Windows' legacy path limit.
+            relative = (
+                f"{SNAPSHOT_EVIDENCE_PREFIX}/"
+                f"{snapshot.snapshot_id[:SNAPSHOT_EVIDENCE_DIRECTORY_LENGTH]}/{filename}"
+            )
             copied_files.append((relative, source))
             copied_entries.append(
                 ReleaseFile(relative, source.stat().st_size, sha256_file(source))
@@ -615,6 +641,214 @@ def build_historical_backfill_publication_plan(
         code_closure_sha256=str(code_hash),
         config_closure_sha256=str(config_hash),
         environment_id=environment_id,
+    )
+
+
+def _validate_publication_plan_for_build(
+    plan: Mapping[str, object],
+    *,
+    release_build: HistoricalBackfillReleaseBuild,
+) -> None:
+    publication_plan_summary(plan)
+    prospective = plan.get("prospective_release")
+    if not isinstance(prospective, Mapping) or prospective.get("release_id") != release_build.manifest.release_id:
+        raise IntegrityError("historical backfill publication release binding differs")
+    if prospective.get("manifest_sha256") != sha256_bytes(
+        canonical_json_bytes(release_build.manifest.as_dict())
+    ):
+        raise IntegrityError("historical backfill publication manifest binding differs")
+    if plan.get("implementation", {}).get("publication_execution_implemented") is not True:
+        raise ContractError("historical backfill publication execution is unavailable")
+
+
+def _expected_directories(relative_paths: Iterable[str]) -> set[str]:
+    directories: set[str] = set()
+    for relative in relative_paths:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return directories
+
+
+def _write_exact_new(path: Path, payload: bytes) -> None:
+    if path.exists():
+        raise IntegrityError(f"historical backfill publication stage already exists: {path}")
+    atomic_write_new(path, payload)
+
+
+def _publish_release_build(
+    *,
+    release_build: HistoricalBackfillReleaseBuild,
+    plan: Mapping[str, object],
+    accepted_root: Path,
+    work_root: Path,
+) -> HistoricalBackfillPublication:
+    _validate_publication_plan_for_build(plan, release_build=release_build)
+    accepted = Path(accepted_root)
+    work = Path(work_root)
+    if (
+        not accepted.is_absolute()
+        or not work.is_absolute()
+        or str(accepted) != plan.get("accepted_root")
+        or str(work) != plan.get("work_root")
+    ):
+        raise ContractError("historical backfill publication root binding differs")
+    work.mkdir(parents=True, exist_ok=True)
+    require_contained_path(work, work)
+    # Keep the work-directory component short enough for Windows paths while
+    # retaining the full plan ID in the immutable manifest and result.
+    stage = work / str(plan["publication_plan_id"])[:20] / "stage"
+    require_contained_path(stage, work, must_exist=False)
+    if stage.exists():
+        raise IntegrityError("historical backfill publication stage already exists")
+    stage.mkdir(parents=True)
+    require_contained_path(stage, work)
+
+    generated = dict(release_build.generated_files)
+    copied = dict(release_build.copied_files)
+    expected_paths = {entry.path for entry in release_build.manifest.files}
+    if set(generated) | set(copied) != expected_paths or set(generated) & set(copied):
+        raise IntegrityError("historical backfill publication payload census differs")
+    for entry in release_build.manifest.files:
+        target = stage.joinpath(*Path(entry.path).parts)
+        require_contained_path(target, stage, must_exist=False)
+        if entry.path in generated:
+            payload = generated[entry.path]
+        else:
+            source = copied[entry.path]
+            require_contained_path(source, source)
+            reject_link(source)
+            if not source.is_file() or source.stat().st_nlink != 1:
+                raise IntegrityError("historical backfill copied evidence is not a plain file")
+            payload = source.read_bytes()
+        if len(payload) != entry.size or sha256_bytes(payload) != entry.sha256:
+            raise IntegrityError(f"historical backfill publication payload differs: {entry.path}")
+        _write_exact_new(target, payload)
+    try:
+        assert_exact_tree(
+            stage,
+            expected_paths,
+            _expected_directories(expected_paths),
+        )
+    except ContractError as exc:
+        raise IntegrityError("historical backfill publication stage differs") from exc
+    release_directory = AtomicReleasePublisher(accepted).publish(
+        stage,
+        release_build.manifest,
+    )
+    verify_accepted_release(
+        release_directory,
+        accepted_root=accepted,
+        expected=release_build.manifest,
+    )
+    return HistoricalBackfillPublication(
+        publication_plan_id=str(plan["publication_plan_id"]),
+        release_id=release_build.manifest.release_id,
+        release_directory=release_directory,
+        work_directory=stage.parent,
+    )
+
+
+def publish_historical_backfill_release(
+    *,
+    approved_plan_id: str,
+    created_at: str,
+    repository_root: Path | None = None,
+    accepted_root: Path | None = None,
+    work_root: Path | None = None,
+    owner_confirmation: str,
+) -> HistoricalBackfillPublication:
+    """Publish one exact, separately approved legacy-discovery release."""
+
+    require_sha256(approved_plan_id, "approved historical backfill publication plan ID")
+    if (
+        owner_confirmation != PUBLICATION_CONFIRMATION_VALUE
+        or os.environ.get(PUBLICATION_CONFIRMATION_TOKEN)
+        != PUBLICATION_CONFIRMATION_VALUE
+    ):
+        raise PermissionError("historical backfill publication confirmation is absent")
+    root = (repository_root or _repo_root()).resolve(strict=True)
+    policy, policy_id = load_historical_backfill_publication_policy(root)
+    backfill_policy, _ = load_historical_backfill_policy(root)
+    backfill_plan = build_historical_backfill_plan(repo_root=root)
+    registry = NetworkAcquisitionRegistry.load(
+        root / backfill_policy["network_registry"], allowed_root=root
+    )
+    snapshot_store = AsReceivedSnapshotStore(
+        (root / backfill_policy["outputs"]["snapshot_store"]).resolve(strict=True),
+        allowed_root=(root / "data").resolve(strict=True),
+        acquisition_registry=registry,
+    )
+    accepted_input_root = (root / "data/vault/accepted").resolve(strict=True)
+    calendar_sessions = _calendar_sessions(root, backfill_policy, accepted_input_root)
+    inventory = _retained_snapshot_inventory(snapshot_store)
+    complete = build_historical_backfill_complete_corpus(
+        backfill_plan=backfill_plan,
+        snapshot_store=snapshot_store,
+        calendar_sessions=calendar_sessions,
+        registry=registry,
+        synthetic=False,
+        _inventory=inventory,
+    )
+    expected_accepted = (root / policy["outputs"]["accepted_root"]).resolve()
+    expected_work = (root / policy["outputs"]["work_root"]).resolve()
+    accepted = Path(accepted_root or expected_accepted).resolve()
+    work = Path(work_root or expected_work).resolve()
+    if accepted != expected_accepted or work != expected_work:
+        raise ContractError("historical backfill publication roots differ from policy")
+    code_hash = _closure(root, CODE_CLOSURE_PATHS)["closure_sha256"]
+    config_hash = _closure(root, CONFIG_CLOSURE_PATHS)["closure_sha256"]
+    environment_id = validate_environment_lock(root / "config/environment.lock.json")
+    release_build = build_historical_backfill_release(
+        backfill_plan=backfill_plan,
+        complete_corpus=complete,
+        snapshot_inventory=inventory,
+        calendar_sessions=calendar_sessions,
+        registry=registry,
+        policy=policy,
+        publication_policy_id=policy_id,
+        created_at=created_at,
+        code_hash=str(code_hash),
+        config_hash=str(config_hash),
+        environment_hash=environment_id,
+        synthetic=False,
+    )
+    plan = build_historical_backfill_publication_plan_from_corpus(
+        release_build=release_build,
+        policy=policy,
+        publication_policy_id=policy_id,
+        accepted_root=accepted,
+        work_root=work,
+        created_at=created_at,
+        code_closure_sha256=str(code_hash),
+        config_closure_sha256=str(config_hash),
+        environment_id=environment_id,
+    )
+    if plan["publication_plan_id"] != approved_plan_id:
+        raise PermissionError("approved historical backfill publication plan ID differs")
+    return _publish_release_build(
+        release_build=release_build,
+        plan=plan,
+        accepted_root=accepted,
+        work_root=work,
+    )
+
+
+def publish_historical_backfill_fixture(
+    *,
+    release_build: HistoricalBackfillReleaseBuild,
+    plan: Mapping[str, object],
+    accepted_root: Path,
+    work_root: Path,
+) -> HistoricalBackfillPublication:
+    """Synthetic-only publication helper for contract tests."""
+
+    return _publish_release_build(
+        release_build=release_build,
+        plan=plan,
+        accepted_root=accepted_root,
+        work_root=work_root,
     )
 
 

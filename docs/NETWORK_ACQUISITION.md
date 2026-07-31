@@ -346,8 +346,13 @@ The resulting publication plan binds an exact deterministic
 accepted-manifest quality `LEGACY_CAVEATED`. Rows retain the narrower input
 quality `CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED`. The builder preserves exact
 snapshot evidence, regenerates deterministic calendar-year Parquet, and
-computes the complete release ID without writing. Publication execution remains
-unimplemented and separately authorized. The plan grants no
+computes the complete release ID without writing. Publication execution is
+implemented but remains separately authorized, requires the exact approved plan
+ID plus `ALPACA_HISTORICAL_BACKFILL_PUBLICATION_APPROVED=YES`, and atomically
+copies the exact snapshot evidence with regenerated deterministic Parquet. The
+evidence manifest retains every full snapshot ID; release-internal snapshot
+directories use checked 20-hex prefixes to remain Windows-path-safe.
+The plan grants no
 publication, activation, eligible-universe, feature, outcome, training,
 evaluation, research, provider, credential, or HFDL authority.
 
@@ -357,7 +362,12 @@ python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill_publicati
 ```
 
 Publishing the exact built release is a later, separately bounded generated-
-evidence gate.
+evidence gate. It uses:
+
+```text
+python -m us_stocks_swing_model_v2.cli.publish_alpaca_historical_backfill \
+  --created-at <exact-production-UTC-Z> --approved-plan-id <exact-plan-id> --execute
+```
 
 ## Landed evidence
 

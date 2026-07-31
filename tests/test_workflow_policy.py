@@ -241,4 +241,4 @@ def test_hfdl_retirement_and_alpaca_rehabilitation_are_durable() -> None:
     assert "release ID" in network
     normalized_network = " ".join(network.split())
     assert "computes the complete release ID without writing" in normalized_network
-    assert "Publication execution remains unimplemented" in normalized_network
+    assert "Publication execution is implemented but remains separately authorized" in normalized_network

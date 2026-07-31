@@ -19,7 +19,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Revalidate the complete Alpaca historical-backfill corpus and emit "
             "one no-network, no-write immutable-release publication plan with an "
-            "exact deterministic release identity. Publication remains unavailable."
+            "exact deterministic release identity. Publication requires separate "
+            "approval and explicit execution."
         )
     )
     value.add_argument("--repo-root", type=Path, default=_repo_root())
@@ -45,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
                 "publication_plan": publication_plan_summary(plan),
                 "publication_authorized": False,
                 "release_builder_implemented": True,
-                "publication_implemented": False,
+                "publication_implemented": True,
                 "network_calls": 0,
                 "credential_access": False,
                 "source_activation": False,
