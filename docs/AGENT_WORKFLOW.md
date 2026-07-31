@@ -48,6 +48,10 @@ Before content-addressing or requesting approval for an invocation:
 1. Resolve the exact repository, executable, script, runtime, and lock identity.
 2. Validate literal transport, quoting, encoding, hashing, path, and host
    capabilities with metadata-only inputs.
+   For Windows PowerShell 5.1, this includes parsing a nested synthetic JSON
+   packet with the exact capture expression and never passing the unsupported
+   `-Depth` parameter to `ConvertFrom-Json`. A failed parse is preparation
+   failure and must stop before provider access or evidence mutation.
 3. Freeze exact targets, outputs, run limits, timeouts, and failure class.
 4. Minimize declared processes using deterministic maximal safe batches.
 5. Content-address the plan or envelope.

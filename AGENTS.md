@@ -165,6 +165,11 @@
   host capabilities using metadata-only inputs. Environment, quoting, encoding,
   path, hashing, and process-transport failures belong in preparation, not in a
   spent substantive invocation.
+- When the selected host is Windows PowerShell 5.1, never use the unsupported
+  `ConvertFrom-Json -Depth` parameter. Before a bounded external invocation,
+  exercise the exact JSON capture and parsing expression against a nested
+  synthetic packet in that live host; a failed transport preflight stops before
+  provider access or generated-evidence mutation.
 - Minimize process and tool-call count without weakening evidence boundaries.
   Combine independent read-only identity checks, use deterministic bounded
   batches, and prefer one maximal safe batch over per-file or per-field calls.

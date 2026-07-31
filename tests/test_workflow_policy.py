@@ -117,6 +117,18 @@ def test_future_workflows_bundle_local_work_and_trigger_durable_retrospectives()
     assert "unchanged safety and evidence quality" in workflow
 
 
+def test_windows_powershell_51_json_transport_is_preflighted() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")
+
+    for contract in (agents, workflow):
+        assert "Windows PowerShell 5.1" in contract
+        assert "ConvertFrom-Json" in contract
+        assert "unsupported" in contract
+        assert "synthetic" in contract
+        assert "before provider access" in " ".join(contract.split())
+
+
 def test_external_phase_covers_verification_without_approval_essay() -> None:
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     workflow = (ROOT / "docs" / "AGENT_WORKFLOW.md").read_text(encoding="utf-8")
