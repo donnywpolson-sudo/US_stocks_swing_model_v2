@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "policy_type": "BOUNDED_ALPACA_CANONICAL_BARS_SUCCESSOR",
+  "source_key": "alpaca_basic_delayed_sip",
+  "source_name": "alpaca_sip_canonical_bars",
+  "dataset": "alpaca_daily_bars",
+  "source_epoch": "alpaca_basic_sip_raw_v1",
+  "role": "active_historical",
+  "quality_state": "PASS",
+  "symbols": ["AAPL", "SPY"],
+  "predecessor": {
+    "release_id": "38ea661cafcedc423b370104f00461c0311bd00f8e3bd61ee03ed62b1de62acb",
+    "relative_directory": "data/vault/accepted/alpaca_daily_bars/38ea661cafcedc423b370104f00461c0311bd00f8e3bd61ee03ed62b1de62acb",
+    "receipt_id": "dd008532372861806f45704e2aace9fa334cfd58bad530b628de59c98c6ce04c",
+    "bars_sha256": "1243078ae458fefed02349a5ccbabb68d63aa425c84f48e0b7d414e103050b1b",
+    "row_count": 2,
+    "event_start": "2026-07-30",
+    "event_end": "2026-07-30"
+  },
+  "delta_window": {
+    "start": "2026-07-31T04:00:00Z",
+    "end": "2026-08-07T03:59:59Z",
+    "sessions": [
+      "2026-07-31",
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05",
+      "2026-08-06"
+    ],
+    "row_count": 10
+  },
+  "cumulative_sessions": [
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05",
+    "2026-08-06"
+  ],
+  "cumulative_row_count": 12,
+  "earliest_execution_at": "2026-08-07T04:19:59Z",
+  "request_contract": {
+    "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+    "feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "asof": null,
+    "sort": "asc",
+    "limit": 10000,
+    "minimum_end_lag_minutes": 20,
+    "timeout_seconds": 30,
+    "host_timeout_seconds": 120,
+    "max_pages": 1,
+    "max_response_bytes": 1048576
+  },
+  "network_registry": "config/alpaca_canonical_bars_network_registry.json",
+  "source_config": {
+    "path": "config/sources.json",
+    "sha256": "f62ff2060ab449c6446dd19b667e7ad7f2812cb5e16145ba11fab5a3b092ad3c"
+  },
+  "qualification_release": {
+    "release_id": "8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2",
+    "relative_directory": "data/vault/accepted/alpaca_feed_qualification/8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2",
+    "receipt_id": "92387485915f02368f830e4816d3cb6284e334fec73f29b63aa6e62663d948d5"
+  },
+  "identity_release": {
+    "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+    "relative_directory": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+    "identity_snapshot_id": "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6",
+    "asset_ids": {
+      "AAPL": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+      "SPY": "b28f4066-5c6d-479b-a2af-85dc1a8f16fb"
+    }
+  },
+  "calendar_release": {
+    "release_id": "055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
+    "relative_directory": "data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1"
+  },
+  "outputs": {
+    "snapshot_store": "data/vault/as_received/alpaca_daily_bars",
+    "accepted_root": "data/vault/accepted",
+    "work_root": "data/w/alpaca_daily_bars",
+    "snapshot_files": ["raw.bin", "headers.json", "receipt.json"],
+    "release_files": [
+      "bars.parquet",
+      "canonical_bar_receipt.json",
+      "release_manifest.json"
+    ]
+  }
+}

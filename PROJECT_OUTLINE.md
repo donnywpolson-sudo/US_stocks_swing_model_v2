@@ -75,10 +75,11 @@ because it served the same project mission.
 
 The controlled architecture, approved local migration, non-active historical
 foundation, accepted current identity release, active qualified Alpaca SIP
-source, and deterministic historical research mechanics are complete. The
-first bounded active-SIP canonical-bars acquisition and immutable release remain
-pending. The completed foundation remains legacy discovery evidence with
-unresolved point-in-time limitations.
+source, first bounded active-SIP canonical-bars release, and deterministic
+historical research mechanics are complete. Canonical-bar history must grow
+through immutable, predecessor-bound successor releases before eligible-
+universe construction. The completed foundation remains legacy discovery
+evidence with unresolved point-in-time limitations.
 
 Historical hypothesis evaluation, real-history WFA, candidate sealing, bulk
 provider acquisition, prospective confirmation, destructive cutover, external

@@ -191,6 +191,45 @@ bound to the exact publication plan and
 `active_historical` source evidence only. It does not authorize an eligible
 universe, features, outcomes, research, prediction, or trading.
 
+## Bounded active-SIP canonical-bars successor
+
+Canonical-bar accumulation uses a separate successor contract so the original
+two-row release remains immutable and independently verifiable. The successor
+planner is also network-free, credential-free, and no-write by default:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.accumulate_canonical_bars
+```
+
+It binds the accepted first release as its exact predecessor and plans one SIP
+GET for AAPL and SPY from `2026-07-31T04:00:00Z` through
+`2026-08-07T03:59:59Z`. The required delta sessions are `2026-07-31`,
+`2026-08-03`, `2026-08-04`, `2026-08-05`, and `2026-08-06`. Execution cannot
+begin before `2026-08-07T04:19:59Z`, preserving the active source's 20-minute
+minimum end lag.
+
+The request remains exactly one GET, one page, one attempt, a 30-second HTTP
+timeout, a 120-second host timeout, and at most 1,048,576 response bytes.
+Credentials remain process-environment-only. Any continuation token, missing,
+extra, malformed, or duplicate session, source or repository drift,
+predecessor mismatch, timeout, or response-bound failure stops without a
+second request.
+
+Offline verification requires ten exact delta rows and combines them
+process-locally with the predecessor's two rows. A prospective successor
+publication contains a complete twelve-row canonical table covering the six
+sessions from `2026-07-30` through `2026-08-06`; it is not a delta-only
+release. The receipt and manifest bind the predecessor release and bars hash,
+the new snapshot, both asset UUIDs, the accepted qualification, identity and
+calendar releases, and the code/config/environment closures.
+
+Successor publication is a separate no-network gate requiring the exact plan
+ID and `ALPACA_CANONICAL_BARS_SUCCESSOR_PUBLICATION_APPROVED=YES`. It creates
+one new immutable `alpaca_daily_bars` release and never replaces the
+predecessor. Publication does not activate another source, select a current
+bars release for downstream consumers, build an eligible universe, or
+authorize features, outcomes, research, prediction, or trading.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,
