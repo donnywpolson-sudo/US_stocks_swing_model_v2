@@ -581,6 +581,8 @@ def guarded_fetch_corporate_action_pages(
             raw=evidence.raw_bytes,
             headers=evidence.headers,
             clock=trusted_clock,
+            requested_at=initial.requested_at,
+            request_plan_id=authorization_session.plan.plan_id,
         )
         pages.append(snapshot)
         # Parse pagination only after an atomic land and verified reread.

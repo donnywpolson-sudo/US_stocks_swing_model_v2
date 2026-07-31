@@ -112,6 +112,44 @@ def test_corporate_action_request_enforces_trusted_time_window(
         )
 
 
+def test_guarded_fetch_persists_the_approved_request_plan_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested = datetime(2026, 7, 31, 12, tzinfo=timezone.utc)
+    request = CorporateActionsRequest(date(2026, 7, 1), date(2026, 7, 31), requested, ("ABC",))
+    observed: dict[str, object] = {}
+    page = type("Page", (), {"read_verified_bytes": lambda self: b'{"corporate_actions":{},"next_page_token":null}'})()
+    session = type("Session", (), {"plan": type("Plan", (), {"plan_id": "a" * 64})()})()
+    evidence = type("Evidence", (), {
+        "transport_evidence": object(), "url": _url(request), "response_url": _url(request),
+        "status": 200, "raw_bytes": b"{}", "headers": {"content-type": "application/json"},
+    })()
+    store = type("Store", (), {
+        "_land_network_response": lambda self, **kwargs: observed.update(kwargs) or page,
+    })()
+    monkeypatch.setenv("FREE_SOURCE_QUALIFICATION_APPROVED", "YES")
+    monkeypatch.setattr(corporate_actions_module, "assert_local_network_request", lambda *args, **kwargs: object())
+    monkeypatch.setattr(corporate_actions_module, "_fetch_page", lambda *args, **kwargs: evidence)
+    clock = TrustedClock.synthetic_fixed(
+        requested,
+        permit=SyntheticOnlyPermit.create(fixture_id="corporate-action-binding", scope="TRUSTED_CLOCK_FIXED_TIME"),
+    )
+
+    pages = corporate_actions_module.guarded_fetch_corporate_action_pages(
+        request,
+        snapshot_store=store,
+        api_key_id="fixture-key",
+        api_secret_key="fixture-secret",
+        network_enabled=True,
+        max_pages=1,
+        clock=clock,
+        authorization_session=session,
+    )
+    assert pages == (page,)
+    assert observed["requested_at"] == requested
+    assert observed["request_plan_id"] == "a" * 64
+
+
 def test_corporate_action_pages_are_parsed_only_from_landed_receipt_time(tmp_path) -> None:
     requested = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
     request = CorporateActionsRequest(date(2026, 7, 1), date(2026, 7, 15), requested, ("ABC",))
