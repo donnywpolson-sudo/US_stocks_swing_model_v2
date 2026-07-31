@@ -352,6 +352,11 @@ ID plus `ALPACA_HISTORICAL_BACKFILL_PUBLICATION_APPROVED=YES`, and atomically
 copies the exact snapshot evidence with regenerated deterministic Parquet. The
 evidence manifest retains every full snapshot ID; release-internal snapshot
 directories use checked 20-hex prefixes to remain Windows-path-safe.
+
+The plan-only Alpaca corporate-actions preflight binds one requested process-date
+interval and symbol census to that caveated bars release. It does not call
+Alpaca, prove effective-event completeness, resolve delistings, or authorize
+outcome computation.
 The plan grants no
 publication, activation, eligible-universe, feature, outcome, training,
 evaluation, research, provider, credential, or HFDL authority.
