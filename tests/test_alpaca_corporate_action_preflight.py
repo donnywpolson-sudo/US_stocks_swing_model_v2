@@ -25,6 +25,8 @@ def test_preflight_is_no_network_and_preserves_outcome_blockers(tmp_path: Path) 
     release, accepted = _release(tmp_path)
     plan = build_corporate_action_preflight(release_directory=release, accepted_root=accepted, start=date(2016, 1, 4), end=date(2016, 1, 5), symbols=("AAPL",), max_pages=1, created_at="2026-07-31T20:00:00Z", repo_root=REPO)
     assert plan["request"]["url"].startswith("https://data.alpaca.markets/v1/corporate-actions?")
+    assert plan["request"]["request_count"] == 1
+    assert plan["request"]["continuation_token_disposition"] == "STOP_WITHOUT_SECOND_REQUEST"
     assert plan["outcome_boundary"]["outcomes_may_compute"] is False
     assert all(value is False for value in plan["authorities"].values())
 

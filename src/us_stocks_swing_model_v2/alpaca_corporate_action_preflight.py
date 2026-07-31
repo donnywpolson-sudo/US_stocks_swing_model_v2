@@ -60,7 +60,8 @@ def build_corporate_action_preflight(
             "url": request.url(), "start": start.isoformat(), "end": end.isoformat(),
             "symbols": list(symbols), "page_limit": request.limit, "max_pages": max_pages,
             "http_timeout_seconds": 30, "response_limit_bytes": MAX_RESPONSE_BYTES,
-            "redirects_allowed": False, "request_count": "UNRESOLVED_UNTIL_SEPARATE_EXECUTION_PLAN",
+            "redirects_allowed": False, "request_count": 1,
+            "continuation_token_disposition": "STOP_WITHOUT_SECOND_REQUEST",
         },
         "outcome_boundary": {
             "corporate_action_process_date_coverage_only": True,
