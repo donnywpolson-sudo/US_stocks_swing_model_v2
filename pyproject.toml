@@ -33,6 +33,7 @@ stock-v2-acquire-canonical-bars = "us_stocks_swing_model_v2.cli.acquire_canonica
 stock-v2-accumulate-canonical-bars = "us_stocks_swing_model_v2.cli.accumulate_canonical_bars:main"
 stock-v2-qualify-identity = "us_stocks_swing_model_v2.cli.qualify_identity_sources:main"
 stock-v2-publish-identity = "us_stocks_swing_model_v2.cli.publish_identity_release:main"
+stock-v2-plan-legacy-discovery = "us_stocks_swing_model_v2.cli.plan_legacy_discovery:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

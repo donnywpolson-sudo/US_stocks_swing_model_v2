@@ -481,3 +481,28 @@ While PIT truth remains unresolved, the historical evidence scope remains
 `BLOCKED_PENDING_PROSPECTIVE_PIT`, and alpha, options readiness, deployable short
 readiness, and live execution remain false. This document alone marks nothing
 ready and grants no execution authority.
+
+### Proxy legacy-discovery bridge planning
+
+The versioned `LEGACY_DISCOVERY_PROXY_BRIDGE_PLAN_ONLY` contract may prepare a
+metadata-only plan for a future derivative discovery release. Planning verifies
+the accepted foundation set manifest and `foundation_set.json` only. It does not
+open causal-bar, feature-input, or outcome-input row payloads; compute returns;
+fit a model; execute WFA; or write evidence.
+
+The plan keeps `hfdl_pitrading_consolidated` and `hfdl_iex_only` as separate
+derivative releases and separate WFA plans. Proxy eligibility uses
+`source_series_id` only as a nonpersistent historical proxy, assigns no trusted
+stock/ETF sleeve, and preserves all missing or unresolved rows in denominators.
+Its proposed outcome is explicitly named
+`HFDL_SOURCE_ADJUSTED_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1`.
+That proxy is not equivalent to the canonical split-normalized target because
+historical action and delisting evidence remain unavailable.
+
+The accepted foundation remains immutable and continues to prohibit direct
+model/evaluation inputs. A new derivative dataset identity, publication
+authorization, full accepted-release and component-provenance verification,
+complete preregistration, counted-trial binding, and separately authorized
+real-history outcome access are all required before any proxy return is computed
+or any model or WFA is run. No bridge plan can support a trusted readiness,
+alpha, candidate, or production claim.
