@@ -3,10 +3,13 @@ from __future__ import annotations
 from datetime import date, timedelta
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
+import pyarrow as pa
 import pytest
 
+import us_stocks_swing_model_v2.providers.alpaca_historical_backfill as backfill
 from us_stocks_swing_model_v2.cli import plan_alpaca_historical_backfill as cli
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import IntegrityError
@@ -234,3 +237,36 @@ def test_checked_in_policy_is_non_authorizing_and_content_addressed() -> None:
         "1f6ed8101032cf31359eb358be10cd0883178a5c0567f0ffadcbaffe92608f63"
     )
     assert not any(policy["authorities"].values())
+
+
+def test_rehabilitated_release_requires_exact_published_role(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    policy, _ = load_historical_backfill_policy(REPO)
+    policy = json.loads(json.dumps(policy))
+    binding = policy["rehabilitated_release"]
+    binding["bars_sha256"] = "1" * 64
+    binding["symbol_count"] = 2
+    manifest = SimpleNamespace(
+        release_id=binding["release_id"],
+        dataset="alpaca_legacy_daily_bars",
+        role="legacy_discovery_only",
+        quality_state="LEGACY_CAVEATED",
+    )
+    monkeypatch.setattr(backfill, "verify_accepted_release", lambda *_args, **_kwargs: manifest)
+    monkeypatch.setattr(backfill, "sha256_file", lambda _path: "1" * 64)
+    monkeypatch.setattr(
+        backfill.pq,
+        "read_table",
+        lambda *_args, **_kwargs: pa.table({"provider_symbol": ["AAA", "BBB"]}),
+    )
+
+    assert backfill._rehabilitated_symbols(tmp_path, policy, tmp_path) == [
+        "AAA",
+        "BBB",
+    ]
+
+    manifest.role = "legacy_discovery"
+    with pytest.raises(IntegrityError, match="release binding differs"):
+        backfill._rehabilitated_symbols(tmp_path, policy, tmp_path)

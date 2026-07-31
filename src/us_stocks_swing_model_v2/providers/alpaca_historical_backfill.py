@@ -250,7 +250,7 @@ def _rehabilitated_symbols(
     if (
         manifest.release_id != binding["release_id"]
         or manifest.dataset != "alpaca_legacy_daily_bars"
-        or manifest.role != "legacy_discovery"
+        or manifest.role != "legacy_discovery_only"
         or manifest.quality_state != "LEGACY_CAVEATED"
         or sha256_file(directory / "bars.parquet") != binding["bars_sha256"]
     ):
