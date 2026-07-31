@@ -385,6 +385,11 @@ proxy eligibility, feature, outcome, and preregistration boundaries without
 opening bar rows or writing evidence. Historical membership, corporate-action,
 and delisting gaps remain blockers for trusted eligibility and outcomes.
 
+For discovery-only work, that planner may also describe—but never materialize—a
+source-adjusted raw-price proxy return. It is explicitly not the canonical
+split-normalized target, has no trusted sleeve, and cannot train, evaluate, or
+support an alpha or survivorship-safe claim until separately authorized.
+
 ## Landed evidence
 
 The guarded transport rejects redirects and binds the exact requested URL,

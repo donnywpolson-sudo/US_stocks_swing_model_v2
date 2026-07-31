@@ -25,6 +25,16 @@
     "state": "BLOCKED_PENDING_ACTION_AND_DELISTING_EVIDENCE",
     "may_compute": false
   },
+  "discovery_proxy": {
+    "state": "SOURCE_ADJUSTED_RAW_PRICE_PROXY_PLANNED_NOT_MATERIALIZED",
+    "target_semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1",
+    "historical_proxy": true,
+    "canonical_target_equivalent": false,
+    "trusted_sleeve_eligible": false,
+    "real_history_row_access_authorized": false,
+    "generated_evidence_write_authorized": false,
+    "training_or_evaluation_authorized": false
+  },
   "wfa": {
     "state": "PREREGISTRATION_SCHEMA_ONLY",
     "real_history_execution_authorized": false
@@ -45,5 +55,5 @@
     "historical membership or point-in-time safety claim",
     "row access outcome computation or generated write request"
   ],
-  "contract_id": "4ea561b51c1af0b6236804b6d0b5d02da896c15c5383cd39d49cf1654f70879c"
+  "contract_id": "3ee01cfb272c929755eda784070985e5e16ab0c20993d3f81d80e5fa76919013"
 }

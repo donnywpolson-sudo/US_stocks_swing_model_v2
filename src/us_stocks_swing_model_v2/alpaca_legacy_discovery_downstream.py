@@ -14,6 +14,16 @@ from .releases import verify_accepted_release
 PROJECT = "US_stocks_swing_model_v2"
 CONTRACT_PATH = "config/alpaca_legacy_discovery_downstream_contract.json"
 EVIDENCE_PATH = "source_evidence_manifest.json"
+DISCOVERY_PROXY = {
+    "state": "SOURCE_ADJUSTED_RAW_PRICE_PROXY_PLANNED_NOT_MATERIALIZED",
+    "target_semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1",
+    "historical_proxy": True,
+    "canonical_target_equivalent": False,
+    "trusted_sleeve_eligible": False,
+    "real_history_row_access_authorized": False,
+    "generated_evidence_write_authorized": False,
+    "training_or_evaluation_authorized": False,
+}
 
 
 def _repo_root() -> Path:
@@ -34,6 +44,7 @@ def load_contract(repo_root: Path | None = None) -> dict[str, Any]:
         payload.get("schema_version") != 1
         or payload.get("project") != PROJECT
         or payload.get("mode") != "ALPACA_LEGACY_DISCOVERY_DOWNSTREAM_PLAN_ONLY"
+        or payload.get("discovery_proxy") != DISCOVERY_PROXY
         or any(payload.get("authorities", {}).values())
     ):
         raise ContractError("Alpaca downstream contract differs")
@@ -83,6 +94,7 @@ def build_downstream_plan(
         "eligibility": contract["eligibility"],
         "features": contract["features"],
         "outcomes": contract["outcomes"],
+        "discovery_proxy": contract["discovery_proxy"],
         "wfa": contract["wfa"],
         "metadata_validation_scope": {"release_verified": True, "bar_rows_opened": 0, "outcomes_computed": 0, "files_written": 0},
         "authorities": contract["authorities"],

@@ -43,6 +43,9 @@ def test_downstream_plan_is_metadata_only_and_caveated(tmp_path: Path) -> None:
     assert plan["release"]["release_id"] == release.name
     assert plan["eligibility"]["trusted_sleeves"] == []
     assert plan["outcomes"]["may_compute"] is False
+    assert plan["discovery_proxy"]["historical_proxy"] is True
+    assert plan["discovery_proxy"]["canonical_target_equivalent"] is False
+    assert plan["discovery_proxy"]["training_or_evaluation_authorized"] is False
     assert plan["wfa"]["real_history_execution_authorized"] is False
     assert plan["metadata_validation_scope"]["bar_rows_opened"] == 0
 
