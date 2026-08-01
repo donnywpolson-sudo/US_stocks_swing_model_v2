@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from us_stocks_swing_model_v2.alpaca_discovery_proxy_feature_wfa import build_price_only_proxy_features, load_feature_wfa_contract
+from us_stocks_swing_model_v2.alpaca_discovery_proxy_feature_wfa import (
+    build_feature_release_plan,
+    build_price_only_proxy_features,
+    load_feature_wfa_contract,
+)
+from us_stocks_swing_model_v2.common import canonical_json_bytes
 from us_stocks_swing_model_v2.errors import ContractError
+from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, build_manifest
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -39,3 +48,65 @@ def test_price_features_reject_duplicate_sessions() -> None:
     rows.append(dict(rows[0]))
     with pytest.raises(ContractError, match="session"):
         build_price_only_proxy_features(sessions, rows)
+
+
+def _source_release(tmp_path: Path) -> tuple[Path, Path]:
+    stage = tmp_path / "source-stage"
+    (stage / "bars").mkdir(parents=True)
+    sessions = [date(2020, 1, day) for day in range(2, 9)]
+    pq.write_table(pa.Table.from_pylist([
+        {"provider_symbol": "AAPL", "session": session, "open": 100.0, "close": 100.0 + index}
+        for index, session in enumerate(sessions)
+    ]), stage / "bars" / "year=2020.parquet")
+    manifest = build_manifest(
+        stage, ("bars/year=2020.parquet",), project="US_stocks_swing_model_v2",
+        dataset="alpaca_historical_daily_bars", source_epoch="synthetic",
+        role="legacy_discovery_only", quality_state="LEGACY_CAVEATED",
+        created_at="2026-08-01T01:00:00Z", row_count=7,
+        event_start="2020-01-02", event_end="2020-01-08", schema_fingerprint="a" * 64,
+        code_hash="b" * 64, config_hash="c" * 64, environment_hash="d" * 64,
+    )
+    accepted = (tmp_path / "accepted").resolve()
+    return AtomicReleasePublisher(accepted).publish(stage, manifest), accepted
+
+
+def _calendar_release(tmp_path: Path, accepted: Path) -> Path:
+    stage = tmp_path / "calendar-stage"
+    stage.mkdir()
+    (stage / "sessions.parquet").write_bytes(b"synthetic")
+    manifest = build_manifest(
+        stage, ("sessions.parquet",), project="US_stocks_swing_model_v2",
+        dataset="xnys_sessions", source_epoch="synthetic", role="derived_causal",
+        quality_state="PASS", created_at="2026-08-01T01:00:00Z", row_count=1,
+        event_start="2020-01-02", event_end="2020-01-02", schema_fingerprint="a" * 64,
+        code_hash="b" * 64, config_hash="c" * 64, environment_hash="d" * 64,
+    )
+    return AtomicReleasePublisher(accepted).publish(stage, manifest)
+
+
+def test_feature_release_plan_is_metadata_only_and_caveated(tmp_path: Path) -> None:
+    source, accepted = _source_release(tmp_path)
+    calendar = _calendar_release(tmp_path, accepted)
+    plan = build_feature_release_plan(source, calendar_release_directory=calendar, accepted_root=accepted, repo_root=REPO)
+    assert len(plan["feature_build_plan_id"]) == 64
+    assert plan["validation_scope"] == {"bar_rows_opened": 0, "calendar_rows_opened": 0, "files_written": 0}
+    assert plan["required_execution_authority"]["training_or_evaluation"] is False
+
+
+def test_feature_publisher_requires_confirmation_and_emits_caveated_release(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import us_stocks_swing_model_v2.alpaca_discovery_proxy_feature_wfa as subject
+
+    source, accepted = _source_release(tmp_path)
+    calendar = _calendar_release(tmp_path, accepted)
+    plan = build_feature_release_plan(source, calendar_release_directory=calendar, accepted_root=accepted, repo_root=REPO)
+    with pytest.raises(ContractError, match="confirmation"):
+        subject.publish_feature_release(source, calendar_release_directory=calendar, accepted_root=accepted, work_root=tmp_path / "work", created_at="2026-08-01T01:00:00Z", approved_feature_build_plan_id=plan["feature_build_plan_id"], repo_root=REPO)
+    monkeypatch.setenv("ALPACA_DISCOVERY_FEATURE_BUILD_APPROVED", "YES")
+    monkeypatch.setattr(subject, "validate_environment_lock", lambda _path: "e" * 64)
+    sessions = tuple(date(2020, 1, day) for day in range(2, 9))
+    monkeypatch.setattr(subject, "load_xnys_calendar_release", lambda *_args, **_kwargs: SimpleNamespace(calendar=SimpleNamespace(sessions=sessions)))
+    published = subject.publish_feature_release(source, calendar_release_directory=calendar, accepted_root=accepted, work_root=tmp_path / "work", created_at="2026-08-01T01:00:00Z", approved_feature_build_plan_id=plan["feature_build_plan_id"], repo_root=REPO)
+    evidence = (published / "source_evidence_manifest.json").read_bytes()
+    assert published.parent.name == "alpaca_discovery_proxy_features"
+    assert b'"outcomes_read":false' in evidence
+    assert b'"training_or_evaluation":false' in evidence
