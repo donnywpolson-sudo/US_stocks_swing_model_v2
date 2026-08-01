@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "policy_type": "ALPACA_SIP_SINGLE_FEED_QUALIFICATION",
+  "source_key": "alpaca_basic_delayed_sip",
+  "source_name": "alpaca_sip_qualification",
+  "symbols": ["AAPL", "SPY"],
+  "window": {
+    "start": "2026-07-27T04:00:00Z",
+    "end": "2026-08-01T03:59:59Z",
+    "sessions": ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31"]
+  },
+  "request_contract": {
+    "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+    "feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "asof": null,
+    "sort": "asc",
+    "limit": 10000,
+    "minimum_end_lag_minutes": 20,
+    "timeout_seconds": 30,
+    "host_timeout_seconds": 120,
+    "max_pages": 1,
+    "max_response_bytes": 1048576
+  },
+  "network_registry": "config/network_acquisition_registry.json",
+  "outputs": {
+    "snapshot_store": "data/vault/qualification/as_received"
+  },
+  "authorities": {
+    "provider_access": false,
+    "credential_access": false,
+    "snapshot_write": false,
+    "offline_verification": false,
+    "qualification_receipt_publication": false,
+    "source_activation": false,
+    "canonical_bars": false,
+    "training_or_evaluation": false
+  }
+}
