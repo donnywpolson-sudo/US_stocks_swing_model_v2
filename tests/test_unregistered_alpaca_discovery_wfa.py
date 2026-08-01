@@ -129,7 +129,7 @@ def test_join_plan_binds_absolute_metadata_and_never_authorizes_wfa(tmp_path) ->
     assert len(plan["join_build_plan_id"]) == 64
     assert len(plan["implementation_sha256"]) == 64
     assert plan["required_authority"]["real_row_access"] is True
-    assert plan["limits"]["staging_bytes_at_most"] > 0
+    assert plan["limits"]["staging_bytes_at_most"] == (feature.stat().st_size + outcome.stat().st_size) * 4
     assert plan["output"]["accepted_release"] is False
 
 

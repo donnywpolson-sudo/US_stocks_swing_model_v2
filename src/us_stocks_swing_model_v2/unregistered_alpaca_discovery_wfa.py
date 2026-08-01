@@ -51,6 +51,7 @@ JOINED_COLUMNS = (
 )
 _FEATURE_READY = "READY_CAUSAL_RAW_PRICE_FEATURES"
 _OUTCOME_READY = "READY_UNTRUSTED_RAW_PRICE_PROXY"
+_STAGING_OVERHEAD_MULTIPLIER = 4
 _FEATURE_SCHEMA = pa.schema(
     [("symbol", pa.string()), ("decision_session", pa.date32())]
     + [(name, pa.float64()) for name in FEATURE_COLUMNS[2:5]]
@@ -155,7 +156,10 @@ def build_caveated_joined_trial_input_plan(
             "source_batch_rows_at_most": batch_size,
             "source_rows_at_most": int(layout["feature_rows"]) + int(layout["outcome_rows"]),
             "joined_rows_at_most": min(int(layout["feature_rows"]), int(layout["outcome_rows"])),
-            "staging_bytes_at_most": input_bytes * 3,
+            # Staging retains two reshaped input spools plus joined shards.
+            # Four times the compressed input census leaves bounded room for
+            # their different parquet encodings while still failing closed.
+            "staging_bytes_at_most": input_bytes * _STAGING_OVERHEAD_MULTIPLIER,
             "network_requests": 0,
             "credentials_read": 0,
         },
