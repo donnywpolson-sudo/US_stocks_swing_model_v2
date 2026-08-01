@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "ALPACA_DISCOVERY_THREE_CLASS_TRIAL_CONTRACT_PLAN_ONLY",
+  "hypothesis_id": "alpaca_raw_price_proxy_three_class_fixed_ridge_v1",
+  "model": {"family": "linear_distribution_v1_fixed_ridge", "ridge_alpha": 1.0, "hyperparameter_tuning": false, "feature_selection": false},
+  "target": {"semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1", "classes": ["down", "neutral", "up"], "neutral_band": 0.005},
+  "metrics_and_costs": {"primary_forecast_metric": "multiclass_log_loss", "stress_cost_basis_points_one_way": 25, "policy_path": "config/research_readiness_contract.json"},
+  "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true},
+  "claims": {"historical_proxy": true, "trusted_result_claim": false, "alpha_claim": false, "candidate_sealing": false, "training_or_evaluation_authorized": false},
+  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY"},
+  "stop_conditions": ["feature or outcome identity drift", "feature/outcome firewall failure", "model or metric substitution", "unregistered trial write or real-history execution request"],
+  "contract_id": "1577ee1c4b3b161968cc3124576f52f137a5f67b4f52b0f32e7845a69c2df01c"
+}
