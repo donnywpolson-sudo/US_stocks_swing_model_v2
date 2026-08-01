@@ -70,7 +70,7 @@ def build_trial_preregistration_template(feature_wfa_plan: Mapping[str, Any]) ->
             "purge_sessions": 5,
             "embargo_sessions": 5,
             "fold_local_transforms_required": True,
-            "evidence_class": "REGISTERED_HISTORICAL_DISCOVERY",
+            "evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY",
             "historical_proxy": True,
             "trusted_result_claim": False,
         },

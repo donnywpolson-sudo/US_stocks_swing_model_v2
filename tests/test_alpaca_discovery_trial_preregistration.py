@@ -26,6 +26,7 @@ def test_template_binds_known_inputs_but_cannot_register_or_evaluate() -> None:
     assert len(template["preregistration_template_id"]) == 64
     assert template["registration"]["permitted"] is False
     assert template["registration"]["rows_opened"] == 0
+    assert template["fixed_inputs"]["evidence_class"] == "UNREGISTERED_HISTORICAL_DISCOVERY"
     assert template["unselected_hypothesis_fields"] == [
         "model_family", "primary_metric", "cost_policy", "primary_gate", "robustness_policy", "trial_family"
     ]
