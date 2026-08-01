@@ -108,6 +108,7 @@ def test_join_plan_binds_absolute_metadata_and_never_authorizes_wfa(tmp_path) ->
     }), outcome)
     plan = build_caveated_joined_trial_input_plan((feature,), feature_release_id="a" * 64, outcome_path=outcome, outcome_release_id="b" * 64, work_root=(tmp_path / "work").resolve())
     assert len(plan["join_build_plan_id"]) == 64
+    assert len(plan["implementation_sha256"]) == 64
     assert plan["required_authority"]["real_row_access"] is True
     assert plan["output"]["accepted_release"] is False
 

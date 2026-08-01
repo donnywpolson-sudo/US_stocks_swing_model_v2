@@ -14,7 +14,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
-from .common import canonical_json_bytes, require_sha256, sha256_bytes
+from .common import canonical_json_bytes, require_sha256, sha256_bytes, sha256_file
 from .releases import verify_accepted_release
 from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
@@ -147,6 +147,7 @@ def build_caveated_joined_trial_input_plan(
         "feature_paths": [str(path) for path in feature_paths],
         "outcome_path": str(outcome_path),
         "work_root": str(Path(work_root)),
+        "implementation_sha256": sha256_file(Path(__file__)),
         "layout": layout,
         "limits": {
             "bucket_count": bucket_count,
