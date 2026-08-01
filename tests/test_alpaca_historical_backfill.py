@@ -212,7 +212,7 @@ def test_fixture_plan_is_deterministic_bounded_and_plan_only() -> None:
         "historical_membership_proven": False,
         "survivorship_safe": False,
         "may_support_confirmation": False,
-        "hfdl_included": False,
+        "legacy_source_included": False,
     }
 
 

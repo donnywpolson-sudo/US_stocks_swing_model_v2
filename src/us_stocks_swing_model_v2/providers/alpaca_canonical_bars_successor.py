@@ -75,7 +75,6 @@ CONFIG_CLOSURE_PATHS = (
     POLICY_PATH,
     "config/alpaca_canonical_bars_network_registry.json",
     "config/sources.json",
-    "config/alpaca_feed_qualification_policy.json",
 )
 
 
@@ -337,7 +336,11 @@ def _fixture_context(root: Path, predecessor_table: pa.Table) -> dict[str, objec
             "tree": "0" * 64,
         },
         "registry": registry,
-        "source": _active_source_binding(resolved, policy),
+        "source": {
+            "source_key": policy["source_key"],
+            "diagnostic_only": True,
+            "active": False,
+        },
         "qualification": {
             "release_id": policy["qualification_release"]["release_id"],
             "receipt_id": policy["qualification_release"]["receipt_id"],

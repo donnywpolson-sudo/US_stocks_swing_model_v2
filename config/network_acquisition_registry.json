@@ -11,10 +11,6 @@
       "origin_path": "https://data.alpaca.markets/v1/corporate-actions",
       "accepted_http_statuses": [200]
     },
-    "alpaca_iex_qualification": {
-      "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
-      "accepted_http_statuses": [200]
-    },
     "alpaca_sip_qualification": {
       "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
       "accepted_http_statuses": [200]

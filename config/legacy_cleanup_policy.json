@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "mode": "PLAN_ONLY_NO_DELETION",
+  "purpose": "one_future_hash_bound_legacy_cleanup",
+  "target_roots": [
+    "data/vault/accepted/hfdl_historical_foundation_bridge_set",
+    "data/vault/accepted/hfdl_iex_only_causal_bars",
+    "data/vault/accepted/hfdl_iex_only_feature_inputs",
+    "data/vault/accepted/hfdl_iex_only_legacy_bars",
+    "data/vault/accepted/hfdl_iex_only_outcome_inputs",
+    "data/vault/accepted/hfdl_legacy_epoch_set",
+    "data/vault/accepted/hfdl_pitrading_consolidated_causal_bars",
+    "data/vault/accepted/hfdl_pitrading_consolidated_feature_inputs",
+    "data/vault/accepted/hfdl_pitrading_consolidated_legacy_bars",
+    "data/vault/accepted/hfdl_pitrading_consolidated_outcome_inputs",
+    "data/w/b/hfdl_foundation",
+    "data/w/h/hfdl",
+    "data/vault/qualification/as_received/alpaca_iex_qualification",
+    "data/vault/.staging/migrations/ef35ac5987ed253cfe98d43107ca4df8e1dd3688ca3d3c2465c5707e7f8e908f",
+    "data/vault/.staging/migrations/ef35ac5987ed253cfe98d43107ca4df8e1dd3688ca3d3c2465c5707e7f8e908f.085b2ddac251e3fe"
+  ],
+  "protected_prefixes": [
+    "data/vault/accepted/alpaca_historical_daily_bars",
+    "data/vault/accepted/alpaca_legacy_daily_bars",
+    "data/vault/accepted/alpaca_discovery_proxy_features",
+    "data/vault/accepted/alpaca_discovery_proxy_outcomes",
+    "data/vault/accepted/alpaca_discovery_proxy_joined",
+    "data/vault/accepted/identity",
+    "data/vault/accepted/xnys_sessions",
+    "api.env"
+  ]
+}

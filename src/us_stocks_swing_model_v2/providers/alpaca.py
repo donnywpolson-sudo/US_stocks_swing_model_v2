@@ -99,8 +99,8 @@ class AlpacaBarsPolicy:
         wrong = {name: actual for name, (actual, expected) in required.items() if actual != expected}
         if wrong:
             raise ContractError(f"Alpaca request policy drifted: {wrong}")
-        if self.feed not in {"sip", "iex"}:
-            raise ContractError("Alpaca feed must be an explicitly qualified SIP or IEX feed")
+        if self.feed != "sip":
+            raise ContractError("Alpaca feed must be the explicitly qualified SIP feed")
         if self.asof is not None:
             try:
                 date.fromisoformat(self.asof)
@@ -500,48 +500,25 @@ def qualify_landed_pages(
     )
 
 
-def assess_landed_alpaca_pair(
+def assess_landed_alpaca_sip(
     initial: AlpacaBarsRequest,
     *,
     sip_snapshot: LandedSnapshot,
-    iex_snapshot: LandedSnapshot,
     network_registry_id: str,
     calendar_release_directory: Path,
     accepted_release_root: Path,
     qualification_function: Callable[..., AlpacaQualificationResult] | None = None,
 ) -> dict[str, object]:
-    """Build the canonical no-write SIP/IEX assessment from immutable snapshots."""
+    """Build the canonical no-write SIP assessment from one immutable snapshot."""
 
-    require_sha256(network_registry_id, "Alpaca pair network_registry_id")
+    require_sha256(network_registry_id, "Alpaca SIP network_registry_id")
     qualify = qualification_function or qualify_landed_pages
-    qualifications = {
-        "sip": qualify(
-            initial,
-            AlpacaBarsPolicy(feed="sip", asof=None),
-            (sip_snapshot,),
-            calendar_release_directory=calendar_release_directory,
-            accepted_release_root=accepted_release_root,
-        ),
-        "iex": qualify(
-            initial,
-            AlpacaBarsPolicy(feed="iex", asof=None),
-            (iex_snapshot,),
-            calendar_release_directory=calendar_release_directory,
-            accepted_release_root=accepted_release_root,
-        ),
-    }
-    eligible = {feed: result.eligible for feed, result in qualifications.items()}
-    selected_feed = (
-        "sip" if eligible["sip"] else "iex" if eligible["iex"] else None
-    )
-    selection_reason = (
-        "both_pass_prefer_sip"
-        if all(eligible.values())
-        else "sip_only"
-        if eligible["sip"]
-        else "iex_only"
-        if eligible["iex"]
-        else "neither_pass"
+    qualification = qualify(
+        initial,
+        AlpacaBarsPolicy(feed="sip", asof=None),
+        (sip_snapshot,),
+        calendar_release_directory=calendar_release_directory,
+        accepted_release_root=accepted_release_root,
     )
 
     def qualification_result(value: AlpacaQualificationResult) -> dict[str, object]:
@@ -558,29 +535,19 @@ def assess_landed_alpaca_pair(
 
     unsigned = {
         "schema_version": 1,
-        "mode": "ALPACA_SIP_IEX_PAIR_ASSESSMENT_NO_WRITES",
+        "mode": "ALPACA_SIP_ASSESSMENT_NO_WRITES",
         "symbols": list(initial.symbols),
         "start": iso_z(initial.start),
         "end": iso_z(initial.end),
         "network_registry_id": network_registry_id,
-        "snapshots": {
-            "sip": {
-                "snapshot_id": sip_snapshot.snapshot_id,
-                "raw_sha256": sip_snapshot.raw_sha256,
-                "retrieved_at": iso_z(sip_snapshot.retrieved_at),
-            },
-            "iex": {
-                "snapshot_id": iex_snapshot.snapshot_id,
-                "raw_sha256": iex_snapshot.raw_sha256,
-                "retrieved_at": iso_z(iex_snapshot.retrieved_at),
-            },
+        "snapshot": {
+            "snapshot_id": sip_snapshot.snapshot_id,
+            "raw_sha256": sip_snapshot.raw_sha256,
+            "retrieved_at": iso_z(sip_snapshot.retrieved_at),
         },
-        "qualifications": {
-            feed: qualification_result(result)
-            for feed, result in sorted(qualifications.items())
-        },
-        "selected_feed_candidate": selected_feed,
-        "selection_reason": selection_reason,
+        "qualification": qualification_result(qualification),
+        "selected_feed_candidate": "sip" if qualification.eligible else None,
+        "selection_reason": "sip_pass" if qualification.eligible else "sip_fail",
         "activation_authorized": False,
     }
     return {

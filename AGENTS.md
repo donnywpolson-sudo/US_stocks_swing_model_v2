@@ -148,8 +148,8 @@ scientific, secret, accepted-release, provider, or commit/push boundaries here.
 
 ### Source Boundaries
 
-- Alpaca Basic is the only candidate active OHLCV source. SIP and IEX must be
-  probed separately in one bounded qualification; no feed is assumed active.
+- Alpaca Basic SIP is the only candidate active OHLCV source. SIP requires one
+  bounded single-feed qualification; it is not assumed active.
   Every request pins the explicitly tested feed, `timeframe=1Day`,
   `adjustment=raw`, ascending order, and minimum lag. Active requests omit
   `asof` unless a deliberate ISO mapping date is separately reviewed.
@@ -176,11 +176,10 @@ scientific, secret, accepted-release, provider, or commit/push boundaries here.
   time, and raw bytes revalidate. This proves local integrity and
   reproducibility, not independent provenance. Missing, malformed, stale-code,
   stale-registry, or non-matching receipt/snapshot evidence fails closed.
-- HF Data Library is retired and excluded from all future bridge, derivative,
-  research, training, evaluation, and WFA work. Its existing tracked machinery,
-  accepted releases, and legacy files are preserved historical audit and trial-
-  census evidence only until separately authorized cleanup. Never mix HFDL with
-  Alpaca, reactivate it, or remove its files or releases as routine work.
+- Retired non-Alpaca source artifacts are excluded from all future bridge,
+  derivative, research, training, evaluation, and WFA work. Their removal is
+  controlled by a separately authorized hash-bound cleanup plan; never remove
+  them as routine work or mix them with Alpaca evidence.
 - The existing 780-symbol Alpaca capsule and separate 30-symbol probe are failed
   source-qualification evidence. The exact 780-symbol canonicalized raw-payload
   pages may be inspected by the plan-only rehabilitation contract and later
@@ -260,12 +259,9 @@ scientific, secret, accepted-release, provider, or commit/push boundaries here.
   content-addressed evidence, not independent authorization. Reject legacy
   schema-v1 signed records at local-record boundaries; never migrate or
   relabel them.
-- `build_historical_foundation` is plan-only by default. Synthetic foundation
-  publication requires an explicit synthetic-only permit and exact containing
-  fixture root. No generic production publication path exists. A checked-in
-  one-shot authorization is usable only when current code validates every bound
-  root, base and commit distance, input, output, limit, timeout, and resume
-  condition; its presence or prior success is not current authority.
+- Historical archive inspection is plan-only by default. Synthetic publication
+  requires an explicit synthetic-only permit and exact containing fixture root.
+  No generic production publication path exists.
 - Before provider activity, copies, data builds, historical research, training,
   evaluation, prediction, report generation, or generated-artifact mutation,
   require an explicit command family, bounded scope, request/run limit,

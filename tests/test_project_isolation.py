@@ -13,28 +13,7 @@ FOREIGN_PROJECT_IDENTIFIERS = (
     "futures_intraday_model",
     "futures_intraday_model_v2",
 )
-APPROVED_FOREIGN_LITERAL_COUNTS = {
-    (
-        "us_stocks_swing_model_v2/mechanical_readiness.py",
-        "module:assignment:_FOREIGN_IMPORT_PREFIXES:tuple",
-        "futures_rebuild",
-    ): 1,
-    (
-        "us_stocks_swing_model_v2/mechanical_readiness.py",
-        "module:assignment:_FOREIGN_IMPORT_PREFIXES:tuple",
-        "futures_intraday_model",
-    ): 1,
-    (
-        "us_stocks_swing_model_v2/mechanical_readiness.py",
-        "module:assignment:_FOREIGN_IMPORT_PREFIXES:tuple",
-        "futures_intraday_model_v2",
-    ): 1,
-    (
-        "us_stocks_swing_model_v2/mechanical_readiness.py",
-        "function:_repository_binding:assignment:futures_git:path",
-        "futures_intraday_model_v2",
-    ): 1,
-}
+APPROVED_FOREIGN_LITERAL_COUNTS: dict[tuple[str, str, str], int] = {}
 
 
 def _matches_foreign_identifier(value: str) -> bool:
@@ -167,36 +146,12 @@ def test_project_isolation_detects_import_name_attribute_and_path_references(
     assert approved == Counter()
 
 
-def test_project_isolation_approved_literals_are_bound_to_semantic_ast_placement() -> None:
-    approved_source = """
-_FOREIGN_IMPORT_PREFIXES = (
-    "futures_rebuild",
-    "futures_intraday_model",
-    "futures_intraday_model_v2",
-)
-def _repository_binding():
-    futures_git = root / "futures_intraday_model_v2" / ".git"
-"""
-    relative = "us_stocks_swing_model_v2/mechanical_readiness.py"
+def test_project_isolation_rejects_all_foreign_literals() -> None:
     violations, approved = _project_isolation_observations(
-        approved_source,
-        relative=relative,
+        'foreign = "futures_rebuild"', relative="fixture.py"
     )
-    assert violations == ()
-    assert approved == Counter(APPROVED_FOREIGN_LITERAL_COUNTS)
-
-    relocated_source = approved_source.replace(
-        '"futures_rebuild",',
-        '"not_foreign",\n)\nrelocated = "futures_rebuild"\n_OTHER = (',
-    )
-    violations, _ = _project_isolation_observations(
-        relocated_source,
-        relative=relative,
-    )
-    assert any(
-        "module:assignment:relocated:direct:futures_rebuild" in violation
-        for violation in violations
-    )
+    assert violations
+    assert approved == Counter()
 
 
 @pytest.mark.parametrize(

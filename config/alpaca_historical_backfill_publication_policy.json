@@ -54,7 +54,7 @@
     "training": false,
     "evaluation": false,
     "research": false,
-    "hfdl_use": false
+    "legacy_source_use": false
   },
   "stop_conditions": [
     "repository policy registry calendar or accepted-input drift",
@@ -62,6 +62,6 @@
     "snapshot receipt headers raw bytes pagination or assessment mismatch",
     "completeness census or content identity mismatch",
     "publication requested before implementation review",
-    "network credential activation research training or HFDL request"
+    "network credential activation research or training request"
   ]
 }

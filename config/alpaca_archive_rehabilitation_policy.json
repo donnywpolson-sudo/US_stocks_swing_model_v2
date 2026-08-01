@@ -46,7 +46,7 @@
     "historical_stock_etf_type_point_in_time_safe": false,
     "corporate_actions_point_in_time_complete": false,
     "delisting_outcomes_complete": false,
-    "source_universe_is_hfdl_seeded_stock_only": true
+    "universe_selection_state": "legacy_universe_selection_unresolved"
   },
   "prospective_release": {
     "dataset": "alpaca_legacy_daily_bars",
@@ -62,10 +62,11 @@
     "training_authorized_by_plan": false,
     "research_authorized_by_plan": false
   },
-  "hfdl_boundary": {
-    "retirement_policy": "config/hfdl_retirement_policy.json",
-    "may_be_used_as_rehabilitation_input": false,
-    "may_be_joined_or_pooled_with_alpaca": false
+  "legacy_universe_boundary": {
+    "selection_state": "legacy_universe_selection_unresolved",
+    "trusted_membership_claim": false,
+    "active_source_eligible": false,
+    "training_or_evaluation_eligible": false
   },
   "authorities": {
     "filesystem_write": false,
@@ -93,7 +94,7 @@
     "row_symbol_page_chunk_or_pagination_census_mismatch",
     "metadata_evidence_missing_or_tampered_during_read",
     "derived_parquet_requested_as_input",
-    "hfdl_input_or_pooling_requested",
+    "legacy_universe_promoted_or_relabelled",
     "write_publication_research_or_activation_requested"
   ]
 }

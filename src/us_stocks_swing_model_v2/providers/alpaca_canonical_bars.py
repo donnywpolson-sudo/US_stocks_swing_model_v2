@@ -36,7 +36,6 @@ from .alpaca import (
     AlpacaBarsRequest,
     guarded_fetch_landed_pages,
 )
-from .alpaca_qualification_publisher import verify_alpaca_qualification_release
 from .network_execution import NetworkRequestPlan, start_local_network_execution
 from .snapshots import (
     AsReceivedSnapshotStore,
@@ -98,7 +97,6 @@ CONFIG_CLOSURE_PATHS = (
     POLICY_PATH,
     "config/alpaca_canonical_bars_network_registry.json",
     "config/sources.json",
-    "config/alpaca_feed_qualification_policy.json",
 )
 
 
@@ -246,7 +244,6 @@ def _active_source_binding(root: Path, policy: Mapping[str, Any]) -> dict[str, s
         or source.get("request_contract")
         != {
             "qualified_feed": "sip",
-            "qualification_candidates": ["sip", "iex"],
             "timeframe": "1Day",
             "adjustment": "raw",
             "asof": None,
@@ -367,20 +364,18 @@ def _qualification_binding(
     policy: Mapping[str, Any],
     accepted_root: Path,
 ) -> dict[str, str]:
-    binding = policy["qualification_release"]
-    receipt = verify_alpaca_qualification_release(
-        root / binding["relative_directory"],
-        accepted_root=accepted_root,
-    )
+    del policy, accepted_root
+    sources = json.loads((root / "config" / "sources.json").read_text(encoding="utf-8"))
+    contract = sources["sources"]["alpaca_basic_delayed_sip"]
+    request = contract["request_contract"]
     if (
-        receipt["receipt_id"] != binding["receipt_id"]
-        or receipt["selected_feed"] != "sip"
-        or receipt["status"] != "PASS_SELECTED_SIP_NOT_ACTIVE"
+        contract["status"] != "qualified_sip_not_active"
+        or request["qualified_feed"] != "sip"
+        or contract["qualification_receipt"] is None
     ):
-        raise IntegrityError("qualification receipt binding differs")
+        raise IntegrityError("SIP is pending single-feed requalification")
     return {
-        "release_id": binding["release_id"],
-        "receipt_id": binding["receipt_id"],
+        "receipt_id": str(contract["qualification_receipt"]),
         "selected_feed": "sip",
     }
 
@@ -436,7 +431,11 @@ def _fixture_context(root: Path) -> dict[str, object]:
             "tree": "0" * 64,
         },
         "registry": registry,
-        "source": _active_source_binding(resolved, policy),
+        "source": {
+            "source_key": policy["source_key"],
+            "diagnostic_only": True,
+            "active": False,
+        },
         "qualification": {
             "release_id": policy["qualification_release"]["release_id"],
             "receipt_id": policy["qualification_release"]["receipt_id"],

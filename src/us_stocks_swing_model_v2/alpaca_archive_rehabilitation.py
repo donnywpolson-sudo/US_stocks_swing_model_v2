@@ -18,7 +18,6 @@ from .common import (
     sha256_file,
 )
 from .errors import ContractError, IntegrityError
-from .hfdl_retirement import RETIRED_STATE, load_hfdl_retirement_policy
 
 
 POLICY_PATH = Path("config/alpaca_archive_rehabilitation_policy.json")
@@ -398,7 +397,7 @@ def load_alpaca_archive_rehabilitation_policy(
         "input_contract",
         "evidence_boundary",
         "prospective_release",
-        "hfdl_boundary",
+        "legacy_universe_boundary",
         "authorities",
         "stop_conditions",
     }
@@ -418,15 +417,17 @@ def load_alpaca_archive_rehabilitation_policy(
         or any(value is not False for value in authorities.values())
     ):
         raise ContractError("rehabilitation policy grants authority")
-    boundary = policy["hfdl_boundary"]
+    boundary = policy["legacy_universe_boundary"]
     if (
         type(boundary) is not dict
-        or boundary.get("retirement_policy")
-        != "config/hfdl_retirement_policy.json"
-        or boundary.get("may_be_used_as_rehabilitation_input") is not False
-        or boundary.get("may_be_joined_or_pooled_with_alpaca") is not False
+        or boundary != {
+            "selection_state": "legacy_universe_selection_unresolved",
+            "trusted_membership_claim": False,
+            "active_source_eligible": False,
+            "training_or_evaluation_eligible": False,
+        }
     ):
-        raise ContractError("rehabilitation policy weakens the HFDL boundary")
+        raise ContractError("rehabilitation policy weakens the legacy-universe boundary")
     return policy, sha256_bytes(canonical_json_bytes(policy))
 
 
@@ -437,9 +438,6 @@ def build_alpaca_archive_rehabilitation_plan(
 ) -> dict[str, Any]:
     root = Path(repository_root).resolve(strict=True)
     policy, policy_id = load_alpaca_archive_rehabilitation_policy(root)
-    hfdl_policy, hfdl_policy_id = load_hfdl_retirement_policy(root)
-    if hfdl_policy["state"] != RETIRED_STATE:
-        raise ContractError("HFDL is not durably retired")
     if _exact_windows_path(archive_root) != _exact_windows_path(
         policy["legacy_archive_root"]
     ):
@@ -472,7 +470,7 @@ def build_alpaca_archive_rehabilitation_plan(
         "project": "US_stocks_swing_model_v2",
         "mode": PLAN_MODE,
         "policy_id": policy_id,
-        "hfdl_retirement_policy_id": hfdl_policy_id,
+        "legacy_universe_boundary": policy["legacy_universe_boundary"],
         "inventory": inventory,
         "evidence_boundary": policy["evidence_boundary"],
         "prospective_release": policy["prospective_release"],

@@ -31,9 +31,8 @@ approval remain authoritative.
 
 | Source | Current role |
 |---|---|
-| HF Data Library | Retired historical audit and trial-census evidence only |
-| Alpaca SIP archive | Caveated PIT-unresolved legacy-discovery evidence |
-| Alpaca Basic SIP | Selected qualified bar feed; canonical bars remain pending |
+| Alpaca historical archive | Caveated legacy evidence with unresolved universe selection |
+| Alpaca Basic SIP | Sole candidate bar feed; pending single-feed requalification |
 | Alpaca assets and Nasdaq Trader | Identity evidence, not bar or research authority |
 | Alpha Vantage and options data | Excluded |
 

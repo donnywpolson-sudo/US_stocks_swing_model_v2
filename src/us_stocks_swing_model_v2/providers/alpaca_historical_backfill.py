@@ -200,7 +200,6 @@ def _active_source_binding(root: Path, policy: Mapping[str, Any]) -> dict[str, s
         or source.get("request_contract")
         != {
             "qualified_feed": "sip",
-            "qualification_candidates": ["sip", "iex"],
             "timeframe": "1Day",
             "adjustment": "raw",
             "asof": None,
@@ -541,7 +540,7 @@ def _build_plan(
             "historical_membership_proven": False,
             "survivorship_safe": False,
             "may_support_confirmation": False,
-            "hfdl_included": False,
+            "legacy_source_included": False,
         },
         "windows": windows,
         "batch_count": math.ceil(

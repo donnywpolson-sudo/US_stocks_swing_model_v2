@@ -14,10 +14,6 @@ from us_stocks_swing_model_v2.alpaca_archive_rehabilitation import (
 )
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
-from us_stocks_swing_model_v2.hfdl_retirement import (
-    RETIRED_STATE,
-    load_hfdl_retirement_policy,
-)
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -134,11 +130,10 @@ def _fixture(
     return root, expectations
 
 
-def test_checked_in_policies_bind_alpaca_rehabilitation_and_hfdl_retirement() -> None:
+def test_checked_in_policy_binds_caveated_alpaca_archive() -> None:
     rehabilitation, rehabilitation_id = (
         load_alpaca_archive_rehabilitation_policy(REPO)
     )
-    retirement, retirement_id = load_hfdl_retirement_policy(REPO)
 
     assert rehabilitation["mode"].endswith("PLAN_ONLY_NO_WRITES")
     assert rehabilitation["input_contract"]["expected_symbol_count"] == 780
@@ -148,11 +143,12 @@ def test_checked_in_policies_bind_alpaca_rehabilitation_and_hfdl_retirement() ->
         "input_is_original_http_response_bytes"
     ] is False
     assert rehabilitation["prospective_release"]["role"] == "legacy_discovery_only"
-    assert retirement["state"] == RETIRED_STATE
-    assert retirement["replacement_source"] == "alpaca_basic_delayed_sip"
-    assert all(value is False for value in retirement["authorities"].values())
+    assert rehabilitation["legacy_universe_boundary"]["selection_state"] == (
+        "legacy_universe_selection_unresolved"
+    )
+    assert rehabilitation["legacy_universe_boundary"]["active_source_eligible"] is False
+    assert rehabilitation["legacy_universe_boundary"]["training_or_evaluation_eligible"] is False
     assert rehabilitation_id == sha256_bytes(canonical_json_bytes(rehabilitation))
-    assert retirement_id == sha256_bytes(canonical_json_bytes(retirement))
 
 
 def test_synthetic_archive_inventory_is_deterministic_and_no_write(

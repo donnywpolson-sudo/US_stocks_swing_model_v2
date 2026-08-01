@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.4.0-hfdl-retired-alpaca-rehabilitation",
+  "contract_version": "1.5.0-alpaca-only-prospective",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -68,8 +68,8 @@
     ]
   },
   "production_evidence_anchors": {
-    "historical_foundation_bridge_mechanics_status": "IMPLEMENTED_SYNTHETIC_ADVERSARIAL_TESTED",
-    "historical_foundation_real_release_status": "BUILT_NON_ACTIVE_LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
+    "legacy_alpaca_archive_status": "CAVEATED_UNRESOLVED_UNIVERSE_SELECTION",
+    "prospective_sip_status": "PENDING_SINGLE_FEED_REQUALIFICATION",
     "external_worm_anchor_status": "NOT_CONFIGURED_BLOCKS_PRODUCTION",
     "trial_census_exact_status": "INDETERMINATE_BLOCKS_TRUSTED_GATE",
     "eligibility_census_materializer_status": "NOT_IMPLEMENTED_BLOCKS_PRODUCTION",
@@ -89,26 +89,15 @@
     "historical_alpha_claim": false
   },
   "source_roles": {
-    "hfdl_history": "retired_excluded_preserved_evidence_only",
-    "hfdl_new_derivative_or_research_work_allowed": false,
-    "hfdl_retirement_policy": "config/hfdl_retirement_policy.json",
-    "hfdl_epochs": [
-      {
-        "id": "HFDL_PITRADING_CONSOLIDATED",
-        "through": "2022-03-03"
-      },
-      {
-        "id": "HFDL_IEX_ONLY",
-        "from": "2022-03-04"
-      }
-    ],
-    "hfdl_epochs_may_be_silently_pooled_as_identical_feed": false,
+    "legacy_alpaca_archive": "caveated_unresolved_universe_selection",
+    "legacy_alpaca_archive_may_support_trusted_research": false,
     "failed_legacy_alpaca_capsules": "qualification_evidence_only_pending_legacy_rehabilitation",
     "alpaca_legacy_rehabilitation_policy": "config/alpaca_archive_rehabilitation_policy.json",
     "alpaca_rehabilitated_release_ceiling": "legacy_discovery_only_pit_unresolved",
     "prospective_alpaca_and_nasdaq": "separate_immutable_epochs_after_qualification",
     "actual_free_feed_requires_entitlement_qualification_receipt": true,
     "assumed_feed_allowed": false,
+    "sole_candidate_feed": "sip",
     "timeframe": "1Day",
     "adjustment": "raw",
     "asof_policy": "omit_or_null_unless_valid_iso_mapping_date_is_deliberately_requested",

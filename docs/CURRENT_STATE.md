@@ -11,11 +11,11 @@ before acting.
 
 - The controlled rebuild architecture and its synthetic acceptance contracts
   are complete.
-- HF Data Library is retired from new derivative and research work; retained
-  files are historical audit and trial-census evidence only.
-- Alpaca SIP is the selected, qualified bar feed. The canonical source record
-  is [`config/sources.json`](../config/sources.json):
-  `sources.alpaca_basic_delayed_sip.request_contract.qualified_feed` is `sip`.
+- Retired non-Alpaca artifacts are excluded from new derivative and research
+  work and await a separately authorized hash-bound cleanup plan.
+- Alpaca SIP is the sole candidate bar feed and is pending single-feed
+  requalification. The canonical source record is
+  [`config/sources.json`](../config/sources.json).
 - A caveated current-identity-seeded Alpaca SIP historical release, proxy
   features, proxy outcomes, and joined proxy inputs exist. They are
   `legacy_discovery_only` and cannot enter trusted eligibility, feature,
@@ -38,11 +38,10 @@ before acting.
 
 ## Next meaningful gate
 
-The next selected gate is a plan-only check for one successor XNYS calendar
-release; its publication needs its own exact approval. A new prospective
-AAPL/SPY SIP smoke planner then becomes available after the calendar release
-exists and the August 3 session has completed plus the 20-minute lag. The
-legacy July bar fixtures remain diagnostic-only.
+The next data gate is a separately authorized bounded single-feed SIP
+qualification. A prospective AAPL/SPY smoke capture remains a later gate after
+qualification, accepted identity/calendar lineage, a completed session, and
+the 20-minute lag. The July bar fixtures remain diagnostic-only.
 
 ## What can proceed
 

@@ -147,11 +147,11 @@ def test_single_temporal_fold_is_controlled_inconclusive(mechanics) -> None:
 
 def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
     fixture, permit = mechanics
-    policy = SourceEpochPolicy(("HFDL_IEX_ONLY", "HFDL_PITRADING_CONSOLIDATED"))
+    policy = SourceEpochPolicy(("LEGACY_EPOCH_A", "LEGACY_EPOCH_B"))
     passed = evaluate_source_epoch_robustness(
         effects=(
-            SourceEpochEffect("HFDL_IEX_ONLY", 252, 0.01),
-            SourceEpochEffect("HFDL_PITRADING_CONSOLIDATED", 252, 0.02),
+            SourceEpochEffect("LEGACY_EPOCH_A", 252, 0.01),
+            SourceEpochEffect("LEGACY_EPOCH_B", 252, 0.02),
         ),
         policy=policy, permit=permit, fixture=fixture,
     )
@@ -159,15 +159,15 @@ def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
 
     insufficient = evaluate_source_epoch_robustness(
         effects=(
-            SourceEpochEffect("HFDL_IEX_ONLY", 251, 0.01),
-            SourceEpochEffect("HFDL_PITRADING_CONSOLIDATED", 252, 0.0),
+            SourceEpochEffect("LEGACY_EPOCH_A", 251, 0.01),
+            SourceEpochEffect("LEGACY_EPOCH_B", 252, 0.0),
         ),
         policy=policy, permit=permit, fixture=fixture,
     )
     assert insufficient.state is RobustnessState.MECHANICS_INCONCLUSIVE
     assert set(insufficient.reasons) == {
-        "HFDL_IEX_ONLY:INSUFFICIENT_OOS_DATES",
-        "HFDL_PITRADING_CONSOLIDATED:NONPOSITIVE_STRESS_COST_EFFECT",
+        "LEGACY_EPOCH_A:INSUFFICIENT_OOS_DATES",
+        "LEGACY_EPOCH_B:NONPOSITIVE_STRESS_COST_EFFECT",
     }
 
 

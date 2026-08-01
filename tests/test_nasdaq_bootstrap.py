@@ -8,8 +8,6 @@ from pathlib import Path
 import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
-from us_stocks_swing_model_v2.cli.qualify_free_sources import main as qualification_main
-import us_stocks_swing_model_v2.cli.qualify_free_sources as qualification_cli
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes, sha256_file
 from us_stocks_swing_model_v2.errors import ContractError, NetworkGuardError
 from us_stocks_swing_model_v2.providers.nasdaq import (
@@ -210,54 +208,6 @@ def test_pair_applies_a_to_b_count_limits_not_preserved_old_count(
         )
 
 
-def test_cli_pair_mode_is_offline_and_rejects_historical_prior_count(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    snapshot_a, snapshot_b = _pair(tmp_path)
-    synthetic_policy = NasdaqBootstrapPolicy.synthetic_fixture(
-        snapshot_a=snapshot_a,
-        completeness=_completeness(),
-    )
-
-    class Store:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def load(self, path):
-            return snapshot_a if Path(path).name == "a" else snapshot_b
-
-    source_config = qualification_cli._load_source_config(REPO)
-    source_config["snapshot_store_root"] = str(
-        REPO / "data" / "vault" / "qualification" / "as_received"
-    )
-    monkeypatch.setattr(
-        qualification_cli,
-        "open_without_redirects",
-        lambda *args, **kwargs: pytest.fail("offline pair verification used network"),
-    )
-    monkeypatch.setattr(qualification_cli, "AsReceivedSnapshotStore", Store)
-    monkeypatch.setattr(
-        qualification_cli,
-        "_load_source_config",
-        lambda _repo_root: source_config,
-    )
-    monkeypatch.setattr(
-        qualification_cli,
-        "load_nasdaq_bootstrap_policy",
-        lambda _repo_root: synthetic_policy,
-    )
-    assert qualification_main(
-        [
-            "--verify-nasdaq-bootstrap-pair",
-            str(tmp_path / "a"),
-            str(tmp_path / "b"),
-        ]
-    ) == 0
-    output = capsys.readouterr().out
-    assert '"mode": "verify_local_nasdaq_bootstrap_pair"' in output
-    assert SYNTHETIC_PASS_STATUS in output
     assert '"source_activation": false' in output
 
     with pytest.raises(NetworkGuardError, match="does not accept a historical prior"):

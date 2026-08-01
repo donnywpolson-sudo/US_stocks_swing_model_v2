@@ -3,84 +3,36 @@
   "project": "US_stocks_swing_model_v2",
   "timezone": "America/New_York",
   "snapshot_store_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2/data/vault/qualification/as_received",
-  "qualification_calendar_release": "C:/Users/donny/Desktop/US_stocks_swing_model_v2/data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
+  "qualification_calendar_release": "C:/Users/donny/Desktop/US_stocks_swing_model_v2/data/vault/accepted/xnys_sessions/71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
   "sources": {
-    "hfdl_legacy_discovery": {
-      "enabled_for_active_pipeline": false,
-      "role": "retired_excluded_preserved_evidence_only",
-      "status": "retired_no_new_derivative_or_research_work",
-      "retirement_policy": "config/hfdl_retirement_policy.json",
-      "replacement_source": "alpaca_basic_delayed_sip",
-      "legacy_root": "C:/Users/donny/Desktop/US_stocks_swing_model/data/raw",
-      "point_in_time_safe": false,
-      "epochs": [
-        {
-          "name": "pitrading_consolidated",
-          "end_inclusive": "2022-03-03"
-        },
-        {
-          "name": "iex_only",
-          "start_inclusive": "2022-03-04"
-        }
-      ],
-      "prohibitions": [
-        "new_bridge_or_derivative_work",
-        "new_research_training_or_evaluation",
-        "prospective_confirmation",
-        "concatenate_with_alpaca",
-        "historical_membership_claim",
-        "pristine_holdout_claim",
-        "cleanup_without_separate_exact_authorization"
-      ]
-    },
-    "alpaca_sip_qualification_legacy": {
-      "enabled_for_active_pipeline": false,
-      "role": "failed_qualification_evidence_pending_legacy_rehabilitation",
-      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/data/providers/alpaca_sip_v1/run_summary.json",
-      "rehabilitation_policy": "config/alpaca_archive_rehabilitation_policy.json",
-      "rehabilitation_publication_policy": "config/alpaca_archive_rehabilitation_publication_policy.json",
-      "scope": "780_stock_symbols_1878977_daily_sip_rows_198_native_json_gz_pages",
-      "quality_status": "fail_coverage_0_98638_three_gaps_22357_unmapped_survivorship_fail_stock_only",
-      "prohibitions": [
-        "treat_as_full_history",
-        "treat_canonicalized_json_as_original_http_bytes",
-        "treat_asof_omission_as_proven",
-        "join_or_pool_with_hfdl",
-        "reuse_derived_parquet",
-        "model_training",
-        "alpha_evaluation",
-        "prospective_confirmation"
-      ]
-    },
-    "alpaca_sip_qualification_30_probe": {
-      "enabled_for_active_pipeline": false,
-      "role": "source_qualification_evidence_only",
-      "legacy_summary": "C:/Users/donny/Desktop/US_stocks_swing_model/reports/provider_feasibility/alpaca_sip_v1/run_summary.json",
-      "scope": "30_symbols_24_native_json_gz_pages_90_provenance_sidecars",
-      "quality_status": "fail_validation_passed_false",
-      "prohibitions": [
-        "treat_as_full_history",
-        "model_training",
-        "alpha_evaluation",
-        "prospective_confirmation"
-      ]
-    },
     "alpaca_basic_delayed_sip": {
-      "enabled_for_active_pipeline": true,
+      "enabled_for_active_pipeline": false,
       "role": "candidate_historical_and_prospective_bars",
       "network_default": "disabled",
       "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
       "request_contract": {
-        "qualified_feed": "sip",
-        "qualification_candidates": ["sip", "iex"],
+        "qualified_feed": null,
         "timeframe": "1Day",
         "adjustment": "raw",
         "asof": null,
         "minimum_end_lag_minutes": 20,
         "sort": "asc"
       },
-      "status": "active_sip_qualified_pending_canonical_bars",
-      "qualification_receipt": "data/vault/accepted/alpaca_feed_qualification/8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2/alpaca_feed_qualification_receipt.json"
+      "status": "pending_single_sip_requalification",
+      "qualification_receipt": null
+    },
+    "alpaca_sip_qualification_legacy": {
+      "enabled_for_active_pipeline": false,
+      "role": "legacy_alpaca_archive_caveated",
+      "scope": "780_stock_symbols_1878977_daily_sip_rows_198_canonicalized_pages",
+      "universe_selection_state": "legacy_universe_selection_unresolved",
+      "prohibitions": [
+        "active_source_qualification",
+        "trusted_membership_claim",
+        "model_training",
+        "alpha_evaluation",
+        "prospective_confirmation"
+      ]
     },
     "alpaca_corporate_actions": {
       "enabled_for_active_pipeline": false,
@@ -108,13 +60,7 @@
       "latest_snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
       "status": "preserved_snapshot_not_trust_eligible_pending_authenticated_acquisition_receipt"
     },
-    "alpha_vantage": {
-      "enabled_for_active_pipeline": false,
-      "role": "excluded"
-    },
-    "options_data": {
-      "enabled_for_active_pipeline": false,
-      "role": "excluded"
-    }
+    "alpha_vantage": {"enabled_for_active_pipeline": false, "role": "excluded"},
+    "options_data": {"enabled_for_active_pipeline": false, "role": "excluded"}
   }
 }
