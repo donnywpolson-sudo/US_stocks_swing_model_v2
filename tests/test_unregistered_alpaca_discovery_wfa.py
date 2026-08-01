@@ -18,6 +18,7 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     build_caveated_joined_trial_input_plan,
     build_caveated_joined_publication_plan,
     build_unregistered_wfa_plan,
+    publish_caveated_joined_release,
     execute_caveated_joined_trial_input,
     build_caveated_joined_trial_input,
     execute_unregistered_discovery_wfa,
@@ -190,3 +191,17 @@ def test_publication_and_wfa_plans_are_caveated_and_no_write(tmp_path) -> None:
     wfa = build_unregistered_wfa_plan(joined_release, calendar_release_directory=calendar, accepted_root=accepted, repo_root=REPO)
     assert wfa["validation_scope"]["writes"] == 0
     assert wfa["claims"]["trusted_result_claim"] is False
+
+
+def test_publisher_requires_approval_then_publishes_only_joined_shards(tmp_path, monkeypatch) -> None:
+    stage = _joined_stage(tmp_path).resolve()
+    created_at = "2026-08-01T00:00:00Z"
+    kwargs = {"join_build_plan_id": "a" * 64, "feature_release_id": "b" * 64, "outcome_release_id": "c" * 64, "repo_root": REPO, "created_at": created_at}
+    plan = build_caveated_joined_publication_plan(stage, **kwargs)
+    with pytest.raises(Exception, match="confirmation"):
+        publish_caveated_joined_release(stage, accepted_root=(tmp_path / "accepted").resolve(), work_root=(tmp_path / "work").resolve(), approved_publication_plan_id=plan["publication_plan_id"], **kwargs)
+    monkeypatch.setenv("ALPACA_DISCOVERY_JOIN_PUBLICATION_APPROVED", "YES")
+    published = publish_caveated_joined_release(stage, accepted_root=(tmp_path / "accepted").resolve(), work_root=(tmp_path / "work").resolve(), approved_publication_plan_id=plan["publication_plan_id"], **kwargs)
+    assert published.name == plan["prospective_release"]["release_id"]
+    assert len(tuple((published / "joined").glob("*.parquet"))) == 64
+    assert not (published / "feature_spool").exists()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import hashlib
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -15,7 +16,8 @@ import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
 from .common import canonical_json_bytes, require_sha256, sha256_bytes, sha256_file
-from .releases import ReleaseFile, ReleaseManifest, verify_accepted_release
+from .common import atomic_write
+from .releases import AtomicReleasePublisher, ReleaseFile, ReleaseManifest, verify_accepted_release
 from .alpaca_discovery_three_class_trial import load_three_class_trial_contract
 from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
@@ -506,6 +508,43 @@ def build_unregistered_wfa_plan(
         "stop_conditions": ["release or calendar identity drift", "calendar-session mapping failure", "attempt to write a report, candidate, or registry record", "trusted or alpha claim"],
     }
     return {**unsigned, "unregistered_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
+
+
+def publish_caveated_joined_release(
+    stage_root: Path,
+    *,
+    join_build_plan_id: str,
+    feature_release_id: str,
+    outcome_release_id: str,
+    accepted_root: Path,
+    work_root: Path,
+    created_at: str,
+    approved_publication_plan_id: str,
+    repo_root: Path,
+) -> Path:
+    """Publish one plan-bound caveated release after explicit authorization."""
+
+    if os.environ.get("ALPACA_DISCOVERY_JOIN_PUBLICATION_APPROVED") != "YES":
+        raise ResearchContractError("discovery joined publication confirmation is absent")
+    plan = build_caveated_joined_publication_plan(
+        stage_root, join_build_plan_id=join_build_plan_id,
+        feature_release_id=feature_release_id, outcome_release_id=outcome_release_id,
+        repo_root=repo_root, created_at=created_at,
+    )
+    if approved_publication_plan_id != plan["publication_plan_id"]:
+        raise ResearchContractError("approved discovery joined publication plan ID differs")
+    work = Path(work_root)
+    if not work.is_absolute():
+        raise ResearchContractError("discovery publication work root must be absolute")
+    package = work / str(plan["publication_plan_id"]) / "stage"
+    if package.exists():
+        raise ResearchContractError("discovery publication stage already exists")
+    (package / "joined").mkdir(parents=True)
+    for source in sorted((Path(stage_root) / "joined").glob("bucket=*.parquet")):
+        shutil.copyfile(source, package / "joined" / source.name)
+    atomic_write(package / "source_evidence_manifest.json", canonical_json_bytes(plan["source_evidence"]))
+    manifest = ReleaseManifest.from_dict(plan["prospective_release"])
+    return AtomicReleasePublisher(Path(accepted_root)).publish(package, manifest)
 
 
 @dataclass(frozen=True)
