@@ -4,8 +4,8 @@
   "mode": "ALPACA_LEGACY_DISCOVERY_PROXY_FEATURE_WFA_PLAN_ONLY",
   "source": {"dataset": "alpaca_historical_daily_bars", "role": "legacy_discovery_only", "quality_state": "LEGACY_CAVEATED", "survivorship_safe": false, "point_in_time_safe": false},
   "features": {"state": "PRICE_ONLY_PROXY_FEATURES_PLANNED_NOT_MATERIALIZED", "lookback_sessions": 5, "feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"], "uses_only_current_or_prior_pinned_sessions": true, "may_read_outcomes": false, "real_row_build_authorized": false},
-  "wfa": {"state": "CHRONOLOGICAL_PROXY_PREREGISTRATION_PLANNED_NOT_REGISTERED", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true, "trial_registration_required": true, "real_history_execution_authorized": false, "training_or_evaluation_authorized": false},
+  "wfa": {"state": "CHRONOLOGICAL_PROXY_DISCOVERY_EXECUTION_PLANNED_UNREGISTERED", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true, "external_registry_required": false, "real_history_execution_authorized": false, "training_or_evaluation_authorized": false},
   "claims": {"historical_proxy": true, "canonical_target_equivalent": false, "trusted_sleeve_eligible": false, "alpha_claim": false},
-  "stop_conditions": ["source or proxy-outcome release identity mismatch", "future-session or outcome-field feature access", "point-in-time or survivorship-safe claim", "unregistered real-history training or evaluation request"],
-  "contract_id": "57fec302965c13b11aa23a2887b1521b101709254c3b3458cbce0b51e85949b3"
+  "stop_conditions": ["source or proxy-outcome release identity mismatch", "future-session or outcome-field feature access", "point-in-time or survivorship-safe claim", "real-history discovery execution without separate authorization"],
+  "contract_id": "97d59c52809327bcbbc5c536ca031d11312d4168b79fa039293a8af54b8063ec"
 }

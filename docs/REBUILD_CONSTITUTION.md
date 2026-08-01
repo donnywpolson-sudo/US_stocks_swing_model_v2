@@ -36,11 +36,15 @@ places a discretionary trade.
 2. `LEGACY_DISCOVERY`: previously inspected historical evidence, including
    preserved retired HFDL evidence and any separately accepted rehabilitated
    Alpaca legacy release. It may falsify or develop; it cannot confirm.
-3. `REGISTERED_HISTORICAL_DISCOVERY`: a predeclared, counted trial executed by
-   the evaluation role after separate authorization.
-4. `PROSPECTIVE_AS_RECEIVED`: immutable source vintages collected after a
+3. `UNREGISTERED_HISTORICAL_DISCOVERY`: a separately authorized evaluation of
+   caveated, PIT-unresolved historical evidence. It may develop or falsify but
+   cannot support a trusted result, alpha, candidate, or prospective claim.
+4. `REGISTERED_HISTORICAL_DISCOVERY`: a predeclared, counted trial executed by
+   the evaluation role after separate authorization and external immutable
+   registration.
+5. `PROSPECTIVE_AS_RECEIVED`: immutable source vintages collected after a
    candidate and scoring protocol are sealed.
-5. `PROSPECTIVE_FINAL`: later corrected truth used only to mature outcomes. It
+6. `PROSPECTIVE_FINAL`: later corrected truth used only to mature outcomes. It
    never rewrites the as-received state that produced a prediction.
 
 No repository move, new name, source substitution, or unused date range resets

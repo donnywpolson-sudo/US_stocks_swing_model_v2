@@ -1,4 +1,4 @@
-"""Fail-closed production registration preflight for the discovery trial."""
+"""Fail-closed unregistered-discovery execution preflight."""
 
 from __future__ import annotations
 
@@ -9,12 +9,7 @@ from .errors import ContractError
 
 
 def build_trial_registration_preflight(three_class_trial_plan: Mapping[str, Any]) -> dict[str, Any]:
-    """Report the exact production-registry blocker without writing a trial.
-
-    `TrialRegistry` is intentionally synthetic-only.  A real historical trial
-    cannot be represented by a local hash-chain file as if it were immutable
-    external registration evidence.
-    """
+    """Keep external registration out of the discovery-only execution lane."""
 
     if type(three_class_trial_plan) is not dict or three_class_trial_plan.get("mode") != "ALPACA_DISCOVERY_THREE_CLASS_TRIAL_CONTRACT_PLAN_ONLY":
         raise ContractError("three-class trial plan differs")
@@ -22,7 +17,8 @@ def build_trial_registration_preflight(three_class_trial_plan: Mapping[str, Any]
         three_class_trial_plan.get("registration") != {
             "trial_write_authorized": False,
             "real_history_execution_authorized": False,
-            "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY",
+            "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY",
+            "external_registry_required": False,
         }
         or three_class_trial_plan.get("claims", {}).get("historical_proxy") is not True
         or three_class_trial_plan.get("claims", {}).get("trusted_result_claim") is not False
@@ -34,13 +30,13 @@ def build_trial_registration_preflight(three_class_trial_plan: Mapping[str, Any]
         "schema_version": 1,
         "mode": "ALPACA_DISCOVERY_TRIAL_REGISTRATION_PREFLIGHT_ONLY",
         "three_class_trial_plan_id": plan_id,
-        "registration_state": "BLOCKED_NO_PRODUCTION_IMMUTABLE_REGISTRY",
-        "production_registry_support": False,
-        "synthetic_registry_support": True,
-        "required_capability": "aws_s3_object_lock_compliance_trial_registry_loader",
-        "forbidden_substitutes": ["local_hash_chain_registry", "synthetic_registry_permit", "generated_trial_receipt"],
+        "registration_state": "UNREGISTERED_DISCOVERY_EXECUTION_REQUIRES_SEPARATE_AUTHORIZATION",
+        "external_registry_required": False,
+        "trusted_registry_support": False,
+        "required_capability": "separately_authorized_unregistered_discovery_execution",
+        "forbidden_claims": ["registered_historical_discovery", "trusted_result", "alpha", "candidate_sealing"],
         "writes": {"trial_registry": False, "ledger": False, "evaluation": False},
         "rows_opened": 0,
-        "stop_conditions": ["production registry remains synthetic-only", "attempt to treat local evidence as external immutable registration", "trial write or evaluation request before capability exists"],
+        "stop_conditions": ["trial write request", "real-history discovery execution without separate authorization", "attempt to claim a registered, trusted, alpha, or candidate result"],
     }
     return {**unsigned, "registration_preflight_id": sha256_bytes(canonical_json_bytes(unsigned))}

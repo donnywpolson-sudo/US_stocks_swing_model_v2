@@ -140,14 +140,20 @@ Every report must record `borrow_cost_mode=EXCLUDED_BY_SCOPE`,
 ## 3. Trial ledger and preregistration
 
 The repository owns one append-only, SHA-256 hash-chained trial-event ledger.
-For synthetic mechanics it is local only.  Real historical-trial registration
+For synthetic mechanics it is local only. `REGISTERED_HISTORICAL_DISCOVERY`
 additionally requires a versioned AWS S3 object in Object Lock `COMPLIANCE`
-mode, with the configured minimum retention.  The loader verifies the exact
-S3 version, canonical trial payload, retention mode, retention date, and
-registry binding; a local copy, local anchor, or synthetic permit is never a
-substitute.  Registration is one S3 `PutObject` in `COMPLIANCE` mode followed
-immediately by one `GetObject` of the returned version; a failed reload stops
-without retry and leaves the retained object for explicit recovery handling.
+mode, with the configured minimum retention. The loader verifies the exact S3
+version, canonical trial payload, retention mode, retention date, and registry
+binding; a local copy, local anchor, or synthetic permit is never a substitute.
+Registration is one S3 `PutObject` in `COMPLIANCE` mode followed immediately by
+one `GetObject` of the returned version; a failed reload stops without retry and
+leaves the retained object for explicit recovery handling.
+
+`UNREGISTERED_HISTORICAL_DISCOVERY` is a separate, caveated Alpaca-only lane.
+It does not require AWS registration, does not write the trial ledger, and still
+requires a separately bounded real-history execution authorization. Its output
+cannot claim a registered trial, trusted result, alpha, candidate, or
+prospective readiness.
 Each event records sequence, prior hash, UTC time, trial/parent IDs, hypothesis,
 multiplicity family, information set, the four sleeve IDs, immutable source/data
 hashes, code and environment, charter/feature/label/split/cost hashes, role,
