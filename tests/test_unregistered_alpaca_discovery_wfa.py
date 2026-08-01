@@ -25,7 +25,9 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     build_caveated_joined_trial_input,
     execute_unregistered_discovery_wfa,
     execute_streaming_unregistered_discovery_wfa,
+    execute_streaming_unregistered_class_base_rate_comparison,
     execute_planned_streaming_unregistered_wfa,
+    execute_planned_streaming_unregistered_class_base_rate_comparison,
     _sessions_covering_joined_decisions,
     iter_caveated_parquet_batches,
 )
@@ -70,6 +72,24 @@ def test_streaming_executor_uses_two_bounded_passes_only() -> None:
     assert len(result["folds"]) == 8
     assert result["batch_passes"] == 2
     assert result["writes"] == 0
+
+
+def test_streaming_comparison_uses_fold_local_class_base_rates_only() -> None:
+    sessions = tuple(date(2016, 1, 1) + timedelta(days=number) for number in range(2016))
+    decisions = sessions[:-5]
+    returns = [0.01 if number % 3 == 0 else -0.01 for number in range(len(decisions))]
+    table = pa.table({
+        "symbol": ["AAPL"] * len(decisions), "decision_session": decisions,
+        "d0_raw_intraday_return": [0.01] * len(decisions), "trailing_5_session_raw_return": [0.02] * len(decisions),
+        "trailing_5_session_raw_volatility": [0.03] * len(decisions), "proxy_return": returns,
+    })
+    result = execute_streaming_unregistered_class_base_rate_comparison(
+        lambda: iter(table.to_batches(max_chunksize=65536)), sessions=sessions
+    )
+    assert result["batch_passes"] == 2
+    assert result["writes"] == 0
+    assert all(item["baseline_multiclass_log_loss"] > 0 for item in result["folds"])
+    assert all("candidate_minus_baseline_log_loss" in item for item in result["folds"])
 
 
 def _wfa_plan_for_comparison() -> dict[str, object]:
@@ -119,6 +139,16 @@ def test_planned_streaming_executor_rejects_missing_approval_before_opening_rele
             tmp_path / "joined", calendar_release_directory=tmp_path / "calendar",
             accepted_root=(tmp_path / "accepted").resolve(), repo_root=REPO,
             approved_unregistered_wfa_plan_id="a" * 64,
+        )
+
+
+def test_planned_comparison_rejects_missing_approval_before_opening_release(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("ALPACA_DISCOVERY_COMPARISON_EXECUTION_APPROVED", raising=False)
+    with pytest.raises(Exception, match="comparison execution confirmation"):
+        execute_planned_streaming_unregistered_class_base_rate_comparison(
+            tmp_path / "joined", calendar_release_directory=tmp_path / "calendar",
+            accepted_root=(tmp_path / "accepted").resolve(), repo_root=REPO,
+            approved_comparison_plan_id="a" * 64,
         )
 
 

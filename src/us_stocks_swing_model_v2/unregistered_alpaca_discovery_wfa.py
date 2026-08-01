@@ -675,14 +675,21 @@ def execute_unregistered_discovery_wfa(dataset: UnregisteredDiscoveryDataset, *,
     return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_IN_MEMORY", "folds": results, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
 
 
-def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tuple[date, ...]) -> dict[str, object]:
-    """Run fixed-ridge outer folds with two bounded scans and no row retention."""
+def _proxy_return_class(value: float) -> int:
+    return 2 if value > 0.005 else 0 if value < -0.005 else 1
+
+
+def _execute_streaming_unregistered_discovery_wfa(
+    batch_factory, *, sessions: tuple[date, ...], include_class_base_rate: bool
+) -> dict[str, object]:
+    """Run fixed-ridge folds, optionally alongside the fixed class-base-rate baseline."""
 
     if len(sessions) < 2016 or tuple(sorted(sessions)) != sessions or len(set(sessions)) != len(sessions):
         raise ResearchContractError("discovery WFA sessions differ")
     session_index = {value: number for number, value in enumerate(sessions)}
     outer, _ = _schedule(len(sessions))
     stats = [{"n": 0, "sx": np.zeros(3), "sxx": np.zeros((3, 3)), "sy": 0.0, "sy2": 0.0, "sxy": np.zeros(3)} for _ in outer]
+    class_counts = [np.zeros(3, dtype=np.int64) for _ in outer]
 
     def rows():
         for batch in batch_factory():
@@ -704,6 +711,7 @@ def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tup
                 item = stats[fold]
                 item["n"] += 1; item["sx"] += values; item["sxx"] += np.outer(values, values)
                 item["sy"] += target; item["sy2"] += target * target; item["sxy"] += values * target
+                class_counts[fold][_proxy_return_class(target)] += 1
     fitted: list[tuple[np.ndarray, float, float]] = []
     for item in stats:
         n = int(item["n"])
@@ -722,6 +730,7 @@ def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tup
         uncertainty = max(math.sqrt(max(float(rss) / n, 0.0)), 1e-12)
         fitted.append((coefficients, bias, uncertainty))
     losses = [[] for _ in outer]
+    baseline_losses = [[] for _ in outer]
     for row in rows():
         position = session_index[row["decision_session"]]
         values = np.asarray([row[name] for name in JOINED_COLUMNS[2:5]], dtype=np.float64); actual = float(row["proxy_return"])
@@ -733,9 +742,34 @@ def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tup
                 lower = 0.5 * (1.0 + math.erf((-0.005 - mean) / uncertainty / math.sqrt(2.0)))
                 probability = 1.0 - upper if actual > 0.005 else lower if actual < -0.005 else upper - lower
                 losses[fold].append(-math.log(max(probability, 1e-15)))
+                if include_class_base_rate:
+                    probability = class_counts[fold][_proxy_return_class(actual)] / int(stats[fold]["n"])
+                    baseline_losses[fold].append(-math.log(max(float(probability), 1e-15)))
     if any(not values for values in losses):
         raise ResearchContractError("streaming discovery outer audit is absent")
+    if include_class_base_rate:
+        if any(not values for values in baseline_losses):
+            raise ResearchContractError("streaming discovery baseline audit is absent")
+        return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CLASS_BASE_RATE_COMPARISON_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "candidate_multiclass_log_loss": float(np.mean(values)), "baseline_multiclass_log_loss": float(np.mean(baseline_losses[number])), "candidate_minus_baseline_log_loss": float(np.mean(values) - np.mean(baseline_losses[number]))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
     return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "multiclass_log_loss": float(np.mean(values))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
+
+
+def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tuple[date, ...]) -> dict[str, object]:
+    """Run fixed-ridge outer folds with two bounded scans and no row retention."""
+
+    return _execute_streaming_unregistered_discovery_wfa(
+        batch_factory, sessions=sessions, include_class_base_rate=False
+    )
+
+
+def execute_streaming_unregistered_class_base_rate_comparison(
+    batch_factory, *, sessions: tuple[date, ...]
+) -> dict[str, object]:
+    """Compare the fixed candidate with fold-local class base rates in two scans."""
+
+    return _execute_streaming_unregistered_discovery_wfa(
+        batch_factory, sessions=sessions, include_class_base_rate=True
+    )
 
 
 def _sessions_covering_joined_decisions(
@@ -753,18 +787,16 @@ def _sessions_covering_joined_decisions(
     return calendar_sessions[start:stop + 1]
 
 
-def execute_planned_streaming_unregistered_wfa(
+def _prepare_planned_unregistered_wfa_inputs(
     joined_release_directory: Path,
     *,
     calendar_release_directory: Path,
     accepted_root: Path,
     repo_root: Path,
     approved_unregistered_wfa_plan_id: str,
-) -> dict[str, object]:
-    """Execute exactly one separately authorized unregistered discovery WFA."""
+) -> tuple[dict[str, object], tuple[Path, ...], tuple[date, ...]]:
+    """Revalidate release-bound input metadata before either streaming execution."""
 
-    if os.environ.get("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED") != "YES":
-        raise ResearchContractError("discovery WFA execution confirmation is absent")
     plan = build_unregistered_wfa_plan(
         joined_release_directory, calendar_release_directory=calendar_release_directory,
         accepted_root=accepted_root, repo_root=repo_root,
@@ -796,8 +828,61 @@ def execute_planned_streaming_unregistered_wfa(
     sessions = _sessions_covering_joined_decisions(
         tuple(calendar.sessions), lower=lower, upper=upper
     )
+    return plan, joined_paths, sessions
+
+
+def execute_planned_streaming_unregistered_wfa(
+    joined_release_directory: Path,
+    *,
+    calendar_release_directory: Path,
+    accepted_root: Path,
+    repo_root: Path,
+    approved_unregistered_wfa_plan_id: str,
+) -> dict[str, object]:
+    """Execute exactly one separately authorized unregistered discovery WFA."""
+
+    if os.environ.get("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED") != "YES":
+        raise ResearchContractError("discovery WFA execution confirmation is absent")
+    plan, joined_paths, sessions = _prepare_planned_unregistered_wfa_inputs(
+        joined_release_directory, calendar_release_directory=calendar_release_directory,
+        accepted_root=accepted_root, repo_root=repo_root,
+        approved_unregistered_wfa_plan_id=approved_unregistered_wfa_plan_id,
+    )
     result = execute_streaming_unregistered_discovery_wfa(
         lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
         sessions=sessions,
     )
     return {**result, "unregistered_wfa_plan_id": plan["unregistered_wfa_plan_id"]}
+
+
+def execute_planned_streaming_unregistered_class_base_rate_comparison(
+    joined_release_directory: Path,
+    *,
+    calendar_release_directory: Path,
+    accepted_root: Path,
+    repo_root: Path,
+    approved_comparison_plan_id: str,
+) -> dict[str, object]:
+    """Execute one separately authorized caveated candidate-versus-baseline comparison."""
+
+    if os.environ.get("ALPACA_DISCOVERY_COMPARISON_EXECUTION_APPROVED") != "YES":
+        raise ResearchContractError("discovery comparison execution confirmation is absent")
+    wfa_plan = build_unregistered_wfa_plan(
+        joined_release_directory, calendar_release_directory=calendar_release_directory,
+        accepted_root=accepted_root, repo_root=repo_root,
+    )
+    comparison_plan = build_unregistered_class_base_rate_comparison_plan(
+        wfa_plan, repo_root=repo_root
+    )
+    if approved_comparison_plan_id != comparison_plan["comparison_plan_id"]:
+        raise ResearchContractError("approved discovery comparison plan ID differs")
+    _, joined_paths, sessions = _prepare_planned_unregistered_wfa_inputs(
+        joined_release_directory, calendar_release_directory=calendar_release_directory,
+        accepted_root=accepted_root, repo_root=repo_root,
+        approved_unregistered_wfa_plan_id=wfa_plan["unregistered_wfa_plan_id"],
+    )
+    result = execute_streaming_unregistered_class_base_rate_comparison(
+        lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
+        sessions=sessions,
+    )
+    return {**result, "comparison_plan_id": comparison_plan["comparison_plan_id"]}
