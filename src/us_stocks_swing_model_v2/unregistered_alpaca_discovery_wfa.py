@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import hashlib
+import os
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -13,6 +14,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
+from .common import canonical_json_bytes, require_sha256, sha256_bytes
+from .releases import verify_accepted_release
 from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
 
@@ -111,6 +114,71 @@ def assess_streaming_join_layout(
         "rows_opened": 0,
         "writes": 0,
     }
+
+
+def build_caveated_joined_trial_input_plan(
+    feature_paths: tuple[Path, ...],
+    *,
+    feature_release_id: str,
+    outcome_path: Path,
+    outcome_release_id: str,
+    work_root: Path,
+    bucket_count: int = 64,
+    batch_size: int = 65536,
+) -> dict[str, object]:
+    """Freeze one no-write staging plan; payload integrity is rechecked at execution."""
+
+    require_sha256(feature_release_id, "feature_release_id")
+    require_sha256(outcome_release_id, "outcome_release_id")
+    if not Path(work_root).is_absolute() or not Path(outcome_path).is_absolute() or any(
+        not Path(path).is_absolute() for path in feature_paths
+    ):
+        raise ResearchContractError("discovery join plan paths must be absolute")
+    layout = assess_streaming_join_layout(feature_paths, outcome_path=outcome_path)
+    if bucket_count < 2 or bucket_count > 256 or bucket_count & (bucket_count - 1):
+        raise ResearchContractError("discovery join bucket count differs")
+    if batch_size < 1 or batch_size > 65536:
+        raise ResearchContractError("discovery join batch bound differs")
+    unsigned = {
+        "schema_version": 1,
+        "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CAVEATED_JOIN_BUILD_PLAN_ONLY",
+        "feature_release_id": feature_release_id,
+        "outcome_release_id": outcome_release_id,
+        "feature_paths": [str(path) for path in feature_paths],
+        "outcome_path": str(outcome_path),
+        "work_root": str(Path(work_root)),
+        "layout": layout,
+        "limits": {
+            "bucket_count": bucket_count,
+            "source_batch_rows_at_most": batch_size,
+            "source_rows_at_most": int(layout["feature_rows"]) + int(layout["outcome_rows"]),
+            "joined_rows_at_most": min(int(layout["feature_rows"]), int(layout["outcome_rows"])),
+            "network_requests": 0,
+            "credentials_read": 0,
+        },
+        "output": {
+            "stage_directory": "derived_from_join_build_plan_id",
+            "accepted_release": False,
+            "historical_proxy": True,
+            "trusted_result_claim": False,
+            "alpha_claim": False,
+            "candidate_sealing": False,
+        },
+        "required_authority": {
+            "real_row_access": True,
+            "generated_evidence_write": True,
+            "immutable_publication": False,
+            "training_or_evaluation": False,
+        },
+        "stop_conditions": [
+            "accepted input identity drift",
+            "schema or duplicate-key failure",
+            "row or batch bound violation",
+            "partial or ambiguous staging output",
+            "attempt to publish or run WFA",
+        ],
+    }
+    return {**unsigned, "join_build_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
 def _bucket(symbol: str, decision_session: object, bucket_count: int) -> int:
@@ -259,6 +327,60 @@ def build_caveated_joined_trial_input(
         "alpha_claim": False,
         "candidate_sealing": False,
     }
+
+
+def execute_caveated_joined_trial_input(
+    feature_release_directory: Path,
+    *,
+    outcome_release_directory: Path,
+    accepted_root: Path,
+    work_root: Path,
+    approved_join_build_plan_id: str,
+    bucket_count: int = 64,
+    batch_size: int = 65536,
+) -> dict[str, object]:
+    """Perform one explicitly approved, non-accepted staging build.
+
+    The caller is responsible for a bounded user authorization.  The function
+    verifies each accepted input before opening parquet rows and leaves any
+    failed or partial staging root intact for separately authorized recovery.
+    """
+
+    if os.environ.get("ALPACA_DISCOVERY_JOIN_BUILD_APPROVED") != "YES":
+        raise ResearchContractError("discovery join publication confirmation is absent")
+    feature_release = verify_accepted_release(
+        Path(feature_release_directory), accepted_root=Path(accepted_root)
+    )
+    outcome_release = verify_accepted_release(
+        Path(outcome_release_directory), accepted_root=Path(accepted_root)
+    )
+    if (
+        feature_release.dataset != "alpaca_discovery_proxy_features"
+        or outcome_release.dataset != "alpaca_discovery_proxy_outcomes"
+        or feature_release.role != "legacy_discovery_only"
+        or outcome_release.role != "legacy_discovery_only"
+        or feature_release.quality_state != "LEGACY_CAVEATED"
+        or outcome_release.quality_state != "LEGACY_CAVEATED"
+    ):
+        raise ResearchContractError("discovery join accepted inputs differ")
+    feature_paths = tuple(sorted((Path(feature_release_directory) / "features").glob("year=*.parquet")))
+    outcome_path = Path(outcome_release_directory) / "proxy_outcomes.parquet"
+    plan = build_caveated_joined_trial_input_plan(
+        feature_paths,
+        feature_release_id=feature_release.release_id,
+        outcome_path=outcome_path,
+        outcome_release_id=outcome_release.release_id,
+        work_root=Path(work_root),
+        bucket_count=bucket_count,
+        batch_size=batch_size,
+    )
+    if approved_join_build_plan_id != plan["join_build_plan_id"]:
+        raise ResearchContractError("approved discovery join build plan ID differs")
+    stage = Path(work_root) / str(plan["join_build_plan_id"])
+    return {**build_caveated_joined_trial_input(
+        feature_paths, outcome_path=outcome_path, stage_root=stage,
+        bucket_count=bucket_count, batch_size=batch_size,
+    ), "join_build_plan_id": plan["join_build_plan_id"]}
 
 
 @dataclass(frozen=True)
