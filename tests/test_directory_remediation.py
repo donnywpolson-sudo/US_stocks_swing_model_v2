@@ -58,3 +58,8 @@ def test_directory_remediation_rejects_changed_failed_outcome(tmp_path: Path, mo
     outcome.write_bytes(canonical_json_bytes({"mode": "IRREVERSIBLE_PURGE_FAILED_NO_RETRY"}))
     with pytest.raises(ContractError, match="spent purge"):
         build_remediation_plan(tmp_path)
+
+
+def test_directory_remediation_cli_module_has_an_entrypoint() -> None:
+    source = (Path(__file__).parents[1] / "src" / "us_stocks_swing_model_v2" / "cli" / "directory_remediation.py").read_text(encoding="utf-8")
+    assert 'if __name__ == "__main__":' in source
