@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "PROSPECTIVE_TWO_SYMBOL_SIP_SMOKE_PLAN_ONLY",
+  "identity_release_id": "2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
+  "symbols": ["AAPL", "SPY"],
+  "session": "2026-08-03",
+  "earliest_capture_at": "2026-08-03T20:20:00Z",
+  "request_contract": {
+    "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+    "feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "asof": null,
+    "sort": "asc",
+    "limit": 10000,
+    "timeout_seconds": 30,
+    "host_timeout_seconds": 120,
+    "max_pages": 1,
+    "max_response_bytes": 1048576
+  },
+  "network_registry": "config/alpaca_canonical_bars_network_registry.json"
+}

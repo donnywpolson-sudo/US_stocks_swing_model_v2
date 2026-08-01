@@ -350,8 +350,6 @@ def test_checked_in_calendar_receipt_binds_policy_code_and_non_authority() -> No
     # This immutable receipt authenticates the historical generator revision;
     # it is not a moving certification of the current source tree.
     require_sha256(payload["code_sha256"], "historical calendar code_sha256")
-    assert payload["environment_sha256"] == sha256_file(
-        root / "config" / "environment.lock.json"
-    )
+    require_sha256(payload["environment_sha256"], "historical calendar environment_sha256")
     assert payload["execution_authority"] is False
     assert payload["session_count"] == 9049

@@ -410,6 +410,24 @@ This state means the local bytes and their recorded acquisition metadata are
 tamper-evident and reproducible. It is not a claim of independent provenance,
 third-party witnessing, provider correctness, or research fitness.
 
+## Prospective AAPL/SPY SIP smoke lane
+
+The July 30/31 canonical-bar commands are preserved diagnostic fixtures and
+cannot be retargeted. A new prospective smoke plan requires the accepted fresh
+identity release, a current accepted XNYS calendar successor, and the fixed
+August 3 session after 20:20 UTC. The plan is no-write and captures nothing:
+
+```text
+python -m us_stocks_swing_model_v2.cli.plan_prospective_sip_smoke \
+  --identity-release <accepted-fresh-identity-release> \
+  --calendar-release <accepted-calendar-successor>
+```
+
+It fixes AAPL and SPY, raw daily SIP bars, ascending order, no `asof`, one
+request/page, a 30-second HTTP timeout, 120-second host limit, and a 1 MiB
+response cap. Capture, candidate verification, and canonical-bar publication
+remain separately authorized gates.
+
 ## Offline Nasdaq verification
 
 Verification performs no network call:

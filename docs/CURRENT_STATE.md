@@ -25,10 +25,9 @@ before acting.
   now binds accepted identity, bars, action, and calendar releases before any
   downstream materialization can be considered.
 - One fresh Nasdaq/Alpaca identity pair has passed local integrity, continuity,
-  projection, and join assessment. It remains raw as-received evidence; no
-  identity release has been published or activated. A hash-bound remediation
-  registry requires an explicit record ID before a later plan-only publication
-  check can be formed.
+  projection, and join assessment. Its immutable `prospective_as_received`
+  identity release is accepted but non-active; the hash-bound publication
+  receipt does not authorize downstream use.
 - The frozen prospective feature contract is price-only v1: D0 raw intraday
   return (`close[D0] / open[D0] - 1`), five-session raw return
   (`close[D0] / close[D-5] - 1`), and population volatility of the five
@@ -39,10 +38,11 @@ before acting.
 
 ## Next meaningful gate
 
-The next selected gate is a plan-only check for one non-active identity release
-from the verified fresh pair. Publication itself needs its own exact approval;
-it neither activates a source nor authorizes downstream use. The bounded
-two-symbol SIP canonical-bars smoke capture remains later.
+The next selected gate is a plan-only check for one successor XNYS calendar
+release; its publication needs its own exact approval. A new prospective
+AAPL/SPY SIP smoke planner then becomes available after the calendar release
+exists and the August 3 session has completed plus the 20-minute lag. The
+legacy July bar fixtures remain diagnostic-only.
 
 ## What can proceed
 

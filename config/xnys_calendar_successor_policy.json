@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "XNYS_CALENDAR_SUCCESSOR_PLAN_ONLY",
+  "calendar_policy": "config/xnys_calendar_policy.json",
+  "calendar_name": "XNYS",
+  "calendar_package": "exchange-calendars",
+  "calendar_version": "4.13.2",
+  "requested_start": "2000-01-01",
+  "requested_end": "2035-12-31",
+  "outputs": {
+    "accepted_root": "data/vault/accepted",
+    "work_root": "data/w/xnys_calendar_successor"
+  },
+  "execution": {
+    "owner_confirmation_token": "XNYS_CALENDAR_SUCCESSOR_PUBLICATION_APPROVED",
+    "owner_confirmation_value": "YES",
+    "publication_count": 1,
+    "network_calls": 0,
+    "source_activation": false
+  }
+}

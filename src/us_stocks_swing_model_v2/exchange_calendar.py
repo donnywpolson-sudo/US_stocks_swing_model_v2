@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .calendar import PinnedSessionCalendar
+from .clock import TrustedClock, require_trusted_clock
 from .canonical.parquet import deterministic_table, write_deterministic_parquet
 from .common import (
     atomic_write,
@@ -118,29 +119,37 @@ def publish_xnys_calendar_release(
     environment_hash: str,
     publication_synthetic_permit: SyntheticOnlyPermit | None = None,
     publication_allowed_root: Path | None = None,
+    production_clock: TrustedClock | None = None,
 ) -> Path:
     """Generate and publish a version-pinned XNYS schedule without consulting bars."""
-    binding_id = calendar_publication_binding_id(
-        staging_root=staging_root,
-        release_root=release_root,
-        start=start,
-        end=end,
-        created_at=created_at,
-        code_hash=code_hash,
-        config_hash=config_hash,
-        environment_hash=environment_hash,
-    )
     installed = importlib.metadata.version("exchange-calendars")
     if installed != EXCHANGE_CALENDARS_VERSION:
         raise ContractError("exchange-calendars runtime differs from the pinned calendar contract")
-    permit = require_synthetic_permit(
-        publication_synthetic_permit,
-        scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
-    )
-    if permit.fixture_id != binding_id:
-        raise ContractError(
-            "calendar publication permit differs from the exact request"
+    if production_clock is None:
+        binding_id = calendar_publication_binding_id(
+            staging_root=staging_root,
+            release_root=release_root,
+            start=start,
+            end=end,
+            created_at=created_at,
+            code_hash=code_hash,
+            config_hash=config_hash,
+            environment_hash=environment_hash,
         )
+        permit = require_synthetic_permit(
+            publication_synthetic_permit,
+            scope=SYNTHETIC_CALENDAR_PUBLICATION_SCOPE,
+        )
+        if permit.fixture_id != binding_id:
+            raise ContractError(
+                "calendar publication permit differs from the exact request"
+            )
+    else:
+        if publication_synthetic_permit is not None:
+            raise ContractError("production calendar publication forbids synthetic permits")
+        clock = require_trusted_clock(production_clock)
+        if not clock.trust_eligible:
+            raise ContractError("production calendar publication requires production system UTC")
     if publication_allowed_root is None:
         raise ContractError(
             "calendar publication requires an explicit allowed root"
