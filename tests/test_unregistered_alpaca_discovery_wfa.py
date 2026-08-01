@@ -84,11 +84,30 @@ def test_bounded_join_stages_only_ready_exact_keys(tmp_path) -> None:
         "target_semantics": ["proxy", "proxy"], "historical_proxy": [True, True],
         "canonical_target_equivalent": [False, False],
     }), outcome)
-    result = build_caveated_joined_trial_input((feature,), outcome_path=outcome, stage_root=tmp_path / "stage", bucket_count=2, batch_size=1)
+    result = build_caveated_joined_trial_input((feature,), outcome_path=outcome, stage_root=tmp_path / "stage", bucket_count=2, batch_size=1, maximum_stage_bytes=1_000_000)
     assert result["joined_rows"] == 1
     assert result["excluded_feature_rows"] == 1
     assert result["excluded_outcome_rows"] == 1
     assert result["trusted_result_claim"] is False
+
+
+def test_join_stops_when_the_declared_stage_byte_bound_is_exceeded(tmp_path) -> None:
+    feature = (tmp_path / "year=2020.parquet").resolve()
+    pq.write_table(pa.table({
+        "symbol": ["AAPL"], "decision_session": [date(2020, 1, 2)],
+        "d0_raw_intraday_return": [0.01], "trailing_5_session_raw_return": [0.02],
+        "trailing_5_session_raw_volatility": [0.03], "status": ["READY_CAUSAL_RAW_PRICE_FEATURES"],
+    }), feature)
+    outcome = (tmp_path / "proxy_outcomes.parquet").resolve()
+    pq.write_table(pa.table({
+        "symbol": ["AAPL"], "decision_session": [date(2020, 1, 2)],
+        "entry_session": [date(2020, 1, 3)], "exit_session": [date(2020, 1, 9)],
+        "entry_open": [1.0], "exit_close": [1.01], "proxy_return": [0.01],
+        "status": ["READY_UNTRUSTED_RAW_PRICE_PROXY"], "target_semantics": ["proxy"],
+        "historical_proxy": [True], "canonical_target_equivalent": [False],
+    }), outcome)
+    with pytest.raises(Exception, match="byte bound"):
+        build_caveated_joined_trial_input((feature,), outcome_path=outcome, stage_root=tmp_path / "stage", bucket_count=2, batch_size=1, maximum_stage_bytes=1)
 
 
 def test_join_plan_binds_absolute_metadata_and_never_authorizes_wfa(tmp_path) -> None:
@@ -110,6 +129,7 @@ def test_join_plan_binds_absolute_metadata_and_never_authorizes_wfa(tmp_path) ->
     assert len(plan["join_build_plan_id"]) == 64
     assert len(plan["implementation_sha256"]) == 64
     assert plan["required_authority"]["real_row_access"] is True
+    assert plan["limits"]["staging_bytes_at_most"] > 0
     assert plan["output"]["accepted_release"] is False
 
 

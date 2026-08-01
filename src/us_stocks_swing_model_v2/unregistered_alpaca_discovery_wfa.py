@@ -139,6 +139,7 @@ def build_caveated_joined_trial_input_plan(
         raise ResearchContractError("discovery join bucket count differs")
     if batch_size < 1 or batch_size > 65536:
         raise ResearchContractError("discovery join batch bound differs")
+    input_bytes = sum(Path(path).stat().st_size for path in feature_paths) + Path(outcome_path).stat().st_size
     unsigned = {
         "schema_version": 1,
         "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CAVEATED_JOIN_BUILD_PLAN_ONLY",
@@ -154,6 +155,7 @@ def build_caveated_joined_trial_input_plan(
             "source_batch_rows_at_most": batch_size,
             "source_rows_at_most": int(layout["feature_rows"]) + int(layout["outcome_rows"]),
             "joined_rows_at_most": min(int(layout["feature_rows"]), int(layout["outcome_rows"])),
+            "staging_bytes_at_most": input_bytes * 3,
             "network_requests": 0,
             "credentials_read": 0,
         },
@@ -230,6 +232,7 @@ def build_caveated_joined_trial_input(
     stage_root: Path,
     bucket_count: int = 64,
     batch_size: int = 65536,
+    maximum_stage_bytes: int,
 ) -> dict[str, object]:
     """Build bounded caveated join shards into a caller-owned staging root.
 
@@ -242,6 +245,8 @@ def build_caveated_joined_trial_input(
         raise ResearchContractError("discovery join bucket count differs")
     if batch_size < 1 or batch_size > 65536:
         raise ResearchContractError("discovery join batch bound differs")
+    if type(maximum_stage_bytes) is not int or maximum_stage_bytes < 1:
+        raise ResearchContractError("discovery join stage byte bound differs")
     layout = assess_streaming_join_layout(feature_paths, outcome_path=outcome_path)
     root = Path(stage_root)
     if root.exists():
@@ -253,6 +258,10 @@ def build_caveated_joined_trial_input(
     feature_spool.mkdir()
     outcome_spool.mkdir()
     joined_root.mkdir()
+
+    def require_stage_bound() -> None:
+        if sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) > maximum_stage_bytes:
+            raise ResearchContractError("discovery join stage byte bound exceeded")
     feature_batches = (
         batch
         for path in feature_paths
@@ -271,6 +280,7 @@ def build_caveated_joined_trial_input(
         schema_columns=OUTCOME_COLUMNS, stage=outcome_spool, prefix="outcomes",
         bucket_count=bucket_count,
     )
+    require_stage_bound()
     feature_lookup = {int(path.stem.rsplit("-", 1)[1]): path for path in feature_paths_by_bucket}
     outcome_lookup = {int(path.stem.rsplit("-", 1)[1]): path for path in outcome_paths_by_bucket}
     joined_rows = 0
@@ -310,6 +320,7 @@ def build_caveated_joined_trial_input(
             output.sort(key=lambda row: (row["decision_session"], row["symbol"]))
             path = joined_root / f"bucket={number:03d}.parquet"
             pq.write_table(pa.Table.from_pylist(output), path)
+            require_stage_bound()
             joined_paths.append(path.relative_to(root).as_posix())
             joined_rows += len(output)
     if joined_rows < 1:
@@ -381,6 +392,7 @@ def execute_caveated_joined_trial_input(
     return {**build_caveated_joined_trial_input(
         feature_paths, outcome_path=outcome_path, stage_root=stage,
         bucket_count=bucket_count, batch_size=batch_size,
+        maximum_stage_bytes=int(plan["limits"]["staging_bytes_at_most"]),
     ), "join_build_plan_id": plan["join_build_plan_id"]}
 
 
