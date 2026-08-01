@@ -140,6 +140,12 @@ Every report must record `borrow_cost_mode=EXCLUDED_BY_SCOPE`,
 ## 3. Trial ledger and preregistration
 
 The repository owns one append-only, SHA-256 hash-chained trial-event ledger.
+For synthetic mechanics it is local only.  Real historical-trial registration
+additionally requires a versioned AWS S3 object in Object Lock `COMPLIANCE`
+mode, with the configured minimum retention.  The loader verifies the exact
+S3 version, canonical trial payload, retention mode, retention date, and
+registry binding; a local copy, local anchor, or synthetic permit is never a
+substitute.
 Each event records sequence, prior hash, UTC time, trial/parent IDs, hypothesis,
 multiplicity family, information set, the four sleeve IDs, immutable source/data
 hashes, code and environment, charter/feature/label/split/cost hashes, role,

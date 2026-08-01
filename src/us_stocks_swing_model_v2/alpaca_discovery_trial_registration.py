@@ -37,7 +37,7 @@ def build_trial_registration_preflight(three_class_trial_plan: Mapping[str, Any]
         "registration_state": "BLOCKED_NO_PRODUCTION_IMMUTABLE_REGISTRY",
         "production_registry_support": False,
         "synthetic_registry_support": True,
-        "required_capability": "external_immutable_trial_registry_loader",
+        "required_capability": "aws_s3_object_lock_compliance_trial_registry_loader",
         "forbidden_substitutes": ["local_hash_chain_registry", "synthetic_registry_permit", "generated_trial_receipt"],
         "writes": {"trial_registry": False, "ledger": False, "evaluation": False},
         "rows_opened": 0,
