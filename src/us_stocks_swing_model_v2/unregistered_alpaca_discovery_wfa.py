@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import hashlib
 import os
@@ -9,13 +10,14 @@ import shutil
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any, Mapping
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
-from .common import canonical_json_bytes, require_sha256, sha256_bytes, sha256_file
+from .common import canonical_json_bytes, reject_link, require_sha256, sha256_bytes, sha256_file
 from .common import atomic_write
 from .releases import AtomicReleasePublisher, ReleaseFile, ReleaseManifest, verify_accepted_release
 from .alpaca_discovery_three_class_trial import load_three_class_trial_contract
@@ -57,6 +59,7 @@ _FEATURE_READY = "READY_CAUSAL_RAW_PRICE_FEATURES"
 _OUTCOME_READY = "READY_UNTRUSTED_RAW_PRICE_PROXY"
 _STAGING_OVERHEAD_MULTIPLIER = 4
 JOINED_DATASET = "alpaca_discovery_joined_trial_inputs"
+COMPARISON_CONTRACT_PATH = "config/alpaca_discovery_class_base_rate_comparison_contract.json"
 _FEATURE_SCHEMA = pa.schema(
     [("symbol", pa.string()), ("decision_session", pa.date32())]
     + [(name, pa.float64()) for name in FEATURE_COLUMNS[2:5]]
@@ -509,6 +512,77 @@ def build_unregistered_wfa_plan(
         "stop_conditions": ["release or calendar identity drift", "calendar-session mapping failure", "attempt to write a report, candidate, or registry record", "trusted or alpha claim"],
     }
     return {**unsigned, "unregistered_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
+
+
+def load_unregistered_class_base_rate_comparison_contract(
+    repo_root: Path,
+) -> dict[str, Any]:
+    """Load the fixed, non-executable discovery comparison contract."""
+
+    path = Path(repo_root).resolve(strict=True) / COMPARISON_CONTRACT_PATH
+    reject_link(path)
+    payload = json.loads(path.read_bytes())
+    if type(payload) is not dict:
+        raise ResearchContractError("discovery comparison contract must be an object")
+    contract_id = payload.pop("contract_id", None)
+    if contract_id != sha256_bytes(canonical_json_bytes(payload)):
+        raise ResearchContractError("discovery comparison contract ID differs")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("project") != "US_stocks_swing_model_v2"
+        or payload.get("mode") != "ALPACA_DISCOVERY_CLASS_BASE_RATE_COMPARISON_PLAN_ONLY"
+        or payload.get("hypothesis_id") != "alpaca_raw_price_proxy_fixed_ridge_vs_fold_local_class_base_rate_v1"
+        or payload.get("candidate") != {"family": "linear_distribution_v1_fixed_ridge", "ridge_alpha": 1.0, "hyperparameter_tuning": False, "feature_selection": False}
+        or payload.get("baseline") != {"family": "fold_local_class_base_rate_v1", "classes": ["down", "neutral", "up"], "smoothing": 0.0, "uses_outer_fit_only": True}
+        or payload.get("target") != {"semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1", "classes": ["down", "neutral", "up"], "neutral_band": 0.005}
+        or payload.get("metric") != "multiclass_log_loss"
+        or payload.get("wfa") != {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True}
+        or payload.get("claims") != {"historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "training_or_evaluation_authorized": False}
+        or payload.get("registration") != {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": False}
+    ):
+        raise ResearchContractError("discovery comparison contract differs")
+    return {**payload, "contract_id": contract_id}
+
+
+def build_unregistered_class_base_rate_comparison_plan(
+    wfa_plan: Mapping[str, object], *, repo_root: Path
+) -> dict[str, object]:
+    """Freeze a fresh comparison before any historical rows are opened."""
+
+    contract = load_unregistered_class_base_rate_comparison_contract(repo_root)
+    if (
+        type(wfa_plan) is not dict
+        or wfa_plan.get("mode") != "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_PLAN_ONLY"
+        or wfa_plan.get("model") != contract["candidate"]
+        or wfa_plan.get("target") != contract["target"]
+        or wfa_plan.get("wfa") != contract["wfa"]
+        or wfa_plan.get("claims") != contract["claims"]
+        or wfa_plan.get("registration") != contract["registration"]
+    ):
+        raise ResearchContractError("discovery comparison WFA input differs")
+    for field in ("unregistered_wfa_plan_id", "joined_release_id", "calendar_release_id"):
+        require_sha256(wfa_plan.get(field), field)
+    unsigned = {
+        "schema_version": 1,
+        "mode": contract["mode"],
+        "comparison_contract_id": contract["contract_id"],
+        "implementation_sha256": sha256_file(Path(__file__)),
+        "input_wfa_plan_id": wfa_plan["unregistered_wfa_plan_id"],
+        "joined_release_id": wfa_plan["joined_release_id"],
+        "calendar_release_id": wfa_plan["calendar_release_id"],
+        "hypothesis_id": contract["hypothesis_id"],
+        "candidate": contract["candidate"],
+        "baseline": contract["baseline"],
+        "target": contract["target"],
+        "metric": contract["metric"],
+        "wfa": contract["wfa"],
+        "claims": contract["claims"],
+        "registration": contract["registration"],
+        "validation_scope": {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0},
+        "required_authority": {"real_row_access": True, "training_or_evaluation": True, "report_write": False, "external_registry_required": False},
+        "stop_conditions": contract["stop_conditions"],
+    }
+    return {**unsigned, "comparison_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
 def publish_caveated_joined_release(

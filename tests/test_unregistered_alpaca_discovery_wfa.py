@@ -18,6 +18,8 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     build_caveated_joined_trial_input_plan,
     build_caveated_joined_publication_plan,
     build_unregistered_wfa_plan,
+    build_unregistered_class_base_rate_comparison_plan,
+    load_unregistered_class_base_rate_comparison_contract,
     publish_caveated_joined_release,
     execute_caveated_joined_trial_input,
     build_caveated_joined_trial_input,
@@ -68,6 +70,37 @@ def test_streaming_executor_uses_two_bounded_passes_only() -> None:
     assert len(result["folds"]) == 8
     assert result["batch_passes"] == 2
     assert result["writes"] == 0
+
+
+def _wfa_plan_for_comparison() -> dict[str, object]:
+    return {
+        "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_PLAN_ONLY",
+        "unregistered_wfa_plan_id": "a" * 64,
+        "joined_release_id": "b" * 64,
+        "calendar_release_id": "c" * 64,
+        "model": {"family": "linear_distribution_v1_fixed_ridge", "ridge_alpha": 1.0, "hyperparameter_tuning": False, "feature_selection": False},
+        "target": {"semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1", "classes": ["down", "neutral", "up"], "neutral_band": 0.005},
+        "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True},
+        "claims": {"historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "training_or_evaluation_authorized": False},
+        "registration": {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": False},
+    }
+
+
+def test_comparison_plan_preregisters_only_the_fold_local_base_rate_baseline() -> None:
+    contract = load_unregistered_class_base_rate_comparison_contract(REPO)
+    plan = build_unregistered_class_base_rate_comparison_plan(_wfa_plan_for_comparison(), repo_root=REPO)
+    assert contract["baseline"]["family"] == "fold_local_class_base_rate_v1"
+    assert plan["baseline"] == contract["baseline"]
+    assert plan["metric"] == "multiclass_log_loss"
+    assert plan["validation_scope"] == {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0}
+    assert len(plan["comparison_plan_id"]) == 64
+
+
+def test_comparison_plan_rejects_candidate_substitution() -> None:
+    plan = _wfa_plan_for_comparison()
+    plan["model"] = {"family": "other"}
+    with pytest.raises(Exception, match="comparison WFA input"):
+        build_unregistered_class_base_rate_comparison_plan(plan, repo_root=REPO)
 
 
 def test_calendar_window_retains_the_five_session_outcome_tail() -> None:

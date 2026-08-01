@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "ALPACA_DISCOVERY_CLASS_BASE_RATE_COMPARISON_PLAN_ONLY",
+  "hypothesis_id": "alpaca_raw_price_proxy_fixed_ridge_vs_fold_local_class_base_rate_v1",
+  "candidate": {"family": "linear_distribution_v1_fixed_ridge", "ridge_alpha": 1.0, "hyperparameter_tuning": false, "feature_selection": false},
+  "baseline": {"family": "fold_local_class_base_rate_v1", "classes": ["down", "neutral", "up"], "smoothing": 0.0, "uses_outer_fit_only": true},
+  "target": {"semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1", "classes": ["down", "neutral", "up"], "neutral_band": 0.005},
+  "metric": "multiclass_log_loss",
+  "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true},
+  "claims": {"historical_proxy": true, "trusted_result_claim": false, "alpha_claim": false, "candidate_sealing": false, "training_or_evaluation_authorized": false},
+  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": false},
+  "stop_conditions": ["input WFA plan or contract identity drift", "candidate or baseline substitution", "real-history comparison execution without separate authorization", "trusted or alpha claim"],
+  "contract_id": "8eb8b8f25d5f57fd77b289e7ce8583f21083c4b92a4fc88fc125d22858afe924"
+}
