@@ -202,6 +202,13 @@
   host capabilities using metadata-only inputs. Environment, quoting, encoding,
   path, hashing, and process-transport failures belong in preparation, not in a
   spent substantive invocation.
+- For a new generated-data staging transform, preparation must also calibrate
+  its file and byte caps from the actual output topology and a synthetic or
+  metadata-only dry run. Do not spend a first real attempt merely to discover
+  that a guessed capacity multiplier is too small. If a stopped attempt leaves
+  partial evidence, inspect only its metadata during one recovery local phase,
+  bundle the evidenced correction with focused validation and routine planner
+  updates, then request one commit gate before one fresh execution gate.
 - When the selected host is Windows PowerShell 5.1, never use the unsupported
   `ConvertFrom-Json -Depth` parameter. Before a bounded external invocation,
   exercise the exact JSON capture and parsing expression against a nested

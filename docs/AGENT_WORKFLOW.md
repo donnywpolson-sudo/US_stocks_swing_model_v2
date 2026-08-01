@@ -99,6 +99,14 @@ Before content-addressing or requesting approval for an invocation:
 A preparation failure does not spend a substantive invocation when no declared
 evidence read or side effect began.
 
+For a new generated-data staging transform, also calibrate its file and byte
+caps from its actual output topology and a synthetic or metadata-only dry run.
+Do not use a first real attempt to discover that a guessed capacity estimate is
+too small. If a stopped attempt leaves partial evidence, inspect only its
+metadata in one recovery local phase; bundle the evidenced code correction,
+focused tests, and routine planner updates before requesting one commit gate
+and then one fresh execution gate.
+
 Every bounded read group ends with the exact checked-in completion footer.
 Missing or truncated footer output stops the invocation as incomplete without
 an external measurement command, retry, or later command.

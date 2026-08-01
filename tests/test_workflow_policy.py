@@ -115,6 +115,9 @@ def test_future_workflows_bundle_local_work_and_trigger_durable_retrospectives()
     assert "Do not answer a systemic failure with another one-off" in workflow
     assert "deterministic maximal safe batches" in workflow
     assert "unchanged safety and evidence quality" in workflow
+    assert "generated-data staging transform" in agents
+    assert "partial evidence" in workflow
+    assert "one recovery local phase" in agents
 
 
 def test_goal_pursuit_envelope_batches_routine_work_and_known_campaigns() -> None:
