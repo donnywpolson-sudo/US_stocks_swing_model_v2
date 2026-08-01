@@ -57,6 +57,27 @@ ALPACA_ASSETS_SOURCE = "alpaca_assets"
 ALPACA_ASSETS_MAX_BYTES = 32 * 1024 * 1024
 ALPACA_ASSETS_TIMEOUT_SECONDS = 30
 ALPACA_ASSETS_MAX_PAGES = 1
+HISTORICAL_REMEDIATION_ID = "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782"
+HISTORICAL_REMEDIATION = {
+    "schema_version": 1,
+    "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
+    "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
+    "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
+    "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
+    "input_assessment_id": "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8",
+    "alpaca_snapshot_id": "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe",
+    "nasdaq_snapshot_id": "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8",
+    "required_successor_commit_count": 1,
+    "require_clean_tree": True,
+    "verification": ["targeted_identity_release_readiness_tests", "git_diff_check"],
+    "prohibitions": [
+        "network_calls", "identity_release_publication", "config_sources_mutation",
+        "source_activation", "model_or_research_execution", "secret_read_or_logging",
+    ],
+    "commit_message": "Remediate identity publication eligibility",
+    "stop_after_commit": True,
+}
+REMEDIATION_FIELDS = set(HISTORICAL_REMEDIATION)
 
 
 def _repo_root() -> Path:
@@ -83,8 +104,8 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         "authorization_plan",
         "authorization_plan_id",
         "base_tree",
-        "publication_eligibility_remediation",
-        "publication_eligibility_remediation_id",
+        "publication_eligibility_remediation_registry",
+        "publication_eligibility_remediation_registry_id",
         "baseline_contract",
         "alpaca_asset_projection_policy_id",
         "identity_release_contract",
@@ -97,13 +118,13 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         raise ContractError("Nasdaq identity readiness policy fields differ")
     if (
         type(policy["schema_version"]) is not int
-        or policy["schema_version"] != 1
+        or policy["schema_version"] != 2
         or policy["project"] != PROJECT
     ):
         raise ContractError("Nasdaq identity readiness policy identity differs")
     for name in (
         "authorization_plan_id",
-        "publication_eligibility_remediation_id",
+        "publication_eligibility_remediation_registry_id",
         "environment_id",
         "network_registry_id",
         "policy_id",
@@ -134,48 +155,43 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         canonical_json_bytes(authorization)
     ):
         raise ContractError("identity readiness authorization plan ID differs")
-    remediation = policy["publication_eligibility_remediation"]
-    if remediation != {
-        "schema_version": 1,
-        "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
-        "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
-        "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
-        "preserved_authorization_plan_id": (
-            "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545"
-        ),
-        "input_assessment_id": (
-            "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8"
-        ),
-        "alpaca_snapshot_id": (
-            "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe"
-        ),
-        "nasdaq_snapshot_id": (
-            "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8"
-        ),
-        "required_successor_commit_count": 1,
-        "require_clean_tree": True,
-        "verification": [
-            "targeted_identity_release_readiness_tests",
-            "git_diff_check",
-        ],
-        "prohibitions": [
-            "network_calls",
-            "identity_release_publication",
-            "config_sources_mutation",
-            "source_activation",
-            "model_or_research_execution",
-            "secret_read_or_logging",
-        ],
-        "commit_message": "Remediate identity publication eligibility",
-        "stop_after_commit": True,
-    }:
-        raise ContractError("identity publication eligibility remediation differs")
-    if policy["publication_eligibility_remediation_id"] != sha256_bytes(
-        canonical_json_bytes(remediation)
+    registry = policy["publication_eligibility_remediation_registry"]
+    if (
+        type(registry) is not dict
+        or registry.get("schema_version") != 1
+        or registry.get("record_type") != "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION_REGISTRY"
+        or set(registry) != {"schema_version", "record_type", "records"}
+        or type(registry.get("records")) is not dict
+        or len(registry["records"]) < 2
     ):
-        raise ContractError(
-            "identity publication eligibility remediation ID differs"
-        )
+        raise ContractError("identity publication eligibility remediation registry differs")
+    if registry["records"].get(HISTORICAL_REMEDIATION_ID) != HISTORICAL_REMEDIATION:
+        raise ContractError("historical identity publication remediation differs")
+    for remediation_id, remediation in registry["records"].items():
+        require_sha256(remediation_id, "identity publication eligibility remediation ID")
+        if type(remediation) is not dict or set(remediation) != REMEDIATION_FIELDS:
+            raise ContractError("identity publication eligibility remediation fields differ")
+        if remediation.get("schema_version") != 1 or remediation.get("record_type") != "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION":
+            raise ContractError("identity publication eligibility remediation identity differs")
+        for name in ("base_commit", "base_tree"):
+            if not isinstance(remediation[name], str) or len(remediation[name]) != 40:
+                raise ContractError("identity publication remediation Git binding differs")
+        for name in ("preserved_authorization_plan_id", "input_assessment_id", "alpaca_snapshot_id", "nasdaq_snapshot_id"):
+            require_sha256(remediation[name], f"identity publication remediation {name}")
+        if (
+            remediation["preserved_authorization_plan_id"] != policy["authorization_plan_id"]
+            or remediation["required_successor_commit_count"] != 1
+            or remediation["require_clean_tree"] is not True
+            or remediation["verification"] != ["targeted_identity_release_readiness_tests", "git_diff_check"]
+            or remediation["prohibitions"] != HISTORICAL_REMEDIATION["prohibitions"]
+            or not isinstance(remediation["commit_message"], str)
+            or not remediation["commit_message"]
+            or remediation["stop_after_commit"] is not True
+            or remediation_id != sha256_bytes(canonical_json_bytes(remediation))
+        ):
+            raise ContractError("identity publication eligibility remediation differs")
+    if policy["publication_eligibility_remediation_registry_id"] != sha256_bytes(canonical_json_bytes(registry)):
+        raise ContractError("identity publication eligibility remediation registry ID differs")
     baseline = policy["baseline_contract"]
     if baseline != {
         "accepted_root": "data/vault/accepted",
@@ -218,6 +234,20 @@ def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
         "idempotent_same_release_only": True,
     }:
         raise ContractError("identity readiness execution boundary differs")
+
+
+def select_publication_eligibility_remediation(
+    policy: Mapping[str, Any],
+    remediation_id: str,
+) -> dict[str, Any]:
+    """Return one explicitly selected, hash-bound remediation record."""
+
+    require_sha256(remediation_id, "identity publication remediation ID")
+    records = policy["publication_eligibility_remediation_registry"]["records"]
+    remediation = records.get(remediation_id)
+    if type(remediation) is not dict:
+        raise ContractError("identity publication remediation ID is not registered")
+    return remediation
 
 
 def load_alpaca_asset_projection_policy(

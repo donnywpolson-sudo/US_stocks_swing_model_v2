@@ -38,6 +38,7 @@ from .identity_readiness import (
     IdentityInputAssessment,
     assess_identity_inputs,
     load_identity_readiness_policy,
+    select_publication_eligibility_remediation,
 )
 
 
@@ -154,11 +155,10 @@ def _run_git(root: Path, *arguments: str) -> str:
 def _repository_binding(
     root: Path,
     *,
-    policy: Mapping[str, Any],
+    remediation: Mapping[str, Any],
 ) -> dict[str, str]:
     if Path(_run_git(root, "rev-parse", "--show-toplevel")).resolve(strict=True) != root:
         raise IntegrityError("identity publication Git root differs")
-    remediation = policy["publication_eligibility_remediation"]
     base = str(remediation["base_commit"])
     expected_base_tree = str(remediation["base_tree"])
     actual_base_tree = _run_git(root, "rev-parse", f"{base}^{{tree}}")
@@ -228,6 +228,7 @@ def _closure(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
 def _plan_from_context(
     *,
     policy: Mapping[str, Any],
+    remediation_id: str,
     assessment: IdentityInputAssessment,
     repository: Mapping[str, str],
     code_closure_sha256: str,
@@ -246,9 +247,7 @@ def _plan_from_context(
             else "PUBLISH_ONE_NON_ACTIVE_IDENTITY_RELEASE"
         ),
         "implementation_plan_id": policy["authorization_plan_id"],
-        "publication_eligibility_remediation_id": policy[
-            "publication_eligibility_remediation_id"
-        ],
+        "publication_eligibility_remediation_id": remediation_id,
         "publisher_code_commit": repository["head"],
         "publisher_tree": repository["tree"],
         "baseline_release_id": assessment.baseline.release_id,
@@ -309,6 +308,7 @@ def build_identity_release_publication_plan(
     *,
     alpaca_snapshot_directory: Path,
     nasdaq_snapshot_directory: Path,
+    remediation_id: str,
     repo_root: Path | None = None,
     accepted_root: Path | None = None,
     work_root: Path | None = None,
@@ -331,13 +331,15 @@ def build_identity_release_publication_plan(
         repo_root=root,
         accepted_root=accepted,
     )
+    remediation = select_publication_eligibility_remediation(policy, remediation_id)
     _require_eligibility_remediation_inputs(
-        remediation=policy["publication_eligibility_remediation"],
+        remediation=remediation,
         assessment=assessment,
     )
-    repository = _repository_binding(root, policy=policy)
+    repository = _repository_binding(root, remediation=remediation)
     return _plan_from_context(
         policy=policy,
+        remediation_id=remediation_id,
         assessment=assessment,
         repository=repository,
         code_closure_sha256=str(
@@ -669,6 +671,7 @@ def _publish_prevalidated(
 def publish_identity_release(
     *,
     approved_plan_id: str,
+    remediation_id: str,
     alpaca_snapshot_directory: Path,
     nasdaq_snapshot_directory: Path,
     clock: TrustedClock,
@@ -686,6 +689,7 @@ def publish_identity_release(
     plan = build_identity_release_publication_plan(
         alpaca_snapshot_directory=alpaca_snapshot_directory,
         nasdaq_snapshot_directory=nasdaq_snapshot_directory,
+        remediation_id=remediation_id,
         repo_root=root,
         accepted_root=accepted_root,
         work_root=work_root,
@@ -726,6 +730,7 @@ def build_identity_publication_fixture_plan(
     }
     return _plan_from_context(
         policy=policy,
+        remediation_id="2" * 64,
         assessment=assessment,
         repository={"head": "d" * 40, "tree": "e" * 40},
         code_closure_sha256="f" * 64,

@@ -36,6 +36,7 @@ from us_stocks_swing_model_v2.providers.identity_readiness import (
     guarded_capture_alpaca_assets,
     load_alpaca_asset_projection_policy,
     load_identity_readiness_policy,
+    select_publication_eligibility_remediation,
 )
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
@@ -140,7 +141,10 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
         policy["authorization_plan"]["base_commit"]
         == "ac5c9142172736e820427024be6ddb902cd9c177"
     )
-    remediation = policy["publication_eligibility_remediation"]
+    registry = policy["publication_eligibility_remediation_registry"]
+    historical_id = "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782"
+    fresh_id = "fdeaecd1990e3404239e35f3302598fa563f9d57c0e1ee362f5ac6c486c6bd80"
+    remediation = registry["records"][historical_id]
     assert (
         remediation["base_commit"]
         == "d83cc2be4d2b5acf46677c101721f0769f1221ba"
@@ -165,9 +169,16 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
         == policy["authorization_plan_id"]
     )
     assert (
-        policy["publication_eligibility_remediation_id"]
-        == "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782"
+        policy["publication_eligibility_remediation_registry_id"]
+        == "9ce5d00067a0a5766a3643431c5cf9ac77c15e7c922441518006632932085f81"
     )
+    assert set(registry["records"]) == {historical_id, fresh_id}
+    fresh = registry["records"][fresh_id]
+    assert fresh["input_assessment_id"] == "5fc2761e21758dc0ada38ed235f034f865a676dbc9f100a12e17db7763e7f017"
+    assert fresh["alpaca_snapshot_id"] == "505f75a085a1e727c00d696e2872c169ceded112dd7b5565c31ecd113417d881"
+    assert fresh["nasdaq_snapshot_id"] == "2b86e51b3f7f0c10adac1af29f18f42299ab5140cc0c5f37725c7166719cec80"
+    assert fresh["base_commit"] == "7635eb5757049eb24df278474c09d12b3d246135"
+    assert fresh["base_tree"] == "684e111bcbfd7514e73df5b3fd4d3fdc83fdbc9d"
     assert policy["baseline_contract"]["record_count"] == 13064
     assert policy["execution_contract"]["activation"] is False
     assert policy["execution_contract"]["source_config_mutations"] == 0
@@ -198,7 +209,10 @@ def test_publication_repository_gate_requires_clean_single_successor(
     message: str | None,
 ) -> None:
     policy = load_identity_readiness_policy(REPO)
-    remediation = policy["publication_eligibility_remediation"]
+    remediation = select_publication_eligibility_remediation(
+        policy,
+        "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782",
+    )
     base = remediation["base_commit"]
 
     def fake_run_git(root: Path, *arguments: str) -> str:
@@ -225,13 +239,13 @@ def test_publication_repository_gate_requires_clean_single_successor(
     if message is None:
         assert identity_publisher_module._repository_binding(
             REPO.resolve(),
-            policy=policy,
+            remediation=remediation,
         ) == {"head": "c" * 40, "tree": "d" * 40}
     else:
         with pytest.raises(IntegrityError, match=message):
             identity_publisher_module._repository_binding(
                 REPO.resolve(),
-                policy=policy,
+                remediation=remediation,
             )
 
 
@@ -263,6 +277,17 @@ def test_publication_eligibility_remediation_requires_exact_inputs(
             remediation=remediation,
             assessment=assessment,
         )
+
+
+def test_publication_remediation_registry_requires_an_exact_known_id() -> None:
+    policy = load_identity_readiness_policy(REPO)
+    fresh_id = "fdeaecd1990e3404239e35f3302598fa563f9d57c0e1ee362f5ac6c486c6bd80"
+    selected = select_publication_eligibility_remediation(policy, fresh_id)
+    assert selected["input_assessment_id"] == "5fc2761e21758dc0ada38ed235f034f865a676dbc9f100a12e17db7763e7f017"
+    with pytest.raises(ContractError, match="not registered"):
+        select_publication_eligibility_remediation(policy, "f" * 64)
+    with pytest.raises(ContractError, match="SHA-256"):
+        select_publication_eligibility_remediation(policy, "not-a-record-id")
 
 
 def test_projection_filters_mixed_assets_without_changing_legacy_parser(

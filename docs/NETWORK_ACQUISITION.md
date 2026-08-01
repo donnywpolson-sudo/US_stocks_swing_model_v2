@@ -540,21 +540,23 @@ python -m us_stocks_swing_model_v2.cli.qualify_identity_sources `
 ```
 
 The original identity-readiness authorization remains immutable historical
-evidence. Publication planning additionally binds the separately
-content-addressed eligibility-remediation record in
-`config/nasdaq_identity_readiness_policy.json`. That record fixes the reviewed
-base commit and tree plus the exact assessment and both input snapshots. The
-production publisher recomputes the assessment and requires those three input
-identities to match before it accepts a completely clean tree descended by
-exactly one reviewed successor commit; dirty, mismatched-input, zero-distance,
-unrelated, base-tree-mismatched, and multi-commit states fail closed.
+evidence. Publication planning additionally requires one explicit,
+content-addressed eligibility-remediation record from the append-only registry
+in `config/nasdaq_identity_readiness_policy.json`. The selected record fixes
+the reviewed base commit and tree plus the exact assessment and both input
+snapshots. The production publisher recomputes the assessment and requires
+those three input identities to match before it accepts a completely clean tree
+descended by exactly one reviewed successor commit; dirty, mismatched-input,
+zero-distance, unrelated, base-tree-mismatched, and multi-commit states fail
+closed.
 
 The identity publisher also defaults to a no-write plan:
 
 ```powershell
 python -m us_stocks_swing_model_v2.cli.publish_identity_release `
   --alpaca-assets-snapshot <alpaca-assets-snapshot> `
-  --nasdaq-snapshot <fresh-nasdaq-snapshot>
+  --nasdaq-snapshot <fresh-nasdaq-snapshot> `
+  --remediation-id <exact-remediation-record-id>
 ```
 
 Publication requires its own exact plan approval, `--execute`, and

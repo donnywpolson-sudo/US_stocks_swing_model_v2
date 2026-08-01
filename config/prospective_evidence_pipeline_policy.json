@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "PROSPECTIVE_EVIDENCE_PIPELINE_PLAN_ONLY",
+  "source_epoch": "nasdaq_alpaca_active_us_equity_v1",
+  "required_releases": {
+    "identity": {"dataset": "identity", "role": "prospective_as_received", "quality_state": "PASS"},
+    "bars": {"dataset": "alpaca_daily_bars", "role": "active_historical", "quality_state": "PASS", "source_epoch": "alpaca_basic_sip_raw_v1"},
+    "actions": {"dataset": "corporate_actions", "role": "prospective_as_received", "quality_state": "PASS", "source_epoch": "alpaca_corporate_actions_v1"},
+    "calendar": {"dataset": "xnys_sessions", "role": "derived_causal", "quality_state": "PASS"}
+  },
+  "daily_order": ["identity", "bars", "actions"],
+  "downstream_release_order": ["eligible_universe", "features", "outcomes"],
+  "feature_contract": {
+    "schema_name": "prospective_price_only_v1",
+    "feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"],
+    "lookback_sessions": 5,
+    "formulas": {
+      "d0_raw_intraday_return": "close[D0] / open[D0] - 1",
+      "trailing_5_session_raw_return": "close[D0] / close[D-5] - 1",
+      "trailing_5_session_raw_volatility": "population_stddev(close_to_close_returns[D-5_to_D0])"
+    },
+    "requires_complete_action_and_delisting_coverage": true,
+    "forbid_action_event_in_lookback": true,
+    "global_imputation_or_cross_sectional_transform": false,
+    "unresolved_status": "ABSTAIN_UNRESOLVED_CAUSAL_LOOKBACK"
+  },
+  "outcome_policy": {
+    "holding_sessions": 5,
+    "require_complete_action_and_delisting_coverage": true,
+    "unresolved_rows_remain_in_coverage_denominator": true,
+    "imputation_or_drop_allowed": false
+  },
+  "wfa_evidence_horizon": {
+    "initial_training_sessions": 1008,
+    "outer_folds": 8,
+    "outer_test_sessions": 126,
+    "final_holdout_sessions": 252,
+    "minimum_total_sessions": 2268
+  },
+  "external_registry": {
+    "policy_path": "config/trial_registry_s3_object_lock_policy.json",
+    "required_before_real_trial": true,
+    "minimum_retention_days": 3650,
+    "configured_status": "CONFIGURED"
+  },
+  "prohibitions": [
+    "legacy_discovery_only_input",
+    "proxy_input",
+    "training_or_evaluation",
+    "candidate_sealing",
+    "source_activation",
+    "network_or_generated_write_execution"
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "US_stocks_swing_model_v2",
   "authorization_plan": {
     "schema_version": 1,
@@ -49,33 +49,45 @@
   },
   "authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
   "base_tree": "ebf85be7b58183afdf88b99a9a6a38d60c82feb2",
-  "publication_eligibility_remediation": {
+  "publication_eligibility_remediation_registry": {
     "schema_version": 1,
-    "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
-    "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
-    "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
-    "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
-    "input_assessment_id": "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8",
-    "alpaca_snapshot_id": "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe",
-    "nasdaq_snapshot_id": "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8",
-    "required_successor_commit_count": 1,
-    "require_clean_tree": true,
-    "verification": [
-      "targeted_identity_release_readiness_tests",
-      "git_diff_check"
-    ],
-    "prohibitions": [
-      "network_calls",
-      "identity_release_publication",
-      "config_sources_mutation",
-      "source_activation",
-      "model_or_research_execution",
-      "secret_read_or_logging"
-    ],
-    "commit_message": "Remediate identity publication eligibility",
-    "stop_after_commit": true
+    "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION_REGISTRY",
+    "records": {
+      "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782": {
+        "schema_version": 1,
+        "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
+        "base_commit": "d83cc2be4d2b5acf46677c101721f0769f1221ba",
+        "base_tree": "9b80c0c5e2484296ef740a345974147387aca122",
+        "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
+        "input_assessment_id": "0ead03c400ad2f3ede1e6545699ed5990c167cc27dcce8637f0402de53f360d8",
+        "alpaca_snapshot_id": "2fa24c698c6c000a4f9ab52344c64499253e125664cf7a61e188dc3e45e89efe",
+        "nasdaq_snapshot_id": "392382cde8dce26908549315e5c03f831ea7e2e6c17ca00e07a5ab360d8ecdd8",
+        "required_successor_commit_count": 1,
+        "require_clean_tree": true,
+        "verification": ["targeted_identity_release_readiness_tests", "git_diff_check"],
+        "prohibitions": ["network_calls", "identity_release_publication", "config_sources_mutation", "source_activation", "model_or_research_execution", "secret_read_or_logging"],
+        "commit_message": "Remediate identity publication eligibility",
+        "stop_after_commit": true
+      },
+      "fdeaecd1990e3404239e35f3302598fa563f9d57c0e1ee362f5ac6c486c6bd80": {
+        "schema_version": 1,
+        "record_type": "IDENTITY_PUBLICATION_ELIGIBILITY_REMEDIATION",
+        "base_commit": "7635eb5757049eb24df278474c09d12b3d246135",
+        "base_tree": "684e111bcbfd7514e73df5b3fd4d3fdc83fdbc9d",
+        "preserved_authorization_plan_id": "c34aebff74beee7d256603880c06ae567c8faf21b86f3aadd5f519e197a5c545",
+        "input_assessment_id": "5fc2761e21758dc0ada38ed235f034f865a676dbc9f100a12e17db7763e7f017",
+        "alpaca_snapshot_id": "505f75a085a1e727c00d696e2872c169ceded112dd7b5565c31ecd113417d881",
+        "nasdaq_snapshot_id": "2b86e51b3f7f0c10adac1af29f18f42299ab5140cc0c5f37725c7166719cec80",
+        "required_successor_commit_count": 1,
+        "require_clean_tree": true,
+        "verification": ["targeted_identity_release_readiness_tests", "git_diff_check"],
+        "prohibitions": ["network_calls", "identity_release_publication", "config_sources_mutation", "source_activation", "model_or_research_execution", "secret_read_or_logging"],
+        "commit_message": "Add fresh identity publication remediation registry",
+        "stop_after_commit": true
+      }
+    }
   },
-  "publication_eligibility_remediation_id": "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782",
+  "publication_eligibility_remediation_registry_id": "9ce5d00067a0a5766a3643431c5cf9ac77c15e7c922441518006632932085f81",
   "alpaca_asset_projection_policy_id": "e6ccdc128a73bc44a8ebdc98a0dcb53d4a5dd4e5bbc236c881fcae89c6ceff68",
   "baseline_contract": {
     "accepted_root": "data/vault/accepted",
@@ -113,7 +125,7 @@
     "atomic_content_addressed_publication": true,
     "idempotent_same_release_only": true
   },
-  "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
+  "environment_id": "b29d931d14116b14fbef32212709f43dc1b820026acadcfd09a46c1bfdab7034",
   "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
-  "policy_id": "c9fbd95308939a36fd4845b96cf146055fb4d6cb7577272d1db4ae7622328bfd"
+  "policy_id": "70f022985d7355a930f9e2f42198298b9bef13a667b7dd6029e77021e1f82980"
 }

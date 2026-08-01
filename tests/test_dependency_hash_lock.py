@@ -60,7 +60,7 @@ def test_windows_cp311_binary_closure_is_exact_and_hash_locked() -> None:
     assert wheel is None
     plain = _plain_pins(REPO / "requirements.lock")
     assert {name: version for name, (version, _, _) in locked.items()} == plain
-    assert len(locked) == 22
+    assert len(locked) == 27
 
     environment = json.loads((REPO / "config" / "environment.lock.json").read_text(encoding="utf-8"))
     assert environment["target"] == {
@@ -102,7 +102,7 @@ def test_runtime_validation_checks_every_transitive_locked_distribution(
     )
     validate_environment_lock(REPO / "config" / "environment.lock.json")
     assert set(observed) == set(expected)
-    assert len(observed) == len(expected) == 22
+    assert len(observed) == len(expected) == 27
 
 
 def test_runtime_validation_rejects_transitive_version_drift(

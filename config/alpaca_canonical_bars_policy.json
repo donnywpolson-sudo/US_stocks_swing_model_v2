@@ -31,7 +31,7 @@
   "network_registry": "config/alpaca_canonical_bars_network_registry.json",
   "source_config": {
     "path": "config/sources.json",
-    "sha256": "f62ff2060ab449c6446dd19b667e7ad7f2812cb5e16145ba11fab5a3b092ad3c"
+    "sha256": "57636a3d08f92a656c50a628d26ec7da6591308ea52fb331188d5ee3463f08aa"
   },
   "qualification_release": {
     "release_id": "8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2",

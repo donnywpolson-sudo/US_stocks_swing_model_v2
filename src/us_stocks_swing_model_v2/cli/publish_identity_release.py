@@ -28,6 +28,11 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--alpaca-assets-snapshot", required=True, type=Path)
     value.add_argument("--nasdaq-snapshot", required=True, type=Path)
     value.add_argument(
+        "--remediation-id",
+        required=True,
+        help="exact hash-bound identity publication remediation record ID",
+    )
+    value.add_argument(
         "--accepted-root",
         type=Path,
         default=_repo_root() / "data" / "vault" / "accepted",
@@ -57,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     plan = build_identity_release_publication_plan(
         alpaca_snapshot_directory=args.alpaca_assets_snapshot,
         nasdaq_snapshot_directory=args.nasdaq_snapshot,
+        remediation_id=args.remediation_id,
         accepted_root=args.accepted_root,
         work_root=args.work_root,
     )
@@ -87,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         raise PermissionError("approved identity publication plan ID differs")
     result = publish_identity_release(
         approved_plan_id=args.approved_plan_id,
+        remediation_id=args.remediation_id,
         alpaca_snapshot_directory=args.alpaca_assets_snapshot,
         nasdaq_snapshot_directory=args.nasdaq_snapshot,
         accepted_root=args.accepted_root,

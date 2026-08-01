@@ -7,7 +7,7 @@ before acting.
 
 ## Current milestone
 
-`ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED`
+`PROSPECTIVE_EVIDENCE_COLLECTION_PLANNING_IMPLEMENTED`
 
 - The controlled rebuild architecture and its synthetic acceptance contracts
   are complete.
@@ -16,17 +16,33 @@ before acting.
 - Alpaca SIP is the selected, qualified bar feed. The canonical source record
   is [`config/sources.json`](../config/sources.json):
   `sources.alpaca_basic_delayed_sip.request_contract.qualified_feed` is `sip`.
-- The current-identity-seeded Alpaca SIP backfill has been captured and has a
-  no-network publication planner. It remains PIT-unresolved legacy-discovery
-  evidence, not research or readiness evidence.
-- The first bounded active-SIP canonical-bars build is a separate pending path.
+- A caveated current-identity-seeded Alpaca SIP historical release, proxy
+  features, proxy outcomes, and joined proxy inputs exist. They are
+  `legacy_discovery_only` and cannot enter trusted eligibility, feature,
+  outcome, registration, or evaluation work.
+- The first bounded active-SIP canonical-bars build and a prospective identity
+  release remain separate pending external gates. The prospective epoch planner
+  now binds accepted identity, bars, action, and calendar releases before any
+  downstream materialization can be considered.
+- One fresh Nasdaq/Alpaca identity pair has passed local integrity, continuity,
+  projection, and join assessment. It remains raw as-received evidence; no
+  identity release has been published or activated. A hash-bound remediation
+  registry requires an explicit record ID before a later plan-only publication
+  check can be formed.
+- The frozen prospective feature contract is price-only v1: D0 raw intraday
+  return (`close[D0] / open[D0] - 1`), five-session raw return
+  (`close[D0] / close[D-5] - 1`), and population volatility of the five
+  close-to-close returns from D-5 through D0. It has no volume, sector,
+  fundamental, cross-sectional, or imputed inputs. Missing/late bars,
+  incomplete action/delisting coverage, or an event in the lookback abstains
+  the row rather than altering it.
 
 ## Next meaningful gate
 
-The next selected gate is a bounded authorization to publish the captured
-current-identity-seeded backfill as a caveated `legacy_discovery_only` release.
-The publication implementation exists, but publication, activation, research,
-and downstream use are not authorized by this page or by planning.
+The next selected gate is a plan-only check for one non-active identity release
+from the verified fresh pair. Publication itself needs its own exact approval;
+it neither activates a source nor authorizes downstream use. The bounded
+two-symbol SIP canonical-bars smoke capture remains later.
 
 ## What can proceed
 
@@ -36,8 +52,9 @@ within a user-requested local phase. See the approval matrix in
 
 Commit, provider/network activity, generated releases or receipts, historical
 research, training, evaluation, prediction, activation, push, trading, and
-destructive work need their applicable bounded approval. This summary does not
-combine or waive those gates.
+destructive work need their applicable bounded approval. The selected S3 Object
+Lock registry backend is not configured, so no real trial can be registered.
+This summary does not combine or waive those gates.
 
 ## Non-claims
 
