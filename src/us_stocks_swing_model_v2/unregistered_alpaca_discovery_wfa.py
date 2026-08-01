@@ -19,6 +19,7 @@ from .common import canonical_json_bytes, require_sha256, sha256_bytes, sha256_f
 from .common import atomic_write
 from .releases import AtomicReleasePublisher, ReleaseFile, ReleaseManifest, verify_accepted_release
 from .alpaca_discovery_three_class_trial import load_three_class_trial_contract
+from .exchange_calendar import load_xnys_calendar_release
 from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
 
@@ -598,3 +599,114 @@ def execute_unregistered_discovery_wfa(dataset: UnregisteredDiscoveryDataset, *,
             losses.append(-math.log(max(probability, 1e-15)))
         results.append({"outer_fold": number, "fit_samples": len(fold.fit_indices), "audit_samples": len(fold.audit_indices), "multiclass_log_loss": float(np.mean(losses))})
     return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_IN_MEMORY", "folds": results, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
+
+
+def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tuple[date, ...]) -> dict[str, object]:
+    """Run fixed-ridge outer folds with two bounded scans and no row retention."""
+
+    if len(sessions) < 2016 or tuple(sorted(sessions)) != sessions or len(set(sessions)) != len(sessions):
+        raise ResearchContractError("discovery WFA sessions differ")
+    session_index = {value: number for number, value in enumerate(sessions)}
+    outer, _ = _schedule(len(sessions))
+    stats = [{"n": 0, "sx": np.zeros(3), "sxx": np.zeros((3, 3)), "sy": 0.0, "sy2": 0.0, "sxy": np.zeros(3)} for _ in outer]
+
+    def rows():
+        for batch in batch_factory():
+            if tuple(batch.schema.names) != JOINED_COLUMNS or batch.num_rows > 65536:
+                raise ResearchContractError("streaming discovery batch differs")
+            yield from batch.to_pylist()
+
+    for row in rows():
+        decision = row["decision_session"]
+        if decision not in session_index or session_index[decision] + 5 >= len(sessions):
+            raise ResearchContractError("streaming discovery decision session differs")
+        values = np.asarray([row[name] for name in JOINED_COLUMNS[2:5]], dtype=np.float64)
+        target = float(row["proxy_return"])
+        if not np.all(np.isfinite(values)) or not math.isfinite(target):
+            raise ResearchContractError("streaming discovery row is non-finite")
+        position = session_index[decision]
+        for fold, window in enumerate(outer):
+            if position < window.start - 5 and position + 5 < window.start:
+                item = stats[fold]
+                item["n"] += 1; item["sx"] += values; item["sxx"] += np.outer(values, values)
+                item["sy"] += target; item["sy2"] += target * target; item["sxy"] += values * target
+    fitted: list[tuple[np.ndarray, float, float]] = []
+    for item in stats:
+        n = int(item["n"])
+        if n < 1:
+            raise ResearchContractError("streaming discovery fold is underpowered")
+        mean_x, mean_y = item["sx"] / n, item["sy"] / n
+        scale = np.sqrt(np.maximum(np.diag(item["sxx"]) / n - mean_x * mean_x, 0.0)); scale = np.where(scale > 0, scale, 1.0)
+        gram = (item["sxx"] - np.outer(item["sx"], item["sx"]) / n) / np.outer(scale, scale)
+        rhs = (item["sxy"] - item["sx"] * mean_y) / scale
+        try:
+            scaled = np.linalg.solve(gram + np.eye(3), rhs)
+        except np.linalg.LinAlgError as exc:
+            raise ResearchContractError("streaming discovery ridge system is not solvable") from exc
+        coefficients = scaled / scale; bias = float(mean_y - mean_x @ coefficients)
+        rss = item["sy2"] - 2 * coefficients @ item["sxy"] - 2 * bias * item["sy"] + coefficients @ (item["sxx"] @ coefficients) + 2 * bias * coefficients @ item["sx"] + n * bias * bias
+        uncertainty = max(math.sqrt(max(float(rss) / n, 0.0)), 1e-12)
+        fitted.append((coefficients, bias, uncertainty))
+    losses = [[] for _ in outer]
+    for row in rows():
+        position = session_index[row["decision_session"]]
+        values = np.asarray([row[name] for name in JOINED_COLUMNS[2:5]], dtype=np.float64); actual = float(row["proxy_return"])
+        for fold, window in enumerate(outer):
+            if window.start <= position < window.stop:
+                coefficients, bias, uncertainty = fitted[fold]
+                mean = float(values @ coefficients + bias)
+                upper = 0.5 * (1.0 + math.erf((0.005 - mean) / uncertainty / math.sqrt(2.0)))
+                lower = 0.5 * (1.0 + math.erf((-0.005 - mean) / uncertainty / math.sqrt(2.0)))
+                probability = 1.0 - upper if actual > 0.005 else lower if actual < -0.005 else upper - lower
+                losses[fold].append(-math.log(max(probability, 1e-15)))
+    if any(not values for values in losses):
+        raise ResearchContractError("streaming discovery outer audit is absent")
+    return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "multiclass_log_loss": float(np.mean(values))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
+
+
+def execute_planned_streaming_unregistered_wfa(
+    joined_release_directory: Path,
+    *,
+    calendar_release_directory: Path,
+    accepted_root: Path,
+    repo_root: Path,
+    approved_unregistered_wfa_plan_id: str,
+) -> dict[str, object]:
+    """Execute exactly one separately authorized unregistered discovery WFA."""
+
+    if os.environ.get("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED") != "YES":
+        raise ResearchContractError("discovery WFA execution confirmation is absent")
+    plan = build_unregistered_wfa_plan(
+        joined_release_directory, calendar_release_directory=calendar_release_directory,
+        accepted_root=accepted_root, repo_root=repo_root,
+    )
+    if approved_unregistered_wfa_plan_id != plan["unregistered_wfa_plan_id"]:
+        raise ResearchContractError("approved discovery WFA plan ID differs")
+    calendar = load_xnys_calendar_release(
+        Path(calendar_release_directory), accepted_release_root=Path(accepted_root)
+    ).calendar
+    joined_paths = tuple(sorted((Path(joined_release_directory) / "joined").glob("bucket=*.parquet")))
+    if len(joined_paths) != 64:
+        raise ResearchContractError("accepted discovery joined shard census differs")
+    lower: date | None = None
+    upper: date | None = None
+    for path in joined_paths:
+        parquet = pq.ParquetFile(path)
+        column = parquet.schema_arrow.get_field_index("decision_session")
+        for group in range(parquet.metadata.num_row_groups):
+            statistics = parquet.metadata.row_group(group).column(column).statistics
+            if statistics is None or not statistics.has_min_max:
+                raise ResearchContractError("accepted discovery joined session metadata differs")
+            minimum, maximum = statistics.min, statistics.max
+            if type(minimum) is not date or type(maximum) is not date:
+                raise ResearchContractError("accepted discovery joined session type differs")
+            lower = minimum if lower is None or minimum < lower else lower
+            upper = maximum if upper is None or maximum > upper else upper
+    if lower is None or upper is None:
+        raise ResearchContractError("accepted discovery joined session bounds are absent")
+    sessions = tuple(session for session in calendar.sessions if lower <= session <= upper)
+    result = execute_streaming_unregistered_discovery_wfa(
+        lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
+        sessions=sessions,
+    )
+    return {**result, "unregistered_wfa_plan_id": plan["unregistered_wfa_plan_id"]}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import numpy as np
 import pyarrow as pa
@@ -22,6 +22,8 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     execute_caveated_joined_trial_input,
     build_caveated_joined_trial_input,
     execute_unregistered_discovery_wfa,
+    execute_streaming_unregistered_discovery_wfa,
+    execute_planned_streaming_unregistered_wfa,
     iter_caveated_parquet_batches,
 )
 
@@ -51,6 +53,30 @@ def test_executes_eight_caveated_chronological_folds_in_memory() -> None:
     assert len(result["folds"]) == 8
     assert result["writes"] == 0
     assert result["trusted_result_claim"] is False
+
+
+def test_streaming_executor_uses_two_bounded_passes_only() -> None:
+    sessions = tuple(date(2016, 1, 1) + timedelta(days=number) for number in range(2016))
+    decisions = sessions[:-5]
+    table = pa.table({
+        "symbol": ["AAPL"] * len(decisions), "decision_session": decisions,
+        "d0_raw_intraday_return": [0.01] * len(decisions), "trailing_5_session_raw_return": [0.02] * len(decisions),
+        "trailing_5_session_raw_volatility": [0.03] * len(decisions), "proxy_return": [0.01 if number % 3 == 0 else -0.01 for number in range(len(decisions))],
+    })
+    result = execute_streaming_unregistered_discovery_wfa(lambda: iter(table.to_batches(max_chunksize=65536)), sessions=sessions)
+    assert len(result["folds"]) == 8
+    assert result["batch_passes"] == 2
+    assert result["writes"] == 0
+
+
+def test_planned_streaming_executor_rejects_missing_approval_before_opening_release(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED", raising=False)
+    with pytest.raises(Exception, match="confirmation"):
+        execute_planned_streaming_unregistered_wfa(
+            tmp_path / "joined", calendar_release_directory=tmp_path / "calendar",
+            accepted_root=(tmp_path / "accepted").resolve(), repo_root=REPO,
+            approved_unregistered_wfa_plan_id="a" * 64,
+        )
 
 
 def test_streams_only_bounded_exact_schema_batches(tmp_path) -> None:
