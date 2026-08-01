@@ -24,6 +24,7 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     execute_unregistered_discovery_wfa,
     execute_streaming_unregistered_discovery_wfa,
     execute_planned_streaming_unregistered_wfa,
+    _sessions_covering_joined_decisions,
     iter_caveated_parquet_batches,
 )
 
@@ -67,6 +68,15 @@ def test_streaming_executor_uses_two_bounded_passes_only() -> None:
     assert len(result["folds"]) == 8
     assert result["batch_passes"] == 2
     assert result["writes"] == 0
+
+
+def test_calendar_window_retains_the_five_session_outcome_tail() -> None:
+    sessions = tuple(date(2020, 1, 1) + timedelta(days=number) for number in range(12))
+    assert _sessions_covering_joined_decisions(
+        sessions, lower=sessions[2], upper=sessions[6]
+    ) == sessions[2:12]
+    with pytest.raises(Exception, match="outcome tail"):
+        _sessions_covering_joined_decisions(sessions, lower=sessions[2], upper=sessions[7])
 
 
 def test_planned_streaming_executor_rejects_missing_approval_before_opening_release(tmp_path, monkeypatch) -> None:

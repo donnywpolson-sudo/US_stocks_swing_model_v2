@@ -664,6 +664,21 @@ def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tup
     return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "multiclass_log_loss": float(np.mean(values))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
 
 
+def _sessions_covering_joined_decisions(
+    calendar_sessions: tuple[date, ...], *, lower: date, upper: date
+) -> tuple[date, ...]:
+    """Return every joined decision session plus its required five-session outcome tail."""
+
+    try:
+        start = calendar_sessions.index(lower)
+        stop = calendar_sessions.index(upper) + 5
+    except ValueError as exc:
+        raise ResearchContractError("accepted discovery joined session is absent from calendar") from exc
+    if stop >= len(calendar_sessions):
+        raise ResearchContractError("accepted discovery joined outcome tail is absent from calendar")
+    return calendar_sessions[start:stop + 1]
+
+
 def execute_planned_streaming_unregistered_wfa(
     joined_release_directory: Path,
     *,
@@ -704,7 +719,9 @@ def execute_planned_streaming_unregistered_wfa(
             upper = maximum if upper is None or maximum > upper else upper
     if lower is None or upper is None:
         raise ResearchContractError("accepted discovery joined session bounds are absent")
-    sessions = tuple(session for session in calendar.sessions if lower <= session <= upper)
+    sessions = _sessions_covering_joined_decisions(
+        tuple(calendar.sessions), lower=lower, upper=upper
+    )
     result = execute_streaming_unregistered_discovery_wfa(
         lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
         sessions=sessions,
