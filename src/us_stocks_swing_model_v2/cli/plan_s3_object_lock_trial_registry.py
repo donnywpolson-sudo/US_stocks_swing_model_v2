@@ -35,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
                 "credentials_read": 0,
                 "writes": 0,
                 "production_registration_ready": policy.status == "CONFIGURED",
+                "future_external_action": {
+                    "operation": "one S3 PutObject followed by one GetObject",
+                    "retention_mode": "COMPLIANCE",
+                    "retry": False,
+                },
             },
             indent=2,
             sort_keys=True,

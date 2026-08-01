@@ -10,8 +10,10 @@ from us_stocks_swing_model_v2.common import canonical_json_bytes
 from us_stocks_swing_model_v2.errors import EvaluationAuthorizationError
 from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     S3ObjectLockRegistryPolicy,
+    S3ObjectLockTrialRegistryLocation,
     S3ObjectLockTrialRegistryTarget,
     load_s3_object_lock_trial_registration,
+    register_s3_object_lock_trial,
 )
 from us_stocks_swing_model_v2.trials import TrialSpec
 
@@ -24,6 +26,20 @@ class _Reader:
     def get_object(self, **kwargs: str) -> dict[str, object]:
         self.calls.append(kwargs)
         return self.response
+
+
+class _Client(_Reader):
+    def __init__(self, response: dict[str, object]) -> None:
+        super().__init__(response)
+        self.puts: list[dict[str, object]] = []
+
+    def put_object(self, **kwargs: object) -> dict[str, object]:
+        self.puts.append(kwargs)
+        self.response["VersionId"] = "3HL4kqtJlcpXrof3fjVBH40Nr8X8gXbo"
+        self.response["ObjectLockMode"] = kwargs["ObjectLockMode"]
+        self.response["ObjectLockRetainUntilDate"] = kwargs["ObjectLockRetainUntilDate"]
+        self.response["Body"] = BytesIO(kwargs["Body"])
+        return {"VersionId": self.response["VersionId"]}
 
 
 def _policy(repo_root: Path) -> S3ObjectLockRegistryPolicy:
@@ -77,6 +93,11 @@ def _target() -> S3ObjectLockTrialRegistryTarget:
     )
 
 
+def _spec() -> TrialSpec:
+    payload = _payload(binding_id="0" * 64)
+    return TrialSpec.from_registered_payload(payload)
+
+
 def test_loads_only_a_versioned_compliance_retained_trial_record() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     policy = _policy(repo_root)
@@ -119,3 +140,29 @@ def test_rejects_short_retention_and_local_backend_status() -> None:
     response = {"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=1), "Body": BytesIO(canonical_json_bytes(payload))}
     with pytest.raises(EvaluationAuthorizationError, match="shorter"):
         load_s3_object_lock_trial_registration(reader=_Reader(response), policy=policy, target=target, trial_id=trial_id)
+
+
+def test_registration_requests_compliance_retention_and_reloads_its_version(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    policy = _policy(repo_root)
+    location = S3ObjectLockTrialRegistryLocation(bucket="swing-model-trial-registry", region="us-west-2", prefix="trial-registry/v1")
+    spec = _spec()
+    client = _Client({})
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+
+    record = register_s3_object_lock_trial(
+        client=client,
+        policy=policy,
+        location=location,
+        spec=spec,
+        verified_release_directories=(),
+        accepted_release_root=tmp_path,
+    )
+
+    assert record.trial_id == spec.trial_id
+    assert len(client.puts) == 1
+    assert client.puts[0]["ObjectLockMode"] == "COMPLIANCE"
+    assert client.calls == [{"Bucket": location.bucket, "Key": location.key_for(spec.trial_id), "VersionId": "3HL4kqtJlcpXrof3fjVBH40Nr8X8gXbo"}]

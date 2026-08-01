@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Iterable, Mapping, Protocol
 
 from .clock import TrustedClock, require_trusted_clock
 from .common import (
@@ -26,6 +26,7 @@ from .common import (
 )
 from .errors import ContractError, EvaluationAuthorizationError
 from .trials import TrialSpec
+from .governance import verify_release_bindings
 
 
 _BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
@@ -35,6 +36,10 @@ _MAX_RECORD_BYTES = 512 * 1024
 
 class S3ObjectReader(Protocol):
     def get_object(self, *, Bucket: str, Key: str, VersionId: str) -> Mapping[str, Any]: ...
+
+
+class S3ObjectLockTrialRegistryClient(S3ObjectReader, Protocol):
+    def put_object(self, **kwargs: Any) -> Mapping[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -127,6 +132,27 @@ class S3ObjectLockTrialRegistryTarget:
 
 
 @dataclass(frozen=True)
+class S3ObjectLockTrialRegistryLocation:
+    bucket: str
+    region: str
+    prefix: str
+
+    def target(self, version_id: str) -> S3ObjectLockTrialRegistryTarget:
+        return S3ObjectLockTrialRegistryTarget(
+            bucket=self.bucket,
+            region=self.region,
+            prefix=self.prefix,
+            version_id=version_id,
+        )
+
+    def registry_binding_id(self, policy: S3ObjectLockRegistryPolicy) -> str:
+        return self.target("placeholder").registry_binding_id(policy)
+
+    def key_for(self, trial_id: str) -> str:
+        return self.target("placeholder").key_for(trial_id)
+
+
+@dataclass(frozen=True)
 class ExternalTrialRegistration:
     trial_id: str
     trial_registry_binding_id: str
@@ -135,6 +161,72 @@ class ExternalTrialRegistration:
     s3_version_id: str
     retained_until: str
     registered_payload: Mapping[str, Any]
+
+
+def register_s3_object_lock_trial(
+    *,
+    client: S3ObjectLockTrialRegistryClient,
+    policy: S3ObjectLockRegistryPolicy,
+    location: S3ObjectLockTrialRegistryLocation,
+    spec: TrialSpec,
+    verified_release_directories: Iterable[Path],
+    accepted_release_root: Path,
+    clock: TrustedClock | None = None,
+) -> ExternalTrialRegistration:
+    """Create one Compliance-retained trial record, then reload that exact version.
+
+    This is an external side effect and intentionally has no retry behavior.
+    A failed post-write verification leaves the S3 object untouched for explicit
+    later recovery handling.
+    """
+
+    if not hasattr(client, "put_object") or not hasattr(client, "get_object"):
+        raise ContractError("S3 Object Lock trial registry requires an S3 client")
+    policy.require_configured()
+    target_probe = location.target("placeholder")
+    target_probe.validate()
+    spec.validate()
+    trusted_clock = require_trusted_clock(clock)
+    if not trusted_clock.trust_eligible:
+        raise EvaluationAuthorizationError("external trial registration requires production UTC")
+    verified = verify_release_bindings(
+        verified_release_directories,
+        accepted_release_root=Path(accepted_release_root),
+        expected_project="US_stocks_swing_model_v2",
+    )
+    if verified != spec.release_bindings:
+        raise ContractError("trial release bindings differ from verified release manifests")
+    registered_at = trusted_clock.now()
+    payload = {
+        **spec.unsigned_dict(),
+        "trial_id": spec.trial_id,
+        "registered_at": iso_z(registered_at),
+        "trial_registry_binding_id": location.registry_binding_id(policy),
+    }
+    raw = canonical_json_bytes(payload)
+    retained_until = registered_at + timedelta(days=policy.minimum_retention_days)
+    try:
+        response = client.put_object(
+            Bucket=location.bucket,
+            Key=location.key_for(spec.trial_id),
+            Body=raw,
+            ContentType="application/json",
+            ChecksumAlgorithm="SHA256",
+            ObjectLockMode="COMPLIANCE",
+            ObjectLockRetainUntilDate=retained_until,
+        )
+    except Exception as exc:
+        raise EvaluationAuthorizationError("S3 Object Lock trial registration write failed") from exc
+    if type(response) is not dict or type(response.get("VersionId")) is not str:
+        raise EvaluationAuthorizationError("S3 Object Lock trial registration lacks a version ID")
+    target = location.target(response["VersionId"])
+    return load_s3_object_lock_trial_registration(
+        reader=client,
+        policy=policy,
+        target=target,
+        trial_id=spec.trial_id,
+        clock=trusted_clock,
+    )
 
 
 def load_s3_object_lock_trial_registration(

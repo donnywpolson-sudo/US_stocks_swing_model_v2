@@ -145,7 +145,9 @@ additionally requires a versioned AWS S3 object in Object Lock `COMPLIANCE`
 mode, with the configured minimum retention.  The loader verifies the exact
 S3 version, canonical trial payload, retention mode, retention date, and
 registry binding; a local copy, local anchor, or synthetic permit is never a
-substitute.
+substitute.  Registration is one S3 `PutObject` in `COMPLIANCE` mode followed
+immediately by one `GetObject` of the returned version; a failed reload stops
+without retry and leaves the retained object for explicit recovery handling.
 Each event records sequence, prior hash, UTC time, trial/parent IDs, hypothesis,
 multiplicity family, information set, the four sleeve IDs, immutable source/data
 hashes, code and environment, charter/feature/label/split/cost hashes, role,
