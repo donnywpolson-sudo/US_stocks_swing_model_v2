@@ -15,7 +15,8 @@ import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
 from .common import canonical_json_bytes, require_sha256, sha256_bytes, sha256_file
-from .releases import verify_accepted_release
+from .releases import ReleaseFile, ReleaseManifest, verify_accepted_release
+from .alpaca_discovery_three_class_trial import load_three_class_trial_contract
 from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
 
@@ -52,6 +53,7 @@ JOINED_COLUMNS = (
 _FEATURE_READY = "READY_CAUSAL_RAW_PRICE_FEATURES"
 _OUTCOME_READY = "READY_UNTRUSTED_RAW_PRICE_PROXY"
 _STAGING_OVERHEAD_MULTIPLIER = 4
+JOINED_DATASET = "alpaca_discovery_joined_trial_inputs"
 _FEATURE_SCHEMA = pa.schema(
     [("symbol", pa.string()), ("decision_session", pa.date32())]
     + [(name, pa.float64()) for name in FEATURE_COLUMNS[2:5]]
@@ -398,6 +400,112 @@ def execute_caveated_joined_trial_input(
         bucket_count=bucket_count, batch_size=batch_size,
         maximum_stage_bytes=int(plan["limits"]["staging_bytes_at_most"]),
     ), "join_build_plan_id": plan["join_build_plan_id"]}
+
+
+def build_caveated_joined_publication_plan(
+    stage_root: Path,
+    *,
+    join_build_plan_id: str,
+    feature_release_id: str,
+    outcome_release_id: str,
+    repo_root: Path,
+    created_at: str,
+) -> dict[str, object]:
+    """Freeze an immutable-release plan without copying or publishing data."""
+
+    require_sha256(join_build_plan_id, "join_build_plan_id")
+    require_sha256(feature_release_id, "feature_release_id")
+    require_sha256(outcome_release_id, "outcome_release_id")
+    root = Path(repo_root).resolve(strict=True)
+    stage = Path(stage_root)
+    if not stage.is_absolute() or not stage.is_dir():
+        raise ResearchContractError("discovery joined stage differs")
+    joined = tuple(sorted((stage / "joined").glob("bucket=*.parquet")))
+    if len(joined) != 64 or tuple(path.name for path in joined) != tuple(f"bucket={number:03d}.parquet" for number in range(64)):
+        raise ResearchContractError("discovery joined shard census differs")
+    row_count = 0
+    files: list[ReleaseFile] = []
+    for path in joined:
+        parquet = pq.ParquetFile(path)
+        if tuple(parquet.schema_arrow.names) != JOINED_COLUMNS:
+            raise ResearchContractError("discovery joined shard schema differs")
+        row_count += parquet.metadata.num_rows
+        files.append(ReleaseFile(path=f"joined/{path.name}", size=path.stat().st_size, sha256=sha256_file(path)))
+    if row_count < 1:
+        raise ResearchContractError("discovery joined rows are absent")
+    evidence = {
+        "schema_version": 1,
+        "join_build_plan_id": join_build_plan_id,
+        "feature_release_id": feature_release_id,
+        "outcome_release_id": outcome_release_id,
+        "joined_rows": row_count,
+        "historical_proxy": True,
+        "canonical_target_equivalent": False,
+        "survivorship_safe": False,
+        "trusted_result_claim": False,
+        "alpha_claim": False,
+        "candidate_sealing": False,
+        "training_or_evaluation": False,
+    }
+    evidence_bytes = canonical_json_bytes(evidence)
+    files.append(ReleaseFile(path="source_evidence_manifest.json", size=len(evidence_bytes), sha256=sha256_bytes(evidence_bytes)))
+    manifest = ReleaseManifest(
+        schema_version=1, project="US_stocks_swing_model_v2", dataset=JOINED_DATASET,
+        source_epoch="alpaca_raw_price_proxy_joined_trial_input_v1",
+        role="legacy_discovery_only", quality_state="LEGACY_CAVEATED",
+        created_at=created_at, row_count=row_count,
+        event_start=None, event_end=None,
+        upstream_release_ids=tuple(sorted((feature_release_id, outcome_release_id))),
+        schema_fingerprint=sha256_bytes(canonical_json_bytes(list(JOINED_COLUMNS))),
+        code_hash=sha256_file(Path(__file__)),
+        config_hash=sha256_file(root / "config" / "alpaca_discovery_three_class_trial_contract.json"),
+        environment_hash=sha256_file(root / "config" / "environment.lock.json"),
+        files=tuple(sorted(files, key=lambda entry: entry.path)),
+        release_id="0" * 64,
+    )
+    unsigned = manifest.unsigned_dict()
+    prospective = ReleaseManifest(**{**manifest.__dict__, "release_id": sha256_bytes(canonical_json_bytes(unsigned))})
+    prospective.validate()
+    unsigned_plan = {
+        "schema_version": 1,
+        "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CAVEATED_JOIN_PUBLICATION_PLAN_ONLY",
+        "stage_root": str(stage),
+        "source_evidence": evidence,
+        "prospective_release": prospective.as_dict(),
+        "publication": {"accepted_root": "supplied_at_execution", "copy_only_joined_shards": True, "spool_files_included": False, "writes": 0},
+        "required_authority": {"generated_evidence_write": True, "immutable_publication": True, "training_or_evaluation": False},
+        "stop_conditions": ["stage identity drift", "joined shard census or schema drift", "publication collision", "partial publication", "attempt to run WFA"],
+    }
+    return {**unsigned_plan, "publication_plan_id": sha256_bytes(canonical_json_bytes(unsigned_plan))}
+
+
+def build_unregistered_wfa_plan(
+    joined_release_directory: Path,
+    *,
+    calendar_release_directory: Path,
+    accepted_root: Path,
+    repo_root: Path,
+) -> dict[str, object]:
+    """Bind a future no-write discovery WFA without opening joined rows."""
+
+    joined = verify_accepted_release(Path(joined_release_directory), accepted_root=Path(accepted_root))
+    calendar = verify_accepted_release(Path(calendar_release_directory), accepted_root=Path(accepted_root))
+    if (joined.dataset != JOINED_DATASET or joined.role != "legacy_discovery_only" or joined.quality_state != "LEGACY_CAVEATED" or calendar.dataset != "xnys_sessions" or calendar.role != "derived_causal" or calendar.quality_state != "PASS" or calendar.row_count < 2016):
+        raise ResearchContractError("discovery WFA inputs differ")
+    contract = load_three_class_trial_contract(Path(repo_root))
+    unsigned = {
+        "schema_version": 1,
+        "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_PLAN_ONLY",
+        "joined_release_id": joined.release_id,
+        "calendar_release_id": calendar.release_id,
+        "row_count": joined.row_count,
+        "model": contract["model"], "target": contract["target"], "wfa": contract["wfa"],
+        "claims": contract["claims"], "registration": contract["registration"],
+        "validation_scope": {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0},
+        "required_authority": {"real_row_access": True, "training_or_evaluation": True, "report_write": False, "external_registry_required": False},
+        "stop_conditions": ["release or calendar identity drift", "calendar-session mapping failure", "attempt to write a report, candidate, or registry record", "trusted or alpha claim"],
+    }
+    return {**unsigned, "unregistered_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
 @dataclass(frozen=True)

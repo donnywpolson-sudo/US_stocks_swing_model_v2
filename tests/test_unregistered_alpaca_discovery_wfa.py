@@ -1,23 +1,45 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from us_stocks_swing_model_v2.research.splits import TemporalSamples
+from us_stocks_swing_model_v2.common import canonical_json_bytes
+from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, ReleaseManifest, build_manifest
 from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     FEATURE_COLUMNS,
     OUTCOME_COLUMNS,
     UnregisteredDiscoveryDataset,
     assess_streaming_join_layout,
     build_caveated_joined_trial_input_plan,
+    build_caveated_joined_publication_plan,
+    build_unregistered_wfa_plan,
     execute_caveated_joined_trial_input,
     build_caveated_joined_trial_input,
     execute_unregistered_discovery_wfa,
     iter_caveated_parquet_batches,
 )
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _joined_stage(tmp_path):
+    stage = tmp_path / "joined-stage"
+    joined = stage / "joined"
+    joined.mkdir(parents=True)
+    table = pa.table({
+        "symbol": ["AAPL"], "decision_session": [date(2020, 1, 2)],
+        "d0_raw_intraday_return": [0.01], "trailing_5_session_raw_return": [0.02],
+        "trailing_5_session_raw_volatility": [0.03], "proxy_return": [0.01],
+    })
+    for number in range(64):
+        pq.write_table(table, joined / f"bucket={number:03d}.parquet")
+    return stage
 
 
 def test_executes_eight_caveated_chronological_folds_in_memory() -> None:
@@ -141,3 +163,30 @@ def test_execution_rejects_missing_approval_before_opening_any_input(tmp_path, m
             accepted_root=tmp_path / "accepted", work_root=(tmp_path / "work").resolve(),
             approved_join_build_plan_id="a" * 64,
         )
+
+
+def test_publication_and_wfa_plans_are_caveated_and_no_write(tmp_path) -> None:
+    stage = _joined_stage(tmp_path).resolve()
+    publication = build_caveated_joined_publication_plan(
+        stage, join_build_plan_id="a" * 64, feature_release_id="b" * 64,
+        outcome_release_id="c" * 64, repo_root=REPO,
+        created_at="2026-08-01T00:00:00Z",
+    )
+    assert publication["prospective_release"]["dataset"] == "alpaca_discovery_joined_trial_inputs"
+    assert publication["publication"]["spool_files_included"] is False
+    assert publication["publication"]["writes"] == 0
+    accepted = (tmp_path / "accepted").resolve()
+    package = tmp_path / "package"
+    (package / "joined").mkdir(parents=True)
+    for source in sorted((stage / "joined").glob("*.parquet")):
+        (package / "joined" / source.name).write_bytes(source.read_bytes())
+    (package / "source_evidence_manifest.json").write_bytes(canonical_json_bytes(publication["source_evidence"]))
+    joined_release = AtomicReleasePublisher(accepted).publish(package, ReleaseManifest.from_dict(publication["prospective_release"]))
+    calendar_stage = tmp_path / "calendar-stage"
+    calendar_stage.mkdir()
+    (calendar_stage / "sessions.parquet").write_bytes(b"synthetic")
+    calendar_manifest = build_manifest(calendar_stage, ("sessions.parquet",), project="US_stocks_swing_model_v2", dataset="xnys_sessions", source_epoch="synthetic", role="derived_causal", quality_state="PASS", created_at="2026-08-01T00:00:00Z", row_count=2016, event_start="2016-01-01", event_end="2026-01-01", schema_fingerprint="d" * 64, code_hash="e" * 64, config_hash="f" * 64, environment_hash="0" * 64)
+    calendar = AtomicReleasePublisher(accepted).publish(calendar_stage, calendar_manifest)
+    wfa = build_unregistered_wfa_plan(joined_release, calendar_release_directory=calendar, accepted_root=accepted, repo_root=REPO)
+    assert wfa["validation_scope"]["writes"] == 0
+    assert wfa["claims"]["trusted_result_claim"] is False
