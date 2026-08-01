@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .research.builder import _fit_fold_local_ridge
@@ -34,6 +37,29 @@ OUTCOME_COLUMNS = (
     "target_semantics",
     "historical_proxy",
     "canonical_target_equivalent",
+)
+JOINED_COLUMNS = (
+    "symbol",
+    "decision_session",
+    "d0_raw_intraday_return",
+    "trailing_5_session_raw_return",
+    "trailing_5_session_raw_volatility",
+    "proxy_return",
+)
+_FEATURE_READY = "READY_CAUSAL_RAW_PRICE_FEATURES"
+_OUTCOME_READY = "READY_UNTRUSTED_RAW_PRICE_PROXY"
+_FEATURE_SCHEMA = pa.schema(
+    [("symbol", pa.string()), ("decision_session", pa.date32())]
+    + [(name, pa.float64()) for name in FEATURE_COLUMNS[2:5]]
+    + [("status", pa.string())]
+)
+_OUTCOME_SCHEMA = pa.schema(
+    [("symbol", pa.string()), ("decision_session", pa.date32()),
+     ("entry_session", pa.date32()), ("exit_session", pa.date32()),
+     ("entry_open", pa.float64()), ("exit_close", pa.float64()),
+     ("proxy_return", pa.float64()), ("status", pa.string()),
+     ("target_semantics", pa.string()), ("historical_proxy", pa.bool_()),
+     ("canonical_target_equivalent", pa.bool_())]
 )
 
 
@@ -67,11 +93,11 @@ def assess_streaming_join_layout(
     feature_rows = 0
     for path in normalized:
         parquet = pq.ParquetFile(path)
-        if tuple(parquet.schema_arrow.names) != FEATURE_COLUMNS:
+        if parquet.schema_arrow != _FEATURE_SCHEMA:
             raise ResearchContractError("discovery feature schema differs")
         feature_rows += parquet.metadata.num_rows
     outcome = pq.ParquetFile(outcome_path)
-    if tuple(outcome.schema_arrow.names) != OUTCOME_COLUMNS:
+    if outcome.schema_arrow != _OUTCOME_SCHEMA:
         raise ResearchContractError("discovery outcome schema differs")
     if outcome.metadata.num_rows < 1 or feature_rows < 1:
         raise ResearchContractError("discovery input rows are absent")
@@ -84,6 +110,154 @@ def assess_streaming_join_layout(
         "required_next_input": "separately_authorized_caveated_joined_trial_input",
         "rows_opened": 0,
         "writes": 0,
+    }
+
+
+def _bucket(symbol: str, decision_session: object, bucket_count: int) -> int:
+    if type(symbol) is not str or not symbol:
+        raise ResearchContractError("discovery join symbol differs")
+    encoded = f"{symbol}\x1f{decision_session}".encode("utf-8")
+    return int.from_bytes(hashlib.sha256(encoded).digest()[:8], "big") % bucket_count
+
+
+def _write_bucketed_batches(
+    batches,
+    *,
+    schema_columns: tuple[str, ...],
+    stage: Path,
+    prefix: str,
+    bucket_count: int,
+) -> tuple[Path, ...]:
+    """Write bounded, deterministic-key spools without retaining source rows."""
+
+    writers: dict[int, pq.ParquetWriter] = {}
+    schemas: dict[int, pa.Schema] = {}
+    paths: dict[int, Path] = {}
+    try:
+        for batch in batches:
+            if tuple(batch.schema.names) != schema_columns:
+                raise ResearchContractError("discovery spool schema differs")
+            grouped: dict[int, list[dict[str, object]]] = {}
+            for row in batch.to_pylist():
+                number = _bucket(row["symbol"], row["decision_session"], bucket_count)
+                grouped.setdefault(number, []).append(row)
+            for number, rows in grouped.items():
+                path = stage / f"{prefix}-{number:03d}.parquet"
+                if number not in writers:
+                    schemas[number] = pa.Table.from_pylist(rows).schema
+                    writers[number] = pq.ParquetWriter(path, schemas[number])
+                    paths[number] = path
+                writers[number].write_table(pa.Table.from_pylist(rows, schema=schemas[number]))
+    finally:
+        for writer in writers.values():
+            writer.close()
+    return tuple(paths[number] for number in sorted(paths))
+
+
+def build_caveated_joined_trial_input(
+    feature_paths: tuple[Path, ...],
+    *,
+    outcome_path: Path,
+    stage_root: Path,
+    bucket_count: int = 64,
+    batch_size: int = 65536,
+) -> dict[str, object]:
+    """Build bounded caveated join shards into a caller-owned staging root.
+
+    This is intentionally not an accepted-release publisher and never invokes
+    the WFA.  A real invocation needs separate authority for source rows and
+    generated staging files.  Synthetic tests use a temporary root.
+    """
+
+    if bucket_count < 2 or bucket_count > 256 or bucket_count & (bucket_count - 1):
+        raise ResearchContractError("discovery join bucket count differs")
+    if batch_size < 1 or batch_size > 65536:
+        raise ResearchContractError("discovery join batch bound differs")
+    layout = assess_streaming_join_layout(feature_paths, outcome_path=outcome_path)
+    root = Path(stage_root)
+    if root.exists():
+        raise ResearchContractError("discovery join stage already exists")
+    root.mkdir(parents=True)
+    feature_spool = root / "feature_spool"
+    outcome_spool = root / "outcome_spool"
+    joined_root = root / "joined"
+    feature_spool.mkdir()
+    outcome_spool.mkdir()
+    joined_root.mkdir()
+    feature_batches = (
+        batch
+        for path in feature_paths
+        for batch in iter_caveated_parquet_batches(
+            str(path), columns=FEATURE_COLUMNS, batch_size=batch_size
+        )
+    )
+    feature_paths_by_bucket = _write_bucketed_batches(
+        feature_batches, schema_columns=FEATURE_COLUMNS, stage=feature_spool,
+        prefix="features", bucket_count=bucket_count,
+    )
+    outcome_paths_by_bucket = _write_bucketed_batches(
+        iter_caveated_parquet_batches(
+            str(outcome_path), columns=OUTCOME_COLUMNS, batch_size=batch_size
+        ),
+        schema_columns=OUTCOME_COLUMNS, stage=outcome_spool, prefix="outcomes",
+        bucket_count=bucket_count,
+    )
+    feature_lookup = {int(path.stem.rsplit("-", 1)[1]): path for path in feature_paths_by_bucket}
+    outcome_lookup = {int(path.stem.rsplit("-", 1)[1]): path for path in outcome_paths_by_bucket}
+    joined_rows = 0
+    excluded_feature_rows = 0
+    excluded_outcome_rows = 0
+    joined_paths: list[str] = []
+    for number in sorted(set(feature_lookup) | set(outcome_lookup)):
+        feature_table = pq.read_table(feature_lookup[number]) if number in feature_lookup else pa.table({name: [] for name in FEATURE_COLUMNS})
+        outcome_table = pq.read_table(outcome_lookup[number]) if number in outcome_lookup else pa.table({name: [] for name in OUTCOME_COLUMNS})
+        feature_index: dict[tuple[str, object], dict[str, object]] = {}
+        for row in feature_table.to_pylist():
+            key = (row["symbol"], row["decision_session"])
+            if key in feature_index:
+                raise ResearchContractError("discovery feature join key is duplicated")
+            if row["status"] == _FEATURE_READY:
+                if any(row[name] is None or not math.isfinite(float(row[name])) for name in FEATURE_COLUMNS[2:5]):
+                    raise ResearchContractError("ready discovery feature differs")
+                feature_index[key] = row
+            else:
+                excluded_feature_rows += 1
+        output: list[dict[str, object]] = []
+        seen_outcomes: set[tuple[str, object]] = set()
+        for row in outcome_table.to_pylist():
+            key = (row["symbol"], row["decision_session"])
+            if key in seen_outcomes:
+                raise ResearchContractError("discovery outcome join key is duplicated")
+            seen_outcomes.add(key)
+            feature = feature_index.get(key)
+            if row["status"] != _OUTCOME_READY or feature is None:
+                excluded_outcome_rows += 1
+                continue
+            value = row["proxy_return"]
+            if value is None or not math.isfinite(float(value)):
+                raise ResearchContractError("ready discovery outcome differs")
+            output.append({name: feature[name] for name in FEATURE_COLUMNS[:5]} | {"proxy_return": float(value)})
+        if output:
+            output.sort(key=lambda row: (row["decision_session"], row["symbol"]))
+            path = joined_root / f"bucket={number:03d}.parquet"
+            pq.write_table(pa.Table.from_pylist(output), path)
+            joined_paths.append(path.relative_to(root).as_posix())
+            joined_rows += len(output)
+    if joined_rows < 1:
+        raise ResearchContractError("discovery join has no ready rows")
+    return {
+        "mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CAVEATED_JOIN_STAGE",
+        "layout": layout,
+        "bucket_count": bucket_count,
+        "joined_rows": joined_rows,
+        "excluded_feature_rows": excluded_feature_rows,
+        "excluded_outcome_rows": excluded_outcome_rows,
+        "joined_paths": tuple(joined_paths),
+        "writes": len(joined_paths),
+        "historical_proxy": True,
+        "trusted_result_claim": False,
+        "alpha_claim": False,
+        "candidate_sealing": False,
     }
 
 

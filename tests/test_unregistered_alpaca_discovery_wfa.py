@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -10,6 +11,7 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     OUTCOME_COLUMNS,
     UnregisteredDiscoveryDataset,
     assess_streaming_join_layout,
+    build_caveated_joined_trial_input,
     execute_unregistered_discovery_wfa,
     iter_caveated_parquet_batches,
 )
@@ -38,7 +40,7 @@ def test_layout_assessment_refuses_to_promise_an_unsafe_direct_join(tmp_path) ->
         path = tmp_path / f"year={year}.parquet"
         pq.write_table(
             pa.table({
-                "symbol": ["AAPL"], "decision_session": ["2020-01-02"],
+                "symbol": ["AAPL"], "decision_session": [date(2020, 1, 2)],
                 "d0_raw_intraday_return": [0.01], "trailing_5_session_raw_return": [0.02],
                 "trailing_5_session_raw_volatility": [0.03], "status": ["READY"],
             }),
@@ -48,8 +50,8 @@ def test_layout_assessment_refuses_to_promise_an_unsafe_direct_join(tmp_path) ->
     outcome_path = tmp_path / "proxy_outcomes.parquet"
     pq.write_table(
         pa.table({
-            "symbol": ["AAPL"], "decision_session": ["2020-01-02"],
-            "entry_session": ["2020-01-03"], "exit_session": ["2020-01-09"],
+            "symbol": ["AAPL"], "decision_session": [date(2020, 1, 2)],
+            "entry_session": [date(2020, 1, 3)], "exit_session": [date(2020, 1, 9)],
             "entry_open": [1.0], "exit_close": [1.01], "proxy_return": [0.01],
             "status": ["READY"], "target_semantics": ["proxy"],
             "historical_proxy": [True], "canonical_target_equivalent": [False],
@@ -60,3 +62,27 @@ def test_layout_assessment_refuses_to_promise_an_unsafe_direct_join(tmp_path) ->
     assert assessment["feature_files"] == 2
     assert assessment["direct_single_pass_join"] is False
     assert assessment["rows_opened"] == 0
+
+
+def test_bounded_join_stages_only_ready_exact_keys(tmp_path) -> None:
+    feature = tmp_path / "year=2020.parquet"
+    pq.write_table(pa.table({
+        "symbol": ["AAPL", "SPY"], "decision_session": [date(2020, 1, 2), date(2020, 1, 2)],
+        "d0_raw_intraday_return": [0.01, None], "trailing_5_session_raw_return": [0.02, None],
+        "trailing_5_session_raw_volatility": [0.03, None],
+        "status": ["READY_CAUSAL_RAW_PRICE_FEATURES", "UNRESOLVED_CAUSAL_LOOKBACK"],
+    }), feature)
+    outcome = tmp_path / "proxy_outcomes.parquet"
+    pq.write_table(pa.table({
+        "symbol": ["AAPL", "SPY"], "decision_session": [date(2020, 1, 2), date(2020, 1, 2)],
+        "entry_session": [date(2020, 1, 3), date(2020, 1, 3)], "exit_session": [date(2020, 1, 9), date(2020, 1, 9)],
+        "entry_open": [1.0, 1.0], "exit_close": [1.01, None], "proxy_return": [0.01, None],
+        "status": ["READY_UNTRUSTED_RAW_PRICE_PROXY", "UNRESOLVED_RAW_HORIZON"],
+        "target_semantics": ["proxy", "proxy"], "historical_proxy": [True, True],
+        "canonical_target_equivalent": [False, False],
+    }), outcome)
+    result = build_caveated_joined_trial_input((feature,), outcome_path=outcome, stage_root=tmp_path / "stage", bucket_count=2, batch_size=1)
+    assert result["joined_rows"] == 1
+    assert result["excluded_feature_rows"] == 1
+    assert result["excluded_outcome_rows"] == 1
+    assert result["trusted_result_claim"] is False
