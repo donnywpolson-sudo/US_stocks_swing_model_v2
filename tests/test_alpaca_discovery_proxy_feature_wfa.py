@@ -10,6 +10,7 @@ import pytest
 
 from us_stocks_swing_model_v2.alpaca_discovery_proxy_feature_wfa import (
     build_feature_release_plan,
+    build_feature_wfa_plan,
     build_price_only_proxy_features,
     load_feature_wfa_contract,
 )
@@ -110,3 +111,35 @@ def test_feature_publisher_requires_confirmation_and_emits_caveated_release(tmp_
     assert published.parent.name == "alpaca_discovery_proxy_features"
     assert b'"outcomes_read":false' in evidence
     assert b'"training_or_evaluation":false' in evidence
+
+
+def _caveated_release(tmp_path: Path, accepted: Path, *, dataset: str, evidence: dict[str, object], event_start: str = "2020-01-02", event_end: str = "2020-01-08") -> Path:
+    stage = tmp_path / f"{dataset}-stage"
+    stage.mkdir()
+    (stage / "payload.bin").write_bytes(b"synthetic")
+    (stage / "source_evidence_manifest.json").write_bytes(canonical_json_bytes(evidence))
+    manifest = build_manifest(
+        stage, ("payload.bin", "source_evidence_manifest.json"),
+        project="US_stocks_swing_model_v2", dataset=dataset, source_epoch="synthetic",
+        role="legacy_discovery_only", quality_state="LEGACY_CAVEATED",
+        created_at="2026-08-01T01:00:00Z", row_count=1,
+        event_start=event_start, event_end=event_end, schema_fingerprint="a" * 64,
+        code_hash="b" * 64, config_hash="c" * 64, environment_hash="d" * 64,
+    )
+    return AtomicReleasePublisher(accepted).publish(stage, manifest)
+
+
+def test_wfa_plan_binds_separate_feature_and_outcome_releases_without_opening_rows(tmp_path: Path) -> None:
+    accepted = (tmp_path / "wfa-accepted").resolve()
+    feature = _caveated_release(tmp_path, accepted, dataset="alpaca_discovery_proxy_features", event_start="2020-01-06", event_end="2020-01-08", evidence={
+        "feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"],
+        "outcomes_read": False, "training_or_evaluation": False,
+    })
+    outcome = _caveated_release(tmp_path, accepted, dataset="alpaca_discovery_proxy_outcomes", evidence={
+        "historical_proxy": True, "canonical_target_equivalent": False,
+        "survivorship_safe": False, "training_or_evaluation": False,
+    })
+    plan = build_feature_wfa_plan(feature, proxy_outcome_release_directory=outcome, accepted_root=accepted, repo_root=REPO)
+    assert plan["feature_release"]["release_id"] == feature.name
+    assert plan["proxy_outcome_release"]["release_id"] == outcome.name
+    assert plan["validation_scope"] == {"feature_rows_opened": 0, "proxy_outcome_rows_opened": 0, "files_written": 0}

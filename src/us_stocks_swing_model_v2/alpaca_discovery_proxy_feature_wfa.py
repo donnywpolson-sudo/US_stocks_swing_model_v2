@@ -118,19 +118,41 @@ def build_price_only_proxy_features(sessions: Sequence[date], bars: Sequence[Map
     return tuple(rows)
 
 
-def build_feature_wfa_plan(proxy_outcome_release_directory: Path, *, accepted_root: Path, repo_root: Path | None = None) -> dict[str, Any]:
-    """Bind a caveated proxy-outcome release without reading its rows."""
+def build_feature_wfa_plan(
+    feature_release_directory: Path,
+    *,
+    proxy_outcome_release_directory: Path,
+    accepted_root: Path,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    """Bind separate caveated feature and outcome releases without opening rows."""
 
     contract = load_feature_wfa_contract(repo_root)
-    release = verify_accepted_release(Path(proxy_outcome_release_directory), accepted_root=Path(accepted_root))
-    if release.dataset != "alpaca_discovery_proxy_outcomes" or release.role != "legacy_discovery_only" or release.quality_state != "LEGACY_CAVEATED":
+    feature_release = verify_accepted_release(Path(feature_release_directory), accepted_root=Path(accepted_root))
+    outcome_release = verify_accepted_release(Path(proxy_outcome_release_directory), accepted_root=Path(accepted_root))
+    if feature_release.dataset != FEATURE_DATASET or feature_release.role != "legacy_discovery_only" or feature_release.quality_state != "LEGACY_CAVEATED":
+        raise ContractError("proxy feature release differs")
+    if outcome_release.dataset != "alpaca_discovery_proxy_outcomes" or outcome_release.role != "legacy_discovery_only" or outcome_release.quality_state != "LEGACY_CAVEATED":
         raise ContractError("proxy outcome release differs")
+    feature_evidence_path = Path(feature_release_directory) / "source_evidence_manifest.json"
+    reject_link(feature_evidence_path)
+    feature_evidence = json.loads(feature_evidence_path.read_bytes())
+    if (
+        feature_evidence.get("feature_names") != list(FEATURE_NAMES)
+        or feature_evidence.get("outcomes_read") is not False
+        or feature_evidence.get("training_or_evaluation") is not False
+    ):
+        raise ContractError("proxy feature caveats differ")
     evidence_path = Path(proxy_outcome_release_directory) / "source_evidence_manifest.json"
     reject_link(evidence_path)
     evidence = json.loads(evidence_path.read_bytes())
     if evidence.get("historical_proxy") is not True or evidence.get("canonical_target_equivalent") is not False or evidence.get("survivorship_safe") is not False or evidence.get("training_or_evaluation") is not False:
         raise ContractError("proxy outcome caveats differ")
-    unsigned = {"schema_version": 1, "mode": contract["mode"], "contract_id": contract["contract_id"], "proxy_outcome_release": {"release_id": release.release_id, "manifest_sha256": sha256_file(Path(proxy_outcome_release_directory) / "release_manifest.json"), "row_count": release.row_count, "event_start": release.event_start, "event_end": release.event_end}, "features": contract["features"], "wfa": contract["wfa"], "claims": contract["claims"], "validation_scope": {"proxy_outcome_rows_opened": 0, "files_written": 0}, "required_later_authority": {"real_feature_build": True, "registered_historical_trial": True, "training_or_evaluation": True}, "stop_conditions": contract["stop_conditions"]}
+    # Features need five prior sessions, while outcomes need five future
+    # sessions.  Their valid WFA input is therefore their common interval.
+    if feature_release.event_start < outcome_release.event_start or feature_release.event_end < outcome_release.event_end:
+        raise ContractError("proxy feature/outcome temporal coverage differs")
+    unsigned = {"schema_version": 1, "mode": contract["mode"], "contract_id": contract["contract_id"], "feature_release": {"release_id": feature_release.release_id, "manifest_sha256": sha256_file(Path(feature_release_directory) / "release_manifest.json"), "row_count": feature_release.row_count, "event_start": feature_release.event_start, "event_end": feature_release.event_end}, "proxy_outcome_release": {"release_id": outcome_release.release_id, "manifest_sha256": sha256_file(Path(proxy_outcome_release_directory) / "release_manifest.json"), "row_count": outcome_release.row_count, "event_start": outcome_release.event_start, "event_end": outcome_release.event_end}, "features": contract["features"], "wfa": contract["wfa"], "claims": contract["claims"], "validation_scope": {"feature_rows_opened": 0, "proxy_outcome_rows_opened": 0, "files_written": 0}, "required_later_authority": {"registered_historical_trial": True, "training_or_evaluation": True}, "stop_conditions": contract["stop_conditions"]}
     return {**unsigned, "feature_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
