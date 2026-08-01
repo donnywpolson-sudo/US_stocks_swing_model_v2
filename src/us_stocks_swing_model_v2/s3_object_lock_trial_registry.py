@@ -229,6 +229,22 @@ def register_s3_object_lock_trial(
     )
 
 
+def create_aws_s3_object_lock_client(*, region: str) -> S3ObjectLockTrialRegistryClient:
+    """Create the selected SDK client without reading credentials here.
+
+    The later S3 operation is the only point at which the SDK resolves AWS
+    credentials.  This factory makes no request and exposes no configuration.
+    """
+
+    if type(region) is not str or _REGION.fullmatch(region) is None:
+        raise ContractError("AWS S3 region is invalid")
+    try:
+        import boto3
+    except ImportError as exc:
+        raise EvaluationAuthorizationError("pinned boto3 SDK is unavailable") from exc
+    return boto3.client("s3", region_name=region)
+
+
 def load_s3_object_lock_trial_registration(
     *,
     reader: S3ObjectReader,
@@ -270,9 +286,6 @@ def load_s3_object_lock_trial_registration(
     else:
         raise EvaluationAuthorizationError("S3 trial record retention is invalid")
     retained_at = retained_at.astimezone(trusted_clock.now().tzinfo)
-    now = trusted_clock.now()
-    if retained_at < now + timedelta(days=policy.minimum_retention_days):
-        raise EvaluationAuthorizationError("S3 trial record retention is shorter than policy")
     body = response.get("Body")
     if body is None or not hasattr(body, "read"):
         raise EvaluationAuthorizationError("S3 trial record body is unavailable")
@@ -291,6 +304,9 @@ def load_s3_object_lock_trial_registration(
     except (KeyError, TypeError, ValueError, ContractError) as exc:
         raise EvaluationAuthorizationError("S3 trial registration payload is invalid") from exc
     binding_id = target.registry_binding_id(policy)
+    registered_at = parse_utc_z(str(payload["registered_at"]), "registered_at")
+    if retained_at < registered_at + timedelta(days=policy.minimum_retention_days):
+        raise EvaluationAuthorizationError("S3 trial record retention is shorter than policy")
     if (
         spec.trial_id != trial_id
         or payload.get("trial_id") != trial_id

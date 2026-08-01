@@ -12,6 +12,7 @@ from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     S3ObjectLockRegistryPolicy,
     S3ObjectLockTrialRegistryLocation,
     S3ObjectLockTrialRegistryTarget,
+    create_aws_s3_object_lock_client,
     load_s3_object_lock_trial_registration,
     register_s3_object_lock_trial,
 )
@@ -166,3 +167,8 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
     assert len(client.puts) == 1
     assert client.puts[0]["ObjectLockMode"] == "COMPLIANCE"
     assert client.calls == [{"Bucket": location.bucket, "Key": location.key_for(spec.trial_id), "VersionId": "3HL4kqtJlcpXrof3fjVBH40Nr8X8gXbo"}]
+
+
+def test_sdk_factory_rejects_an_invalid_region_before_loading_boto3() -> None:
+    with pytest.raises(Exception, match="region"):
+        create_aws_s3_object_lock_client(region="invalid")

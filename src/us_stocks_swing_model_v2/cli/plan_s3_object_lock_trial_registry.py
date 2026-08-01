@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 
@@ -33,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
                 "policy_status": policy.status,
                 "network_requests": 0,
                 "credentials_read": 0,
+                "sdk_available": importlib.util.find_spec("boto3") is not None,
                 "writes": 0,
                 "production_registration_ready": policy.status == "CONFIGURED",
                 "future_external_action": {
