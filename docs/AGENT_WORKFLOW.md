@@ -1,162 +1,73 @@
 # Agent Workflow
 
-This policy applies to future multi-step work in this repository. It reduces
-coordination overhead while preserving every scientific, data, provider,
-secret, commit, push, and destructive-action boundary in `AGENTS.md`.
+`AGENTS.md` is binding. This guide explains the ordinary workflow without
+repeating its scientific, source, secret, generated-data, or destructive-action
+controls.
 
-## Phase Envelope
-
-A user request establishes a bounded larger goal and completion criteria.
-Repository-local implementation authority includes its routine edits, focused
-validation, static checks, read-only verification, and at most two materially
-corrective cycles. Those steps proceed without serial “do that” prompts.
-A plain-language implementation or fix request is sufficient; the user does not
-need to reproduce a formal authorization paragraph.
-
-## Goal-Pursuit Envelope
+## One outcome, one local phase
 
 Treat a request to pursue, continue, or implement an outcome as one plan to its
-next real durable-state or external gate. Complete all necessary read-only
-discovery, design, local implementation, focused checks, corrective cycles, and
-plan-only work without asking between those routine steps. After an authorized
-commit, automatically run the safe no-network, no-write planning needed to
-describe the next real gate.
+next real durable-state or external gate. A repository-local implementation
+request includes routine discovery, edits, focused validation, static checks,
+read-only verification, and up to two evidenced corrective cycles. Do not ask
+for serial “do that” approvals during those steps.
 
-One goal-pursuit authorization stays active across all of those internal
-milestones. Never ask the user to approve, paste, or restate permission between
-them; provide meaningful progress and continue autonomously. Stop only when a
-different action class or an evidenced scope, safety, or semantic change falls
-outside the current envelope.
+Before adding a module, policy, abstraction, or control, identify the concrete
+outcome or required safeguard it improves. Prefer the simplest robust approach
+that produces verified progress; surface complexity is not evidence of quality.
 
-When repeated units share known bounds, present one campaign gate for their
-full census, order, aggregate and per-unit limits, verification, and
-stop-on-first-failure rule. Once confirmed, plan, execute, and verify each unit
-in sequence without approval churn. Commit, publication, activation,
-destructive work, and unknown-evidence-dependent external actions remain
-separate boundaries.
+After an authorized commit, do the safe no-network, no-write planning needed to
+identify the next real gate. Do not detour into non-blocking hardening or
+cleanup unless it blocks the outcome or the user includes it in scope.
 
-Do not request a micro-commit after each passing local patch. Accumulate the
-attributable changes until the goal's local done criteria are met, then request
-one commit gate. Plan-only commands, metadata inspection, and no-write
-assessments are routine preparation, so prepare the next external gate
-automatically and ask only for its bounded external action. Do not detour into
-non-blocking hardening or cleanup; record it in the checkpoint unless it blocks
-the goal, fails acceptance, or the user adds it to scope.
+## Approval matrix
 
-Actions are classified before execution:
+| Work | Normal handling |
+|---|---|
+| Local edits, read-only diagnostics, focused synthetic tests, and static checks | Proceed within the requested local phase. |
+| Commit | Ask once; exact-path staging, one non-amended commit, and post-commit verification may share that gate. |
+| Provider/network activity, generated releases or receipts, research, training, evaluation, prediction, activation, or cutover | Ask once for the bounded action, including scope, limits, outputs, stop condition, and exclusions. |
+| Push, trading, or destructive work | Keep separate unless the user explicitly includes the exact action in its own approval. |
 
-- `LOCAL_CORRECTABLE`: reversible repository-local work.
-- `READ_ONLY_INVOCATION`: manifest-bound audit, assessment, or diagnostic work.
-- `MUTATING_OR_EXTERNAL`: generated evidence, external effects, project data,
-  scientific execution, commit, push, or destructive work.
+A direct “Yes” or “Run that gate” applies only to the uniquely identifiable
+preceding gate after live-state revalidation. Never require copied plan IDs,
+hashes, commands, or authorization text.
 
-Only simultaneously decision-complete actions with the same class, scope,
-risks, outputs, and stop conditions may share one approval. Unknown
-evidence-dependent actions remain separate.
+For repeated known units, use one campaign gate with its full census, limits,
+verification, and stop-on-first-failure rule. Unknown-evidence-dependent work
+remains a separate gate.
 
-One decision-complete external phase may include metadata-only preflight,
-declared one-time credential handling, one bounded call, atomic landing,
-immediate deterministic no-write verification or assessment, and its final
-conversation report. Retry, cleanup, publication, activation, commit, and push
-remain excluded unless their applicable gate explicitly includes them.
+## Prepare once, then run
 
-## Concise Gates
+Before a bounded invocation, verify the repository, executable, transport,
+targets, outputs, timeout, and failure class with metadata-only inputs. Use the
+fewest safe deterministic batches. Content-address a plan only when the
+applicable contract requires it. A preparation failure stops before the
+substantive invocation and does not spend it.
 
-Present a genuine gate once with its action, bounds, outputs, stop conditions,
-and exclusions. A direct “Yes” or “Run that gate” binds that immediately
-preceding summary. Never require the user to copy plan IDs, hashes, literal
-commands, or a long authorization prompt back into the conversation.
+For generated-data staging, calibrate file and byte limits before the first real
+attempt. Audit reviewer transport and completion-footer rules belong only to
+[`AUDIT_WORKFLOW.md`](AUDIT_WORKFLOW.md).
 
-Final revalidation, exact-path staging, one non-amended commit, and post-commit
-verification may share one commit gate. Activation and cutover remain a
-separate gate.
+## Keep context light
 
-## Preparation Before Invocation
+Use verified live state rather than copied chronology. Keep only the current
+outcome, blocker (or `none`), and next meaningful phase. Use
+[`CODEX_HANDOFF.md`](../CODEX_HANDOFF.md) only for a genuine fresh-thread
+transfer, context loss, or high-risk gate that needs durable coordination.
 
-Before content-addressing or requesting approval for an invocation:
+After two avoidable clarification or approval exchanges without a genuine
+boundary, state the outcome, blocker, and next real gate once, then continue
+the active local phase. Do not replace progress with another continuation prompt
+or handoff update.
 
-1. Resolve the exact repository, executable, script, runtime, and lock identity.
-2. Validate literal transport, quoting, encoding, hashing, path, and host
-   capabilities with metadata-only inputs.
-   For Windows PowerShell 5.1, this includes parsing a nested synthetic JSON
-   packet with the exact capture expression and never passing the unsupported
-   `-Depth` parameter to `ConvertFrom-Json`. A failed parse is preparation
-   failure and must stop before provider access or evidence mutation.
-3. Freeze exact targets, outputs, run limits, timeouts, and failure class.
-4. Minimize declared processes using deterministic maximal safe batches.
-5. Content-address the plan or envelope.
-6. Before requesting execution or creating the reviewer, derive a
-   target-content-free, content-addressed reviewer dispatch packet from the
-   exact validated envelope. The packet supplies every exact command and
-   substitutes the envelope path and file hash; the reviewer must not inspect
-   the envelope outside a declared reader command.
-7. Deliver the entire canonical dispatch to the reviewer before creation,
-   unchanged and without summaries, templates, compaction, or positional
-   `argv` assumptions. The reviewer executes each command record's complete
-   `argv` list verbatim. If the reviewer transport cannot carry that packet,
-   stop before reviewer creation rather than reconstructing any command.
+## Read the specialist guide only when needed
 
-A preparation failure does not spend a substantive invocation when no declared
-evidence read or side effect began.
+- Provider, source, acquisition, or publication work:
+  [`NETWORK_ACQUISITION.md`](NETWORK_ACQUISITION.md).
+- Historical-research planning, evaluation, or claims:
+  [`HISTORICAL_RESEARCH_HARNESS.md`](HISTORICAL_RESEARCH_HARNESS.md).
+- Audit preparation, invocation, or reporting:
+  [`AUDIT_WORKFLOW.md`](AUDIT_WORKFLOW.md).
 
-For a new generated-data staging transform, also calibrate its file and byte
-caps from its actual output topology and a synthetic or metadata-only dry run.
-Do not use a first real attempt to discover that a guessed capacity estimate is
-too small. If a stopped attempt leaves partial evidence, inspect only its
-metadata in one recovery local phase; bundle the evidenced code correction,
-focused tests, and routine planner updates before requesting one commit gate
-and then one fresh execution gate.
-
-Every bounded read group ends with the exact checked-in completion footer.
-Missing or truncated footer output stops the invocation as incomplete without
-an external measurement command, retry, or later command.
-
-## Simplicity Check
-
-High reasoning means selecting and verifying the smallest correct solution.
-It does not justify extra layers. Begin with the existing implementation and
-prefer one direct change over a new module, CLI, schema, policy, wrapper, or
-state machine. Do not implement future-phase machinery, a generic framework
-for one use, or a second source of truth unless the current acceptance criteria
-demonstrably require it.
-
-Before writing a change that touches more than five tracked paths or introduces
-more than one new implementation concept, perform an internal simplicity
-checkpoint. Name the required outcome, the smallest viable alternative, why
-existing code cannot satisfy it, and which proposed artifacts can be omitted.
-Escalate to the user only when this reveals a real scope or product decision.
-Tests and documentation must remain proportional and should reuse existing
-coverage rather than duplicating it. Simplicity never weakens an evidence or
-safety gate.
-
-## Live Checkpoint
-
-Long workflows keep one concise checkpoint:
-
-- current outcome;
-- blocker, or `none`;
-- next meaningful phase;
-- Master Audit, Meta Audit, and project-readiness status only when relevant.
-
-Use verified live state instead of copying chronology across prompts.
-`CODEX_HANDOFF.md` is reserved for genuine thread transfer or a high-risk gate
-that depends on persistent continuation state.
-
-Same-thread final responses do not carry a copyable continuation prompt.
-Provide one self-contained prompt only for an explicit fresh-thread handoff or
-necessary context transfer.
-
-## Efficiency Retrospective
-
-Stop and repair the workflow mechanism before repeating it when a phase causes:
-
-- more than two avoidable user round trips;
-- more than one preparation-detectable host or tooling failure;
-- a handoff-only commit during one live thread; or
-- repeated user uncertainty about whether the requested outcome ran.
-
-The remediation belongs in the controlling policy, script, schema, or template.
-Do not answer a systemic failure with another one-off continuation prompt.
-
-Success means fewer avoidable approvals, process launches, handoff-only commits,
-and repeated diagnostics with unchanged safety and evidence quality.
+These guides add task-specific controls; they do not authorize execution.

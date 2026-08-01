@@ -1,37 +1,12 @@
 # US Stocks Swing Model v2
 
-This repository is the independent replacement architecture for the US
-stock/ETF swing-research project. It is deliberately separated from the legacy
-stock repository and every futures project.
+This is the independent replacement architecture for daily US stock/ETF
+five-session research. It asks whether information causally available after a
+completed session can support a useful forecast after explicit costs and
+chronological walk-forward checks. It is research-only: not investment advice,
+a live trading system, an options model, or proof of profitability.
 
-It continues the prebuild's original research mission: test whether causally
-available daily price and volume information can support a useful five-session
-stock/ETF forecast whose evaluated research behavior remains useful after
-explicit cost assumptions and walk-forward checks. V2 changes the architecture
-and evidence controls, not that core research question.
-
-In plain English, a forecast is made only after a completed daily session,
-enters at the next regular-session open, and ends at the fifth following
-session's close. The repository produces underlying stock/ETF research outputs
-only. It is not investment advice, a live trading system, an options model, or
-proof of profitability.
-
-## What this repo does
-
-- Uses daily OHLCV data: open, high, low, close, and volume.
-- Keeps the active research horizon at five exchange sessions (`h5` in plain
-  project language).
-- Preserves source evidence in immutable, content-addressed releases.
-- Keeps identity, corporate actions, availability time, and exchange sessions
-  explicit so unavailable future information cannot silently enter research.
-- Separates feature, outcome, evaluation, prediction, and monitoring artifacts.
-- Provides mechanically tested contracts for registered nested walk-forward
-  research, independent stock/ETF and long/short gates, sealed bundles,
-  fit-free inference, append-only predictions, and prospective monitoring.
-- Fails closed or abstains when required evidence is missing, stale,
-  point-in-time unresolved, wrong-epoch, unsealed, or inconsistent.
-
-The five-session contract is:
+## Five-session contract
 
 ```text
 decision_at = D0 close + provider publication latency
@@ -40,278 +15,47 @@ exit_at     = D5 regular-session close
 target      = (split-normalized exit price / split-normalized entry price) - 1
 ```
 
-`D1` through `D5` are pinned exchange sessions, not calendar days. Dividends
-are excluded from the price-return target. Missing, halted, delisted, or
-action-ambiguous outcomes keep explicit statuses rather than disappearing.
+`D1` through `D5` are pinned exchange sessions, not calendar days. The project
+uses underlying stock/ETF evidence only; dividends are excluded from this
+price-return target.
 
-This is conceptually the same five-session target used by the prebuild, but V2
-expresses it through explicit sessions, timestamps, immutable releases, and
-split-normalized outcomes rather than legacy stage paths or row shifts.
+## Start here
 
-## Current status
+Read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the current milestone,
+the selected next gate, and the distinction between routine local work and
+work requiring approval. It is a concise snapshot, not authority: current
+code, configuration, accepted releases, Git state, and action-specific
+approval remain authoritative.
 
-Current milestone:
+## Source roles
 
-`ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED`
-
-HFDL is retired and excluded from all future derivative and research work. Its
-existing files, tracked machinery, and accepted releases remain untouched as
-historical audit and trial-census evidence until separately authorized cleanup.
-They will not be mixed with Alpaca.
-
-The active historical path is now Alpaca-only. The existing 780-symbol Alpaca
-SIP archive has been rehabilitated into immutable release
-`20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1`.
-The release preserves the validated compressed page evidence and regenerated
-deterministic Parquet; it is PIT-unresolved legacy discovery evidence, not
-active qualification evidence or research authority.
-
-The checked-in historical-backfill workflow derives the current eligible
-stock/ETF cohort absent from that release and emits deterministic annual SIP
-request units. All 19 bounded groups have been captured as immutable ignored
-snapshot evidence. A separate no-network, no-write completeness and publication
-builder revalidates every unit and selected page, regenerates deterministic
-calendar-year Parquet, and binds an exact prospective release identity. Because
-the cohort comes from a current identity snapshot, the evidence remains current-
-identity-seeded and PIT-unresolved. Publication and downstream use remain
-separate gates.
-
-The architecture and authorized rebuild boundary are complete. Historical
-hypothesis evaluation, real-history WFA, candidate sealing, prospective
-confirmation, provider expansion, destructive cutover, external push, live use,
-and trading remain unauthorized.
-
-`REBUILD_COMPLETE` therefore means that the controlled architecture,
-deterministic rebuild, recovery behavior, and adversarial acceptance boundary
-passed. It does **not** mean that alpha, a candidate model, prospective evidence,
-manual decision support, options profitability, or trading readiness exists.
-
-## Data flow
-
-```text
-as-received source release
-  -> validated canonical daily bars + identity/actions
-  -> causal eligible universe
-  -> feature-only release -----------+
-                                      +-> registered nested WFA (not run yet)
-  -> outcome-only release -----------+
-  -> separately authorized sealed candidate
-  -> fit-free prospective inference
-  -> append-only predictions
-  -> separately matured outcomes
-  -> fixed-end prospective confirmation
-```
-
-Every accepted data release is immutable and content-addressed. Feature,
-outcome, evaluation, inference, and monitoring access are separated by schema
-and API.
-
-## Current source roles
-
-| Source | Role |
+| Source | Current role |
 |---|---|
-| Completed HFDL migration capsule | Frozen historical audit and trial-census evidence only |
-| Existing HF Data Library parquet | Retired and excluded from future work; preserved unchanged until separately authorized cleanup |
-| Rehabilitated 780-symbol Alpaca SIP archive | Accepted immutable PIT-unresolved legacy-discovery release; never active source qualification or survivorship-safe evidence |
-| Current-identity-seeded Alpaca SIP backfill | All 19 capture groups are retained; the checked-in deterministic builder is no-network and no-write, while an exact separately authorized publication can create only a caveated legacy-discovery release |
-| Alpaca Basic bars | SIP and IEX passed the bounded comparison; SIP is selected and active through its accepted qualification receipt, with the first bounded canonical-bars build still pending |
-| Alpaca assets | The accepted identity release binds the immutable Alpaca asset snapshot and its frozen projection; it is identity evidence, not bar or research authority |
-| Nasdaq Trader symbol directory | The accepted identity release binds the strictly newer comprehensive Nasdaq capture and the Alpaca identity projection; retrospective membership claims remain prohibited |
-| Alpha Vantage | Excluded |
-| Options data | Excluded from model inputs, outputs, research, and validation |
+| HF Data Library | Retired historical audit and trial-census evidence only |
+| Alpaca SIP archive | Caveated PIT-unresolved legacy-discovery evidence |
+| Alpaca Basic SIP | Selected qualified bar feed; canonical bars remain pending |
+| Alpaca assets and Nasdaq Trader | Identity evidence, not bar or research authority |
+| Alpha Vantage and options data | Excluded |
 
-The approved migration copied 4,911 files (345,845,816 bytes) without moving,
-linking, or modifying legacy files. Its authoritative non-active release is
-selected only by the exact reviewed migration receipt. The historical
-foundation contains 11 content-addressed components and preserves the March
-2022 source transition as two physical epochs.
+## Key documents
 
-See `config/migration_allowlist.json`, `config/migration_approval.json`, and
-`config/sources.json` for the fail-closed contracts.
-
-After migration, the authenticated immutable capsule became the source of
-truth. The allowlist, approval, and mutable legacy baseline remain historical
-review evidence; routine validation does not rescan or replan from the legacy
-checkout.
-
-Content-addressed, non-authorizing `REBUILD_COMPLETE` and mechanical
-`HISTORICAL_RESEARCH_READY` receipts live under the ignored accepted-data
-vault. A receipt is current only when its repository and release bindings
-verify. Historical PIT and exact legacy-trial-census blockers remain in force.
-These are deliberately open release prerequisites, not repository-only defects;
-their assessment disposition is defined in
-[`docs/ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md`](docs/ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md).
-
-## Pipeline in simple terms
-
-1. Qualify and validate daily OHLCV and reference sources within a bounded,
-   separately authorized request.
-2. Preserve the received bytes and receipts, then publish accepted evidence as
-   an immutable release.
-3. Canonicalize daily bars, identity, corporate actions, and exchange sessions.
-4. Apply causal filters and build the eligible stock/ETF research universe.
-5. Build separate feature-only data and five-session outcome-only data.
-6. Register a counted hypothesis and chronological walk-forward plan before
-   reading the historical results.
-7. Train, score, and evaluate only after separate authorization, with all
-   fitted transformations confined to the appropriate training fold.
-8. Gate stock-long, stock-short, ETF-long, and ETF-short evidence separately
-   and preserve failed or inconclusive results.
-9. Seal a passing candidate only through its own approval.
-10. Collect genuinely prospective predictions before outcomes mature.
-11. Consider manual decision support only after the prospective and operational
-    gates pass.
-
-Failure and inconclusive evidence are valid results. They must remain visible;
-they do not justify weakening a gate or silently changing the hypothesis.
-
-## Important files
-
-- [`AGENTS.md`](AGENTS.md): agent workflow, safety rules, validation, and
-  approval boundaries.
+- [`AGENTS.md`](AGENTS.md): binding repository-operation and safety rules.
+- [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md): ordinary workflow and
+  approval matrix.
+- [`PROJECT_OUTLINE.md`](PROJECT_OUTLINE.md): enduring objective and roadmap.
 - [`docs/REBUILD_CONSTITUTION.md`](docs/REBUILD_CONSTITUTION.md): binding
   scientific and design contract.
-- [`docs/HISTORICAL_RESEARCH_HARNESS.md`](docs/HISTORICAL_RESEARCH_HARNESS.md):
-  historical-research mechanics and claims boundary.
-- [`PROJECT_OUTLINE.md`](PROJECT_OUTLINE.md): project identity, lifecycle,
-  limitations, and roadmap.
-- [`CODEX_HANDOFF.md`](CODEX_HANDOFF.md): short mutable continuation state, not
-  proof or authorization.
-- `config/`: source, migration, environment, authorization, and policy
-  contracts.
-- `src/`: implemented package behavior.
-- `tests/`: synthetic and adversarial contract checks.
 
-When documents appear to disagree, do not silently choose the easier rule.
-Inspect the current implementation and preserve the binding scientific and
-safety boundary while reporting the inconsistency.
+For provider/publication work, read
+[`docs/NETWORK_ACQUISITION.md`](docs/NETWORK_ACQUISITION.md). For historical
+research planning or review, read
+[`docs/HISTORICAL_RESEARCH_HARNESS.md`](docs/HISTORICAL_RESEARCH_HARNESS.md).
+For audit work, read [`docs/AUDIT_WORKFLOW.md`](docs/AUDIT_WORKFLOW.md).
 
-## How to use this with Codex
+## Safe Codex entrypoint
 
-For a read-only status check:
-
-```text
-Work only in C:\Users\donny\Desktop\US_stocks_swing_model_v2. Read AGENTS.md,
-PROJECT_OUTLINE.md, CODEX_HANDOFF.md, and the binding documents they identify.
-Reconcile the current status against Git and repository evidence. Do not change
-files or run providers, data builds, WFA, training, or evaluation.
-```
-
-For a narrow documentation change:
-
-```text
-Make only the requested documentation change in the Desktop v2 repository.
-Preserve the Constitution, current milestone, source roles, and authorization
-boundaries. Review the diff and run git diff --check. Do not change code,
-config, data, reports, tests, locks, or CODEX_HANDOFF.md.
-```
-
-Before provider, data, or historical-research work:
-
-```text
-Produce a bounded plan only. State the command family, exact scope and request
-or run limit, timeout or stop condition, expected outputs and locations,
-tracked/ignored disposition, required authorization, and forbidden actions.
-Do not execute yet.
-```
-
-## Data and secret safety
-
-- The legacy repository is read-only evidence and is never a runtime fallback.
-- Do not edit, move, link, or discover active inputs from mutable legacy paths.
-- Do not read, print, copy, move, track, or commit `api.env`, `.env` files,
-  credentials, tokens, or private keys.
-- Do not commit raw data or generated artifacts unless an exact task and
-  authorization explicitly require it.
-- Do not refresh, overwrite, delete, stage, or commit `data/**`,
-  `artifacts/**`, or `reports/generated/**` as a side effect of validation.
-- Provider and copy CLIs remain dry-run or plan-only by default and require
-  action-specific authorization to execute.
-
-## Local validation
-
-The exact Python 3.11.9 runtime and numerical/data dependencies are pinned in
-`requirements.lock`, the Windows CPython 3.11 wheel hashes in
-`requirements.sha256.lock`, and the environment contract in
-`config/environment.lock.json`. `pyproject.toml` defines the project
-dependencies; there is no legacy `requirements.txt` authority. Runtime
-validation compares every distribution in the complete executable project
-closure, including transitive dependencies; unrelated globally installed tools
-are outside that closure. See `docs/DEPENDENCY_CLOSURE_POLICY.md`.
-
-```powershell
-git diff --check
-python -m pytest -q <targeted-test-path>
-python -m us_stocks_swing_model_v2.cli.hash_copy --config config/migration_allowlist.json
-python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only
-python -m us_stocks_swing_model_v2.cli.qualify_free_sources --plan-only --nasdaq-only
-# After separately authorized snapshot B capture:
-python -m us_stocks_swing_model_v2.cli.qualify_free_sources --verify-nasdaq-bootstrap-pair <snapshot-A> <snapshot-B>
-# After the publisher implementation is committed, this remains no-write by default:
-python -m us_stocks_swing_model_v2.cli.publish_nasdaq_bootstrap
-python -m us_stocks_swing_model_v2.cli.build_historical_foundation --help
-python -m us_stocks_swing_model_v2.cli.assess_mechanical_readiness --help
-python -m us_stocks_swing_model_v2.cli.plan_alpaca_archive_rehabilitation --help
-python -m us_stocks_swing_model_v2.cli.publish_alpaca_archive_rehabilitation --help
-python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill --help
-python -m us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill_publication --help
-python -m us_stocks_swing_model_v2.cli.publish_alpaca_historical_backfill --help
-```
-
-Run validation in proportion to the task. Documentation-only work needs a
-reviewed diff, consistency checks, and `git diff --check`. Ask before running
-the full `python -m pytest -q` suite unless the task already authorizes it.
-Provider and copy CLIs are dry-run/plan-only by default. Execution requires
-explicit flags and bounded scope. Foundation CLI operation is plan-only by
-default. Its normal mutating mechanics are synthetic-fixture-only and
-root-bound. The sole exception is the exact checked-in one-shot non-active
-successor refresh authorization; it binds one clean committed closure, the
-completed migration capsule, pinned calendar, timestamp, roots, and idempotent
-same-build recovery while preserving all prior releases. It grants no provider,
-model, WFA, candidate, or production-use authority. Free-source qualification
-`--plan-only` performs no filesystem writes. In owner-operated local mode, a
-download requires both
-`--execute-network` and `FREE_SOURCE_QUALIFICATION_APPROVED=YES`; neither is
-accepted alone. The process-local session binds the checked network registry,
-exact URL, timeout, response limit, and page sequence. Landed bytes and
-normalized response metadata are content-addressed and verified offline as
-`LOCAL_INTEGRITY_VERIFIED`; this is reproducibility evidence, not independent
-provenance. See `docs/NETWORK_ACQUISITION.md`. Readiness
-commands operate only on accepted local releases and make no provider or
-historical-research calls.
-
-Research, candidate sealing, monitoring recovery, corporate-action
-completeness review, and mechanical-readiness publication use content-addressed
-schema-v2 local integrity records. They preserve exact evidence binding without
-pretending that a second signing authority exists. See
-`docs/OWNER_OPERATED_LOCAL_MODE.md`.
-
-## Completion language
-
-- `REBUILD_COMPLETE`: architecture, deterministic rebuild, recovery, and
-  adversarial acceptance tests pass; no alpha or execution claim follows.
-- `HISTORICAL_RESEARCH_READY`: the registered discovery harness is mechanically
-  complete for its non-authorizing scope; real-history execution still requires
-  separate authorization. The readiness contract deliberately has no generic
-  positive `ready` flag and cannot be read as candidate, live, or deployment
-  readiness.
-- `CANDIDATE_SEALED`: a separately authorized candidate is frozen.
-- `PROSPECTIVE_EVIDENCE_PENDING`, `PROSPECTIVE_PASS`, `FAIL`, or
-  `INCONCLUSIVE`: genuinely new evidence state.
-- `MANUAL_DECISION_SUPPORT_READY`: fit-free inference and operational gates
-  pass. It still does not validate an options strategy or authorize trading.
-
-## Useful reference documents
-
-- [`docs/REBUILD_CONSTITUTION.md`](docs/REBUILD_CONSTITUTION.md): claims,
-  evidence classes, sources, causal contracts, research firewall, gates,
-  inference, prospective confirmation, and completion boundaries.
-- [`docs/HISTORICAL_RESEARCH_HARNESS.md`](docs/HISTORICAL_RESEARCH_HARNESS.md):
-  five-session samples, purge/embargo, nested WFA, dependence-aware statistics,
-  costs, controls, independent sleeves, and readiness limits.
-- [`docs/AUDIT_TRACEABILITY.md`](docs/AUDIT_TRACEABILITY.md): mapping from
-  release-blocking findings to code, synthetic tests, gates, and milestone
-  evidence.
-- [`docs/LEDGER_RECOVERY_JOURNAL_LIFECYCLE.md`](docs/LEDGER_RECOVERY_JOURNAL_LIFECYCLE.md):
-  exact replay, rejected-journal quarantine, retry, and evidence-retention
-  semantics for append-only ledgers.
+For a status check or local task, state the desired outcome and keep work in
+this repository. Codex should inspect Git and the applicable binding documents,
+complete routine local work and focused checks, and ask only at a genuine
+approval boundary. Do not paste commands, hashes, or continuation prompts to
+keep same-thread work moving.

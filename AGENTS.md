@@ -39,15 +39,15 @@
 - `docs/REBUILD_CONSTITUTION.md` is the binding scientific and design contract.
 - `docs/HISTORICAL_RESEARCH_HARNESS.md` governs historical-research mechanics.
 - Current code, configuration, and tests define implemented behavior.
-- `CODEX_HANDOFF.md` is mutable continuation state, not proof. Reconcile it
-  against current files, command output, and Git status before acting.
+- `CODEX_HANDOFF.md` is optional, transfer-only coordination context, not
+  proof. Read it only for a fresh-thread transfer, context loss, or a recorded
+  external/high-risk gate; reconcile it against current files and Git status.
 - `PROJECT_OUTLINE.md` preserves project identity, lifecycle, and roadmap.
   `README.md` is the user-facing orientation.
 - Always read this file and inspect Git status before non-trivial work. Read
-  the Constitution for scientific, data, inference, or claims changes; read
-  the Harness before historical-research planning or review; read current
-  source configuration before provider or source work; and read the handoff
-  before continuing a multi-step task.
+  the Constitution for scientific, data, inference, or claims changes; the
+  Harness before historical-research planning or review; and current source
+  configuration before provider or source work.
 - Before running a repository CLI or test, verify the selected executable and
   relevant platform/version against `pyproject.toml`, lockfiles, and environment
   configuration. Do not install or switch environments without authorization.
@@ -61,201 +61,56 @@
 - If these authorities appear to conflict, inspect the implemented contract
   and report the conflict. Do not silently weaken a safety or scientific rule.
 
-## Working Method And Planning
+## Working Method
 
-### Scientific Workflow
-
-- Preserve this workflow: qualify daily sources; canonicalize bars and causal
-  reference data; build the eligible universe; create separate feature and
-  five-session outcome releases; preregister chronological WFA; and train,
-  score, or evaluate only when separately authorized. Documentation never
-  authorizes a phase; immutable releases, the research firewall, counted trials,
-  independent sleeve gates, sealed bundles, and prospective monitoring remain
-  binding.
-
-### Larger-Goal Completion
-
-- For non-trivial work, treat the user's current larger goal—not the immediate
-  substep—as the unit of work. Infer that goal from the latest request and
-  verified repository state, state it plainly, and maintain one bounded
-  end-to-end plan from the current state through its completion criteria.
-- The plan must distinguish executable work, approval gates, user-owned
-  decisions, stop conditions, and required completion evidence. Update it as
-  evidence changes instead of replacing it with isolated next-action prompts.
-- Continue through every safe, in-scope, already-authorized plan step. Before
-  ending a turn, inspect the plan and perform the next routine authorized step
-  when one remains. Do not make the user reply “do that” or paste back a
-  suggested next action merely to continue ordinary work.
-- After the user provides an exact approval, revalidate live state and resume
-  the same outcome-level plan automatically through the next genuine boundary.
-  Do not reduce the approval to one command when its authorized phase includes
-  routine preflight, execution, verification, and reporting.
-- A plan organizes existing authority; it never grants missing authority,
-  weakens a project gate, or permits a destructive or materially different
-  action. Yield only when the larger goal is complete, the authorized scope is
-  exhausted, or a genuine approval, decision, missing input, or blocker
-  requires the user.
-- At a genuine user boundary, request only the exact approval, decision, or
-  evidence needed to resume the existing plan. Do not provide a generic
-  one-step prompt for the user to paste back.
-- If a fresh thread is genuinely necessary, provide one self-contained
-  goal-completion prompt containing the larger goal, verified current state,
-  completed work, remaining plan, constraints, active gate, stop conditions,
-  and done criteria. Never create a serial chain of continuation prompts.
+- Preserve the scientific sequence: qualify sources; publish accepted causal
+  inputs; build eligible, feature, and outcome releases separately; register
+  research before outcome access; then evaluate, seal, and monitor only through
+  their separate gates. Documentation never authorizes a phase.
+- Treat a non-trivial request as one outcome. Complete its safe read-only work,
+  local implementation, focused checks, and up to two evidence-based corrective
+  cycles without asking the user to repeat permission. Stop only for a genuine
+  approval, decision, scope change, or blocker.
+- Use the smallest direct change that meets the accepted contract. Avoid
+  speculative abstractions, duplicate controls, and unrelated cleanup. See
+  `docs/AGENT_WORKFLOW.md` for operating examples and preparation detail.
+- After two avoidable clarification or approval exchanges without a genuine
+  external, durable-state, or scope boundary, summarize the outcome, current
+  blocker, and next real gate, then continue the active local phase. Do not
+  create another prompt cycle for routine work.
 
 ### Action And Failure Classes
 
-- Classify an intended action before executing it:
-  - `LOCAL_CORRECTABLE` covers requested repository edits, read-only
-    diagnostics, focused local tests, static checks, and `git diff --check`.
-    Authorization to implement a local change includes its narrow focused
-    validation and up to two materially corrective edit-and-validation cycles.
-    A correction must address evidenced failure; repeating an unchanged command
-    does not consume this budget and is prohibited.
-  - `READ_ONLY_INVOCATION` covers a content-addressed audit, assessment, or
-    diagnostic whose independence, ordering, or single-use evidence matters.
-    Its manifest defines whether interruption spends the invocation. Do not
-    infer retry authority beyond that manifest.
-  - `MUTATING_OR_EXTERNAL` covers provider activity, generated evidence,
-    data/release/receipt mutation, research, training, evaluation, prediction,
-    activation, trading, destructive work, commit, push, and cutover. It always
-    requires its existing action-specific authorization and retry policy.
-- A local validation failure is evidence for the current implementation task,
-  not a new authorization boundary by itself. Diagnose it, make the smallest
-  in-scope correction, and continue within the two-cycle budget. Stop for the
-  user when the budget is exhausted, scope or semantics must expand, unrelated
-  state appears, or the failure belongs to another action class.
-- These classes organize existing authority only. They never weaken the
-  scientific workflow, secret boundary, accepted-release contract, provider
-  controls, or explicit commit/push requirements.
+- `LOCAL_CORRECTABLE`: requested local edits, read-only diagnostics, focused
+  tests, static checks, and `git diff --check`. A plain-language implementation
+  request authorizes these routine steps and up to two evidenced corrections.
+- `READ_ONLY_INVOCATION`: a manifest-bound audit, assessment, or diagnostic.
+  Its manifest controls ordering, evidence, interruption, and retry.
+- `MUTATING_OR_EXTERNAL`: provider work, generated evidence, data/release/
+  receipt mutation, research, training, evaluation, prediction, activation,
+  trading, destructive work, commit, push, or cutover. It needs its existing
+  action-specific authorization and retry policy.
+- These classes never weaken scientific, secret, accepted-release, provider, or
+  commit/push controls.
 
-### Workflow Efficiency Guardrails
-
-- Treat a request to pursue, continue, or implement an outcome as a
-  **goal-pursuit envelope**. First establish its done criteria, then complete
-  every safe read-only and `LOCAL_CORRECTABLE` step needed to reach the next
-  real durable-state or external gate. Do not split necessary discovery,
-  design, implementation, focused validation, diagnosis, or plan-only work
-  into separate user prompts.
-- One goal-pursuit authorization stays active across its internal milestones.
-  Never ask the user to approve, paste, or restate permission between those
-  steps; report meaningful progress and continue autonomously. Stop only for a
-  genuinely different action class or an evidenced scope, safety, or semantic
-  change that the current goal-pursuit envelope did not cover.
-- After an authorized commit completes, automatically perform the safe
-  no-network, no-write planning and identity checks needed to define the next
-  genuine gate. Ask only when that next gate changes durable state, calls a
-  provider, needs credentials, or has a material effect outside the repository.
-- For repeated homogeneous work with known per-unit bounds (for example,
-  source-capture groups), offer one campaign gate that binds the full unit
-  census, order, aggregate and per-unit limits, verification, and
-  stop-on-first-failure rule. After direct confirmation, plan, execute, and
-  verify the units sequentially without asking again between successful units.
-- Do not present a serial gate for a planner, an implementation, a focused
-  test, a corrective cycle, or a no-write assessment when it is already a
-  necessary part of the active goal-pursuit envelope. A separate commit,
-  publication, activation, destructive action, or unknown-evidence-dependent
-  external action remains a real boundary.
-- Do not request a micro-commit merely because one local patch passes. Keep
-  attributable local changes together until the active goal's local done
-  criteria are met, then request one commit gate for the complete local phase.
-  Split earlier only when the user requests it or preserving a verified state
-  is necessary before an unrelated or external action.
-- Treat a plan-only command, metadata inspection, and no-write assessment as
-  routine preparation, not an approval gate. Prepare the next external gate
-  automatically, then request one direct confirmation for the bounded external
-  action itself.
-- Do not divert an active goal into a non-blocking hardening or cleanup idea.
-  Record it in the checkpoint and continue; implement it only when it blocks
-  the goal, fails an acceptance criterion, or the user includes it in scope.
-- Treat authorization as a bounded phase envelope, not a one-command coupon.
-  Once the user requests a local implementation or review, execute every
-  routine `LOCAL_CORRECTABLE` step needed for its stated completion criteria.
-  Do not ask the user to restate authority for the next edit, focused check,
-  materially corrective cycle, or read-only verification already inside that
-  phase.
-- A plain-language request to implement or fix a local phase is sufficient
-  authority for its inspection, edits, focused tests, static checks,
-  `git diff --check`, completion verification, and at most two materially
-  corrective cycles. Do not require a formal authorization paragraph.
-- At a genuine boundary, coalesce permissions that are simultaneously
-  decision-complete and share the same action class, targets, risks, outputs,
-  and stop conditions. Do not create a serial approval chain for steps already
-  known to be required. Never bundle a later action whose exact evidence,
-  target, or risk cannot yet be known.
-- One decision-complete `MUTATING_OR_EXTERNAL` gate may include metadata-only
-  preflight, declared one-time credential handling, one bounded invocation,
-  atomic landing, immediate deterministic no-write verification or assessment,
-  and the final conversation report. Retry, cleanup, publication, activation,
-  commit, and push remain excluded unless their applicable gate explicitly
-  includes them.
-- Present a genuine gate once in concise plain language with its action,
-  bounds, outputs, stop conditions, and exclusions. A direct confirmation such
-  as "Yes" or "Run that gate" binds the immediately preceding gate; never
-  require the user to copy hashes, commands, or an authorization essay back
-  into the conversation.
-- Treat staging and one non-amended commit as one separately authorized commit
-  gate that includes final revalidation, exact-path staging, commit creation,
-  and post-commit verification. Activation and cutover remain a different gate.
-- Before freezing a content-addressed plan, manifest, invocation, or approval
-  request, validate the exact literal executable/script transport and required
-  host capabilities using metadata-only inputs. Environment, quoting, encoding,
-  path, hashing, and process-transport failures belong in preparation, not in a
-  spent substantive invocation.
-- For a new generated-data staging transform, preparation must also calibrate
-  its file and byte caps from the actual output topology and a synthetic or
-  metadata-only dry run. Do not spend a first real attempt merely to discover
-  that a guessed capacity multiplier is too small. If a stopped attempt leaves
-  partial evidence, inspect only its metadata during one recovery local phase,
-  bundle the evidenced correction with focused validation and routine planner
-  updates, then request one commit gate before one fresh execution gate.
-- When the selected host is Windows PowerShell 5.1, never use the unsupported
-  `ConvertFrom-Json -Depth` parameter. Before a bounded external invocation,
-  exercise the exact JSON capture and parsing expression against a nested
-  synthetic packet in that live host; a failed transport preflight stops before
-  provider access or generated-evidence mutation.
-- Minimize process and tool-call count without weakening evidence boundaries.
-  Combine independent read-only identity checks, use deterministic bounded
-  batches, and prefer one maximal safe batch over per-file or per-field calls.
-  Preserve source order, byte/line caps, failure isolation, and secret
-  exclusions.
-- Maintain one concise live checkpoint for long workflows: current outcome,
-  blocker, and next meaningful phase, plus audit/readiness status only when
-  applicable. Current verified state replaces repeated narrative history.
-- Trigger a workflow retrospective before repeating the pattern when any of the
-  following occurs: more than two avoidable user round trips for one phase,
-  more than one host/tooling failure that preparation could have caught, a
-  handoff-only commit during a live thread, or repeated user confusion about
-  whether the requested outcome ran or completed. Remediate the governing
-  policy, script, or template rather than issuing another one-off prompt.
-- Workflow optimization never relaxes a scientific or safety gate. Measure
-  success by fewer avoidable approvals, handoff-only commits, process launches,
-  and repeated diagnostics while retaining the same evidence and stop rules.
+The approval matrix, gate format, and preparation procedure are in
+`docs/AGENT_WORKFLOW.md`. They organize existing authority and never weaken the
+scientific, secret, accepted-release, provider, or commit/push boundaries here.
 
 ### Simplicity And Proportionality
 
-- Use high reasoning to find the simplest correct design, not to maximize the
-  number of abstractions, files, identities, gates, or defensive layers.
-- Start with the existing implementation and contract. Prefer a direct edit or
-  reuse of one existing path over a new module, CLI, policy, schema, wrapper,
-  state machine, or publication layer. Add one only when a concrete acceptance
-  criterion cannot be met safely without it.
-- Do not build speculative extension points, generic frameworks for one use,
-  duplicate planners or validators, parallel sources of truth, or future-phase
-  machinery that the current outcome does not require.
-- Before the first write, state the current outcome and the smallest viable
-  change. If the proposed solution changes more than five tracked paths or adds
-  more than one new implementation concept, perform a simplicity checkpoint:
-  identify each added concept, why existing code cannot serve it, and what can
-  be omitted. This checkpoint is internal unless it exposes a genuine scope or
-  user-decision boundary.
-- Keep validation proportional to the change. Reuse focused existing tests,
-  add only cases that protect new behavior, and do not create duplicate policy
-  assertions or ceremony that does not catch a realistic failure.
-- Prefer consolidating or removing unnecessary local complexity when doing so
-  is within scope and preserves compatibility and evidence. Never weaken a
-  scientific, secret, provider, destructive-action, or accepted-release gate
-  in the name of simplicity.
+- Judge work by demonstrated progress toward the stated outcome, contract
+  satisfaction, focused verification, and maintainability—not by code volume,
+  apparent sophistication, abstraction count, or the number of controls.
+- Prefer a direct, well-tested solution that advances the outcome, even when it
+  looks ordinary. Do not add complexity that cannot show a concrete improvement
+  to the current outcome or a required control.
+- Prefer the smallest direct change and proportional focused validation. Do not
+  add speculative frameworks, duplicate controls, or unrelated cleanup.
+- For more than five tracked paths or more than one new implementation concept,
+  confirm internally why existing code cannot meet the goal and what can be
+  omitted. Simplicity never weakens scientific, secret, provider, destructive,
+  or accepted-release controls.
 
 ## Project-Specific Rules
 
@@ -469,83 +324,18 @@
   `git diff --check`. Do not substitute a pipeline run; remove or label
   unverified claims.
 
-## Handoffs
+## Handoffs And Responses
 
-### Handoff Contract
-
-- Use `CODEX_HANDOFF.md` only when work will actually transfer to a fresh
-  thread, after context loss, or when an external/high-risk action relies on a
-  gate recorded there. Do not update it merely because a same-thread prompt,
-  validation, commit, or ordinary gate completed.
-- A handoff is mutable context, never proof or execution authority, and cannot
-  override the Constitution, Harness, implementation, or action-specific
-  approval.
-- Keep it at or below 450 words and update by replacement, not chronology.
-  Include only freshness and authority, verified current state, open blockers,
-  exactly one active gate with its authorization state and forbidden actions,
-  and invalidation conditions. Link rather than copy durable rules; omit
-  implementation history, CI configuration, assurance narratives, completed
-  gates, and later possible gates.
-- Bind freshness to the exact branch, state-base commit and tree, expected
-  coordination-only delta or worktree, active plan ID when one exists, and the
-  canonical evidence IDs needed for continuation. Because a tracked handoff
-  cannot know its own future commit hash, later commits preserve the binding
-  only when they change coordination documentation and nothing else.
-- Within one live thread, reconcile a stale handoff against current Git and
-  authoritative evidence but do not let stale coordination prose block safe,
-  already-authorized work. Replace it before a real thread transfer or before
-  an external/high-risk action that depends on its recorded gate. An unexpected
-  branch, unexplained path, or changed authoritative artifact still stops work
-  until reconciled.
-- Batch a needed handoff update with the next authorized coordination point.
-  Avoid handoff-only commits for routine same-thread transitions.
-- Do not describe uncommitted or unvalidated behavior as complete; label it
-  `IN_PROGRESS`, `UNVERIFIED`, or blocked, as applicable.
-
-## Outputs And Reports
-
-- Use concise plain English. Lead with what the result means, and explain a necessary technical term briefly.
-- Interim updates contain only new material evidence, a changed decision, a blocker, or a useful checkpoint.
-- Use this order for every substantive same-thread final response and report:
-  1. `Status`: use exactly `done`, `in progress`, or `blocked`, followed by a
-     one-sentence explanation.
-  2. `Completed`: describe what Codex accomplished in plain English rather than
-     turning the section into a technical file inventory. If nothing was
-     completed, say so plainly.
-  3. `Checks`: state what was tested or inspected, whether it passed, and any
-     skipped or unverified validation.
-  4. `Needs attention`: include only the one current blocker, decision, or exact
-     approval the user must provide now. When approval is required, give one
-     short reason and one literal approval line. If none exist, say so plainly.
-  5. `Checkpoint`: state only the current outcome, blocker, and next meaningful
-     phase.
-- For audits, reviews, and research reports, separate verified facts from inferences, assumptions, risks, and missing evidence. Order findings by impact and do not strengthen status beyond the evidence.
-- Never hide material uncertainty, safety warnings, failed checks, limitations, or blockers. Do not present unverified work as complete, certified, release-ready, published, or activated.
-- Keep the response self-contained. Omit request or plan restatement, routine tool narration, repeated commentary, generic follow-ups, and full logs or diffs unless the user asks for them.
-- Do not emit a `Continue Prompt` during ordinary same-thread work. Provide one
-  only when the user explicitly requests a new-thread handoff. Within the same
-  thread, continue safe, already-authorized work autonomously and never ask the
-  user to paste a continuation prompt merely to keep working.
-- A Continue Prompt is an optional, self-contained handoff for a different
-  session or new thread. It is not a same-session action request and must not
-  compete with `Needs attention`.
-- The Continue Prompt must continue the active larger goal within its current
-  scope: name the overall goal and completion condition, capture what has
-  already been completed, identify the current blocker or next action, and
-  direct the next Codex turn to recheck the live repository evidence and
-  applicable authority and handoff files before acting. It must direct Codex to
-  keep working through every safe, in-scope, already-authorized step until
-  completion or the next genuine approval boundary. When the goal is complete,
-  say that there is no current blocker and instruct the next turn to confirm
-  live state without repeating completed work.
-- If a handoff was updated, the Continue Prompt must preserve its current goal
-  and active gate and incorporate its next safe step.
-- A Continue Prompt never grants authority, broadens scope, substitutes handoff
-  text for current proof, creates a prompt chain, or serves as an authorization
-  essay for the user to paste back.
-- Every audit-related result must state four fields plainly: `Master Audit`,
-  `Meta Audit`, `Project readiness`, and `Next gate`. Use only
-  `NOT_PREPARED`, `PREPARED`, `VALIDATED`, `STARTED`, `INCOMPLETE`, or
-  `COMPLETE` for audit workflow state, and do not confuse audit completion with
-  project readiness.
-- Follow a user-requested response structure when one is provided.
+- `CODEX_HANDOFF.md` is optional and transfer-only. Do not create or update it
+  for ordinary same-thread work. A handoff is concise mutable context, never
+  proof or authority, and is replaced rather than extended when needed.
+- For ordinary work, report the outcome, checks, and one current blocker only
+  when one exists. Keep one short internal checkpoint: outcome, blocker, next
+  phase. Follow a user-requested response structure when provided.
+- Do not issue copyable continuation prompts, or ask the user to paste a
+  command, hash, or authorization text. Continue safe in-scope work in the
+  same thread. A fresh-thread handoff is provided only on request or when
+  transfer is genuinely necessary.
+- Audit-specific status vocabulary and reporting belong exclusively to
+  `docs/AUDIT_WORKFLOW.md`. Research and audit reports must distinguish verified
+  facts from inferences, assumptions, risks, and missing evidence.
