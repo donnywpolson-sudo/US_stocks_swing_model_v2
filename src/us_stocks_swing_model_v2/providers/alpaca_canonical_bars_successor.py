@@ -144,6 +144,7 @@ def _load_policy(root: Path) -> dict[str, Any]:
         or policy.get("source_epoch") != SOURCE_EPOCH
         or policy.get("role") != ROLE
         or policy.get("quality_state") != QUALITY_STATE
+        or policy.get("diagnostic_only") is not True
         or policy.get("symbols") != ["AAPL", "SPY"]
         or policy.get("delta_window") != expected_window
         or policy.get("cumulative_sessions")
@@ -224,6 +225,8 @@ def _read_predecessor(
 def _context(root: Path, *, require_clean: bool) -> dict[str, object]:
     resolved = root.resolve(strict=True)
     policy = _load_policy(resolved)
+    if policy["diagnostic_only"]:
+        raise ContractError("July canonical-bars successor policy is diagnostic-only and cannot acquire or publish production evidence")
     accepted_root = (resolved / policy["outputs"]["accepted_root"]).resolve(
         strict=True
     )

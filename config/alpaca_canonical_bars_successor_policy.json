@@ -8,6 +8,7 @@
   "source_epoch": "alpaca_basic_sip_raw_v1",
   "role": "active_historical",
   "quality_state": "PASS",
+  "diagnostic_only": true,
   "symbols": ["AAPL", "SPY"],
   "predecessor": {
     "release_id": "38ea661cafcedc423b370104f00461c0311bd00f8e3bd61ee03ed62b1de62acb",
@@ -47,25 +48,25 @@
   "network_registry": "config/alpaca_canonical_bars_network_registry.json",
   "source_config": {
     "path": "config/sources.json",
-    "sha256": "57636a3d08f92a656c50a628d26ec7da6591308ea52fb331188d5ee3463f08aa"
+    "sha256": "f389c2b16b32521f3cf3ddfabd3acf1fb9594929d8daa8498a5e781c83b44788"
   },
   "qualification_release": {
-    "release_id": "8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2",
-    "relative_directory": "data/vault/accepted/alpaca_feed_qualification/8bce929303039efa69c6d9456dcb9b64b593a7397d0f7ffd479dbc358a5b33a2",
-    "receipt_id": "92387485915f02368f830e4816d3cb6284e334fec73f29b63aa6e62663d948d5"
+    "release_id": "c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0",
+    "relative_directory": "data/vault/accepted/alpaca_feed_qualification/c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0",
+    "receipt_id": "d050e4dbbd4b97e6fb4877d1484c8daf0d73bd4d780e11e0f62be0a6b754ecbd"
   },
   "identity_release": {
-    "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
-    "relative_directory": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
-    "identity_snapshot_id": "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6",
+    "release_id": "2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
+    "relative_directory": "data/vault/accepted/identity/2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
+    "identity_snapshot_id": "31b257da55b089fd5e6def085fb3a396cc8da53893685922cc5ac514d7d8e6c0",
     "asset_ids": {
       "AAPL": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
       "SPY": "b28f4066-5c6d-479b-a2af-85dc1a8f16fb"
     }
   },
   "calendar_release": {
-    "release_id": "055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1",
-    "relative_directory": "data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1"
+    "release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
+    "relative_directory": "data/vault/accepted/xnys_sessions/71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d"
   },
   "outputs": {
     "snapshot_store": "data/vault/as_received/alpaca_daily_bars",

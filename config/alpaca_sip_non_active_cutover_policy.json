@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "policy_type": "ALPACA_SIP_NON_ACTIVE_SOURCE_CUTOVER",
+  "receipt_release_id": "c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0",
+  "receipt_id": "d050e4dbbd4b97e6fb4877d1484c8daf0d73bd4d780e11e0f62be0a6b754ecbd",
+  "receipt_relative_path": "data/vault/accepted/alpaca_feed_qualification/c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0/alpaca_feed_qualification_receipt.json",
+  "identity_release_id": "2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
+  "identity_snapshot_id": "31b257da55b089fd5e6def085fb3a396cc8da53893685922cc5ac514d7d8e6c0",
+  "calendar_release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
+  "sources_path": "config/sources.json",
+  "target": {
+    "qualified_feed": "sip",
+    "status": "qualified_sip_not_active",
+    "enabled_for_active_pipeline": false
+  }
+}
