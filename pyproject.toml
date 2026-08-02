@@ -34,6 +34,7 @@ stock-v2-publish-identity = "us_stocks_swing_model_v2.cli.publish_identity_relea
 stock-v2-plan-alpaca-archive-rehabilitation = "us_stocks_swing_model_v2.cli.plan_alpaca_archive_rehabilitation:main"
 stock-v2-plan-alpaca-historical-backfill = "us_stocks_swing_model_v2.cli.plan_alpaca_historical_backfill:main"
 stock-v2-qualify-alpaca-sip = "us_stocks_swing_model_v2.cli.qualify_alpaca_sip:main"
+stock-v2-publish-alpaca-sip-qualification-receipt = "us_stocks_swing_model_v2.cli.publish_alpaca_sip_qualification_receipt:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
