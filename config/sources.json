@@ -11,15 +11,15 @@
       "network_default": "disabled",
       "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
       "request_contract": {
-        "qualified_feed": null,
+        "qualified_feed": "sip",
         "timeframe": "1Day",
         "adjustment": "raw",
         "asof": null,
         "minimum_end_lag_minutes": 20,
         "sort": "asc"
       },
-      "status": "pending_single_sip_requalification",
-      "qualification_receipt": null
+      "status": "qualified_sip_not_active",
+      "qualification_receipt": "data/vault/accepted/alpaca_feed_qualification/c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0/alpaca_feed_qualification_receipt.json"
     },
     "alpaca_sip_qualification_legacy": {
       "enabled_for_active_pipeline": false,
@@ -60,7 +60,13 @@
       "latest_snapshot_id": "c581921c99f31f2d75d5f1c14636d21d51dea1aaa2adb804be877e75bf863f88",
       "status": "preserved_snapshot_not_trust_eligible_pending_authenticated_acquisition_receipt"
     },
-    "alpha_vantage": {"enabled_for_active_pipeline": false, "role": "excluded"},
-    "options_data": {"enabled_for_active_pipeline": false, "role": "excluded"}
+    "alpha_vantage": {
+      "enabled_for_active_pipeline": false,
+      "role": "excluded"
+    },
+    "options_data": {
+      "enabled_for_active_pipeline": false,
+      "role": "excluded"
+    }
   }
 }
