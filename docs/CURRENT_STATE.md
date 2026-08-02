@@ -7,23 +7,23 @@ before acting.
 
 ## Current milestone
 
-`PROSPECTIVE_EVIDENCE_COLLECTION_PLANNING_IMPLEMENTED`
+`PROSPECTIVE_EVIDENCE_WAITING_PERIOD_FOUNDATIONS_IMPLEMENTED`
 
 - The controlled rebuild architecture and its synthetic acceptance contracts
   are complete.
 - Retired non-Alpaca artifacts are excluded from new derivative and research
   work and await a separately authorized hash-bound cleanup plan.
-- Alpaca SIP is the sole candidate bar feed and is pending single-feed
-  requalification. The canonical source record is
+- Alpaca SIP is the sole qualified bar feed, but remains non-active. The
+  canonical source record is
   [`config/sources.json`](../config/sources.json).
 - A caveated current-identity-seeded Alpaca SIP historical release, proxy
   features, proxy outcomes, and joined proxy inputs exist. They are
   `legacy_discovery_only` and cannot enter trusted eligibility, feature,
   outcome, registration, or evaluation work.
-- The first bounded active-SIP canonical-bars build and a prospective identity
-  release remain separate pending external gates. The prospective epoch planner
-  now binds accepted identity, bars, action, and calendar releases before any
-  downstream materialization can be considered.
+- The first bounded active-SIP canonical-bars smoke capture remains a separate
+  time-gated external action. The prospective epoch planner binds accepted
+  identity, bars, action, and calendar releases before any downstream release
+  publication can be considered.
 - One fresh Nasdaq/Alpaca identity pair has passed local integrity, continuity,
   projection, and join assessment. Its immutable `prospective_as_received`
   identity release is accepted but non-active; the hash-bound publication
@@ -35,13 +35,22 @@ before acting.
   fundamental, cross-sectional, or imputed inputs. Missing/late bars,
   incomplete action/delisting coverage, or an event in the lookback abstains
   the row rather than altering it.
+- Local-only prospective coverage, eligible-universe, and feature materializers
+  now preserve every unresolved row as an abstention. They do not publish
+  releases, access outcomes, activate SIP, or authorize research. The existing
+  D1-open/D5-close outcome builder remains blocked until the necessary mature
+  bars and governed action/delisting coverage exist.
+- The historical-trial census workflow and prospective preregistration schema
+  are prepared locally; the census is still indeterminate and the selected S3
+  Object Lock registry remains unconfigured, so registration, training, and
+  evaluation remain blocked.
 
 ## Next meaningful gate
 
-The next data gate is a separately authorized bounded single-feed SIP
-qualification. A prospective AAPL/SPY smoke capture remains a later gate after
-qualification, accepted identity/calendar lineage, a completed session, and
-the 20-minute lag. The July bar fixtures remain diagnostic-only.
+The next data gate is a separately authorized prospective AAPL/SPY SIP smoke
+capture after the fixed completed session and its 20-minute lag. It requires
+the qualified-but-non-active SIP source plus accepted identity/calendar
+lineage. The July bar fixtures remain diagnostic-only.
 
 ## What can proceed
 
