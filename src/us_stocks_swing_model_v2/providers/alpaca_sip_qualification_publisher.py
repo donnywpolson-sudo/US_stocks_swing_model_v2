@@ -67,12 +67,12 @@ def _closure(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
 
 def load_policy(root: Path) -> tuple[dict[str, Any], str]:
     policy = _json(root / POLICY_PATH, "SIP qualification publication policy")
-    expected = {"schema_version", "project", "policy_type", "qualification_plan_id", "assessment_id", "snapshot_id", "raw_sha256", "calendar_release_id", "snapshot_directory", "outputs", "authorities"}
+    expected = {"schema_version", "project", "policy_type", "qualification_plan_id", "network_request_plan_id", "assessment_id", "snapshot_id", "raw_sha256", "calendar_release_id", "snapshot_directory", "outputs", "authorities"}
     outputs = {"accepted_root": "data/vault/accepted", "work_root": "data/w/alpaca_feed_qualification", "dataset": DATASET, "payload_filename": PAYLOAD}
     authorities = {"receipt_publication": False, "source_activation": False, "config_sources_mutation": False, "network_calls": False, "canonical_bars": False, "training_or_evaluation": False}
     if set(policy) != expected or policy.get("schema_version") != 1 or policy.get("project") != PROJECT or policy.get("policy_type") != "ALPACA_SIP_QUALIFICATION_RECEIPT_PUBLICATION" or policy.get("outputs") != outputs or policy.get("authorities") != authorities:
         raise ContractError("SIP qualification publication policy differs")
-    for name in ("qualification_plan_id", "assessment_id", "snapshot_id", "raw_sha256", "calendar_release_id"):
+    for name in ("qualification_plan_id", "network_request_plan_id", "assessment_id", "snapshot_id", "raw_sha256", "calendar_release_id"):
         require_sha256(policy[name], name)
     if type(policy["snapshot_directory"]) is not str:
         raise ContractError("qualification publication snapshot path differs")
@@ -87,10 +87,15 @@ def _source_is_pending(root: Path) -> None:
 
 def _assessment(root: Path, policy: Mapping[str, Any]) -> dict[str, object]:
     qualification = build_qualification_plan(repo_root=root, clock=TrustedClock.production())
-    if qualification["qualification_plan_id"] != policy["qualification_plan_id"]:
-        raise IntegrityError("qualification plan differs from receipt-publication policy")
+    # The qualification plan itself intentionally binds its historical Git
+    # closure.  Receipt publication happens on a later clean commit, so it
+    # binds the immutable request plan that landed the snapshot instead of
+    # requiring the historical outer plan ID to be regenerated verbatim.
+    request_plan = qualification.get("network_request_plan")
+    if not isinstance(request_plan, dict) or request_plan.get("plan_id") != policy["network_request_plan_id"]:
+        raise IntegrityError("qualification network request plan differs from receipt-publication policy")
     assessment = verify_qualification_snapshot(snapshot_directory=root / str(policy["snapshot_directory"]), plan=qualification, repo_root=root)
-    if assessment.get("assessment_id") != policy["assessment_id"] or assessment.get("qualification_plan_id") != policy["qualification_plan_id"]:
+    if assessment.get("assessment_id") != policy["assessment_id"]:
         raise IntegrityError("recomputed SIP assessment differs")
     snapshot = assessment.get("snapshot")
     qualification_result = assessment.get("qualification")
@@ -107,7 +112,7 @@ def build_publication_plan(*, repo_root: Path | None = None) -> dict[str, object
     assessment = _assessment(root, policy)
     accepted = (root / policy["outputs"]["accepted_root"]).resolve(strict=True)
     work = (root / policy["outputs"]["work_root"]).resolve(strict=False)
-    unsigned = {"schema_version": 1, "project": PROJECT, "mode": "ALPACA_SIP_QUALIFICATION_RECEIPT_PUBLICATION_PLAN_ONLY", "repository": repository, "policy_sha256": policy_hash, "qualification_plan_id": policy["qualification_plan_id"], "assessment_id": policy["assessment_id"], "snapshot_id": policy["snapshot_id"], "raw_sha256": policy["raw_sha256"], "calendar_release_id": policy["calendar_release_id"], "assessment": assessment, "accepted_root": str(accepted), "work_root": str(work), "dataset": DATASET, "payload_filename": PAYLOAD, "publication_count": 1, "network_calls": 0, "source_activation": False, "config_sources_mutation": False, "training_or_evaluation": False, "code_closure": _closure(root, CODE_PATHS), "config_closure": _closure(root, CONFIG_PATHS)}
+    unsigned = {"schema_version": 1, "project": PROJECT, "mode": "ALPACA_SIP_QUALIFICATION_RECEIPT_PUBLICATION_PLAN_ONLY", "repository": repository, "policy_sha256": policy_hash, "qualification_plan_id": policy["qualification_plan_id"], "network_request_plan_id": policy["network_request_plan_id"], "assessment_id": policy["assessment_id"], "snapshot_id": policy["snapshot_id"], "raw_sha256": policy["raw_sha256"], "calendar_release_id": policy["calendar_release_id"], "assessment": assessment, "accepted_root": str(accepted), "work_root": str(work), "dataset": DATASET, "payload_filename": PAYLOAD, "publication_count": 1, "network_calls": 0, "source_activation": False, "config_sources_mutation": False, "training_or_evaluation": False, "code_closure": _closure(root, CODE_PATHS), "config_closure": _closure(root, CONFIG_PATHS)}
     return {**unsigned, "publication_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
@@ -121,7 +126,7 @@ def _validate_plan(plan: Mapping[str, object]) -> str:
 
 
 def _receipt(plan: Mapping[str, object], created_at: str) -> dict[str, object]:
-    unsigned = {"schema_version": 1, "project": PROJECT, "receipt_class": "ALPACA_SIP_SINGLE_FEED_QUALIFICATION", "status": "SIP_PASS_RECEIPT_PUBLISHED_NOT_ACTIVE", "created_at": created_at, "publication_plan_id": plan["publication_plan_id"], "qualification_plan_id": plan["qualification_plan_id"], "assessment_id": plan["assessment_id"], "snapshot_id": plan["snapshot_id"], "raw_sha256": plan["raw_sha256"], "calendar_release_id": plan["calendar_release_id"], "selected_feed_candidate": "sip", "activation_authorized": False, "authorities": {"receipt_publication": True, "source_activation": False, "config_sources_mutation": False, "network_calls": False, "canonical_bars": False, "training_or_evaluation": False}, "prohibitions": ["source_activation", "config_sources_mutation", "network_calls", "canonical_bars", "training_or_evaluation"]}
+    unsigned = {"schema_version": 1, "project": PROJECT, "receipt_class": "ALPACA_SIP_SINGLE_FEED_QUALIFICATION", "status": "SIP_PASS_RECEIPT_PUBLISHED_NOT_ACTIVE", "created_at": created_at, "publication_plan_id": plan["publication_plan_id"], "qualification_plan_id": plan["qualification_plan_id"], "network_request_plan_id": plan["network_request_plan_id"], "assessment_id": plan["assessment_id"], "snapshot_id": plan["snapshot_id"], "raw_sha256": plan["raw_sha256"], "calendar_release_id": plan["calendar_release_id"], "selected_feed_candidate": "sip", "activation_authorized": False, "authorities": {"receipt_publication": True, "source_activation": False, "config_sources_mutation": False, "network_calls": False, "canonical_bars": False, "training_or_evaluation": False}, "prohibitions": ["source_activation", "config_sources_mutation", "network_calls", "canonical_bars", "training_or_evaluation"]}
     return {**unsigned, "receipt_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 

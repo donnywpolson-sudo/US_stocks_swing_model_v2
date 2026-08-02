@@ -36,6 +36,7 @@ def _assessment(_root: Path, policy: dict[str, object]) -> dict[str, object]:
 def test_fixed_policy_binds_the_captured_sip_evidence() -> None:
     policy, _ = publisher.load_policy(ROOT)
     assert policy["qualification_plan_id"] == "ec306f803e0d836fa8682d9113c6a861a35411f45b827d6cff82859e14b3daf6"
+    assert policy["network_request_plan_id"] == "ca41631ff3b2eb2fb41bc59af1d3b3178edb2a8b72b46ae20329ea84cdbd5963"
     assert policy["assessment_id"] == "484b671f7ae6b3886ee22ec4156a7fb9b7a7dbc88f625616678c3f4dbf0ce52b"
     assert policy["snapshot_id"] == "647b5c9f5e7764eeb77b0fa153b49596e983f23d1c962c9bc19f3919d06faae1"
     assert policy["authorities"]["source_activation"] is False
