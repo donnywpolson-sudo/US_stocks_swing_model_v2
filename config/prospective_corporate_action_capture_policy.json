@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "PROSPECTIVE_CORPORATE_ACTION_CAPTURE_PLAN_ONLY",
+  "source": "alpaca_corporate_actions",
+  "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
+  "request_contract": {
+    "sort": "asc",
+    "http_timeout_seconds": 30,
+    "host_timeout_seconds": 120,
+    "max_pages": 1000,
+    "max_response_bytes": 1048576,
+    "redirects_allowed": false
+  },
+  "coverage": {
+    "semantics": "EFFECTIVE_EVENT_COMPLETENESS",
+    "late_arrival_policy": "revise_outcome_or_abstain_never_backdate",
+    "unresolved_rows_remain_in_denominator": true,
+    "imputation_or_drop_allowed": false
+  },
+  "publication": {
+    "dataset": "corporate_actions",
+    "role": "prospective_as_received",
+    "quality_state": "PASS",
+    "activation_authorized": false
+  }
+}

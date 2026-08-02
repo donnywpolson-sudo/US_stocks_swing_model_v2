@@ -22,8 +22,8 @@ or D5 maturity causes abstention rather than imputation or row deletion.
 
 ## Active source contract
 
-Alpaca SIP is the sole candidate bar lane. It is presently pending a separately
-authorized single-feed qualification and is not active. Every candidate request
+Alpaca SIP is the sole qualified bar lane. It remains non-active pending the
+separately authorized prospective smoke capture and later activation gate. Every candidate request
 uses `feed=sip`, `timeframe=1Day`, `adjustment=raw`, ascending order, no
 `asof`, and an end time at least 20 minutes before the request time. Raw bytes,
 safe headers, receipt time, request parameters, pagination lineage, hashes,

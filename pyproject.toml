@@ -36,6 +36,7 @@ stock-v2-plan-alpaca-historical-backfill = "us_stocks_swing_model_v2.cli.plan_al
 stock-v2-qualify-alpaca-sip = "us_stocks_swing_model_v2.cli.qualify_alpaca_sip:main"
 stock-v2-publish-alpaca-sip-qualification-receipt = "us_stocks_swing_model_v2.cli.publish_alpaca_sip_qualification_receipt:main"
 stock-v2-plan-alpaca-sip-non-active-cutover = "us_stocks_swing_model_v2.cli.plan_alpaca_sip_non_active_cutover:main"
+stock-v2-plan-prospective-corporate-actions = "us_stocks_swing_model_v2.cli.plan_prospective_corporate_actions:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
