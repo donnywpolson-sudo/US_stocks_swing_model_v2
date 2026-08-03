@@ -175,7 +175,9 @@ def build_prospective_sip_smoke_plan(*, identity_release_directory: Path, calend
     return {**unsigned, "prospective_sip_smoke_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
-def _request_from_plan(plan: dict[str, object]) -> tuple[AlpacaBarsRequest, AlpacaBarsPolicy, NetworkRequestPlan]:
+def _request_from_plan(
+    plan: dict[str, object], *, execution_requested_at: datetime | None = None
+) -> tuple[AlpacaBarsRequest, AlpacaBarsPolicy, NetworkRequestPlan]:
     expected = {"schema_version", "mode", "repository", "code_closure", "source_binding", "identity", "calendar", "request", "network_request_plan", "host_timeout_seconds", "earliest_capture_at", "requested_at", "policy_sha256", "environment_sha256", "authorities", "prohibitions", "prospective_sip_smoke_plan_id"}
     if set(plan) != expected:
         raise ContractError("prospective smoke plan fields differ")
@@ -185,7 +187,9 @@ def _request_from_plan(plan: dict[str, object]) -> tuple[AlpacaBarsRequest, Alpa
     request_data = plan["request"]
     if not isinstance(request_data, dict):
         raise ContractError("prospective smoke request is invalid")
-    request = AlpacaBarsRequest(tuple(request_data["symbols"]), parse_utc_z(request_data["start"], "smoke.start"), parse_utc_z(request_data["end"], "smoke.end"), parse_utc_z(plan["requested_at"], "smoke.requested_at"), limit=request_data["limit"])
+    planned_at = parse_utc_z(plan["requested_at"], "smoke.requested_at")
+    requested_at = planned_at if execution_requested_at is None else execution_requested_at
+    request = AlpacaBarsRequest(tuple(request_data["symbols"]), parse_utc_z(request_data["start"], "smoke.start"), parse_utc_z(request_data["end"], "smoke.end"), requested_at, limit=request_data["limit"])
     policy = AlpacaBarsPolicy(feed="sip", timeframe="1Day", adjustment="raw", asof=None, sort="asc", minimum_end_lag_minutes=20, endpoint="https://data.alpaca.markets/v2/stocks/bars")
     network_data = plan["network_request_plan"]
     if not isinstance(network_data, dict) or network_data.get("initial_url") != request.url(policy) or network_data.get("max_pages") != 1:
@@ -285,10 +289,11 @@ def execute_prospective_sip_smoke_capture(*, plan_package: Path, approved_plan_i
     plan = load_prospective_sip_smoke_plan_package(plan_package=plan_package, repository_root=root)
     if plan.get("prospective_sip_smoke_plan_id") != approved_plan_id:
         raise PermissionError("approved prospective smoke plan differs")
-    request, policy, network = _request_from_plan(plan)
     trusted = require_trusted_clock(clock)
-    if trusted.now() < parse_utc_z(plan["earliest_capture_at"], "smoke.earliest_capture_at"):
+    executed_at = trusted.now()
+    if executed_at < parse_utc_z(plan["earliest_capture_at"], "smoke.earliest_capture_at"):
         raise ContractError("prospective SIP smoke capture is not yet available")
+    request, policy, network = _request_from_plan(plan, execution_requested_at=executed_at)
     registry = NetworkAcquisitionRegistry.load(root / "config/alpaca_canonical_bars_network_registry.json", allowed_root=root / "config")
     session = start_local_network_execution(network, registry=registry, clock=trusted)
     store = AsReceivedSnapshotStore(root / "data/vault/qualification/as_received/prospective_sip_smoke", allowed_root=root / "data", acquisition_registry=registry)

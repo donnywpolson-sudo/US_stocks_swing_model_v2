@@ -137,6 +137,23 @@ def test_smoke_plan_package_reloads_exact_plan_and_rejects_altered_receipt(
         smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO)
 
 
+def test_smoke_execution_uses_trusted_execution_time_without_changing_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_valid_inputs(monkeypatch)
+    plan = smoke.build_prospective_sip_smoke_plan(
+        identity_release_directory=REPO, calendar_release_directory=REPO,
+        repository_root=REPO, clock=_clock(datetime(2026, 8, 3, 20, 20, tzinfo=timezone.utc)),
+        allow_synthetic=True,
+    )
+    planned_at = plan["requested_at"]
+    executed_at = datetime(2026, 8, 3, 23, 50, tzinfo=timezone.utc)
+    request, policy, _ = smoke._request_from_plan(plan, execution_requested_at=executed_at)
+    assert request.requested_at == executed_at
+    assert request.url(policy) == plan["request"]["url"]
+    assert plan["requested_at"] == planned_at
+
+
 def test_calendar_successor_plan_requires_clean_closure_and_production_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "us_stocks_swing_model_v2.calendar_successor._clean_repository",
