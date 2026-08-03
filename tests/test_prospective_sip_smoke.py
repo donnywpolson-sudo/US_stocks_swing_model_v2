@@ -32,6 +32,7 @@ def _clock(value: datetime) -> TrustedClock:
 
 
 def _patch_valid_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smoke, "_clean_repository", lambda root: {"commit": "a" * 40, "tree": "b" * 40})
     manifest = SimpleNamespace(
         release_id="2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
         dataset="identity", role="prospective_as_received", quality_state="PASS",
@@ -105,6 +106,35 @@ def test_smoke_candidate_requires_exact_two_bar_non_paginated_response(monkeypat
             repository_root=REPO, clock=_clock(datetime(2026, 8, 3, 20, 20, tzinfo=timezone.utc)),
             allow_synthetic=True,
         )
+
+
+def test_smoke_plan_package_reloads_exact_plan_and_rejects_altered_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_valid_inputs(monkeypatch)
+    plan = smoke.build_prospective_sip_smoke_plan(
+        identity_release_directory=REPO, calendar_release_directory=REPO,
+        repository_root=REPO, clock=_clock(datetime(2026, 8, 3, 20, 20, tzinfo=timezone.utc)),
+        allow_synthetic=True,
+    )
+    actual_contained = smoke.require_contained_path
+    package_root = tmp_path / "packages"
+
+    def contained(path: Path, allowed_root: Path, *, must_exist: bool = True) -> Path:
+        candidate = Path(path)
+        if candidate == REPO / smoke.PLAN_WORK_ROOT:
+            return package_root
+        if candidate.parent == package_root:
+            return candidate
+        return actual_contained(candidate, allowed_root, must_exist=must_exist)
+
+    monkeypatch.setattr(smoke, "require_contained_path", contained)
+    written = smoke.write_prospective_sip_smoke_plan_package(plan=plan, repository_root=REPO)
+    package = Path(written["directory"])
+    assert smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO) == plan
+    (package / "receipt.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="receipt differs"):
+        smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO)
 
 
 def test_calendar_successor_plan_requires_clean_closure_and_production_clock(monkeypatch: pytest.MonkeyPatch) -> None:
