@@ -73,20 +73,21 @@ def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation()
     assert "docs/CURRENT_STATE.md" in readme
     assert "not\nexecution authority" in state
     assert "current code, configuration, accepted\nreleases, Git state" in state
-    assert "ALPACA_HISTORICAL_BACKFILL_PUBLICATION_PLANNING_IMPLEMENTED" in state
-    assert "backfill as a caveated `legacy_discovery_only` release" in state
-    assert "first bounded active-SIP canonical-bars build is a separate pending path" in state
+    assert "PROSPECTIVE_EVIDENCE_WAITING_PERIOD_FOUNDATIONS_IMPLEMENTED" in state
+    assert "`legacy_discovery_only` and cannot enter trusted eligibility" in state
+    assert "active-SIP canonical-bars smoke capture remains a separate" in state
     assert "unimplemented" not in state.lower()
 
 
-def test_current_state_matches_the_active_sip_source_contract() -> None:
+def test_current_state_matches_the_qualified_non_active_sip_source_contract() -> None:
     state = _read("docs/CURRENT_STATE.md")
     sources = json.loads(_read("config/sources.json"))
     alpaca = sources["sources"]["alpaca_basic_delayed_sip"]
 
     assert alpaca["request_contract"]["qualified_feed"] == "sip"
-    assert alpaca["status"] == "active_sip_qualified_pending_canonical_bars"
-    assert "Alpaca SIP is the selected, qualified bar feed." in state
+    assert alpaca["status"] == "qualified_sip_not_active"
+    assert alpaca["enabled_for_active_pipeline"] is False
+    assert "Alpaca SIP is the sole qualified bar feed, but remains non-active." in state
 
 
 def test_orientation_and_outline_route_to_specialist_documents() -> None:
