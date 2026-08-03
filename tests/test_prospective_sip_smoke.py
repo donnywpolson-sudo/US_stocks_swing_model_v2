@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,6 +77,27 @@ def test_prospective_smoke_plan_rejects_early_time_and_legacy_identity(monkeypat
             repository_root=REPO, clock=_clock(datetime(2026, 8, 3, 20, 19, tzinfo=timezone.utc)),
             allow_synthetic=True,
         )
+
+
+def test_smoke_candidate_requires_exact_two_bar_non_paginated_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_valid_inputs(monkeypatch)
+    plan = smoke.build_prospective_sip_smoke_plan(
+        identity_release_directory=REPO, calendar_release_directory=REPO,
+        repository_root=REPO, clock=_clock(datetime(2026, 8, 3, 20, 20, tzinfo=timezone.utc)),
+        allow_synthetic=True,
+    )
+    raw = json.dumps({"bars": {
+        "AAPL": [{"t": "2026-08-03T04:00:00Z", "o": 1.0, "h": 1.1, "l": 0.9, "c": 1.0, "v": 1}],
+        "SPY": [{"t": "2026-08-03T04:00:00Z", "o": 2.0, "h": 2.1, "l": 1.9, "c": 2.0, "v": 1}],
+    }, "next_page_token": None}).encode()
+    snapshot = SimpleNamespace(source=smoke.SMOKE_SOURCE, request_plan_id=plan["network_request_plan"]["plan_id"], url=plan["request"]["url"], http_status=200, trust_eligible=True, snapshot_id="a" * 64, raw_sha256="b" * 64, retrieved_at=datetime(2026, 8, 3, 20, 21, tzinfo=timezone.utc), read_verified_bytes=lambda: raw)
+    candidate = smoke.build_prospective_sip_smoke_candidate(snapshot, plan=plan)
+    assert len(candidate.bars) == 2
+    assert candidate.bars[0]["session"] == "2026-08-03"
+    assert smoke.build_prospective_sip_smoke_publication_plan(candidate, plan=plan, accepted_root=REPO / "data/vault/accepted", work_root=REPO / "data/w/smoke")["publication_authorized"] is False
+    bad = SimpleNamespace(**{**snapshot.__dict__, "read_verified_bytes": lambda: raw.replace(b'"next_page_token": null', b'"next_page_token": "next"')})
+    with pytest.raises(ContractError, match="response shape or pagination"):
+        smoke.build_prospective_sip_smoke_candidate(bad, plan=plan)
     monkeypatch.setattr(smoke, "verify_accepted_release", lambda *args, **kwargs: SimpleNamespace(release_id="0" * 64, dataset="identity", role="prospective_as_received", quality_state="PASS", source_epoch="nasdaq_alpaca_active_us_equity_v1", row_count=2))
     with pytest.raises(IntegrityError, match="identity release differs"):
         smoke.build_prospective_sip_smoke_plan(

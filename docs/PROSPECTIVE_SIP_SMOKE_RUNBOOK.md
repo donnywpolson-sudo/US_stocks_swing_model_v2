@@ -10,10 +10,12 @@ release, registers a trial, or starts training.
    identity release, accepted XNYS calendar release, and non-active SIP source
    state. Confirm the fixed session is complete and the 20-minute lag has
    elapsed.
-2. Generate and inspect the no-write smoke request plan. Confirm AAPL/SPY,
+2. Generate and inspect the no-write smoke request plan with
+   `stock-v2-prospective-sip-smoke`. Confirm AAPL/SPY,
    `feed=sip`, `timeframe=1Day`, `adjustment=raw`, ascending order, no `asof`,
    one page, 30-second HTTP timeout, 120-second host limit, and 1 MiB cap.
-3. Obtain separate owner authorization bound to that exact plan. Execute one
+3. Obtain separate owner authorization bound to that exact plan. Use the same
+   command with `--execute-network --approved-plan-id <exact-plan-id>` to execute one
    HTTPS request only; preserve raw bytes, safe headers, receipt time, request
    order, page evidence, and identity/calendar binding. A timeout, redirect,
    oversized response, or pagination spends the attempt and stops it.
