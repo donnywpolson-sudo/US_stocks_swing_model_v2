@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "EFFECTIVE_EVENT_DELISTING_ADAPTER_QUALIFICATION_ONLY",
+  "status": "BACKEND_UNSELECTED",
+  "required_capabilities": [
+    "effective_event_census",
+    "delisting_census",
+    "asset_session_scope",
+    "raw_as_received_lineage",
+    "receipt_time_availability",
+    "revision_and_late_arrival_history"
+  ],
+  "coverage_contract": {
+    "absence_requires_complete_census": true,
+    "unresolved_rows_remain_in_denominator": true,
+    "imputation_or_drop_allowed": false,
+    "late_arrival_policy": "revise_outcome_or_abstain_never_backdate"
+  },
+  "prohibitions": [
+    "alpaca_process_date_evidence_as_complete_effective_event_coverage",
+    "source_activation",
+    "release_publication",
+    "outcome_access",
+    "training",
+    "evaluation"
+  ]
+}
