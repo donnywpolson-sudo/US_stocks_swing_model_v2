@@ -536,6 +536,7 @@ def guarded_fetch_corporate_action_pages(
     network_enabled: bool = False,
     max_pages: int = 10,
     timeout_seconds: int = 30,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
     clock: TrustedClock | None = None,
     authorization_session: LocalNetworkExecutionSession | None = None,
 ) -> tuple[LandedSnapshot, ...]:
@@ -547,6 +548,8 @@ def guarded_fetch_corporate_action_pages(
         raise ContractError("Alpaca credentials must be supplied from the environment")
     if not 1 <= max_pages <= MAX_PAGES:
         raise ContractError(f"max_pages must be in [1,{MAX_PAGES}]")
+    if not 1 <= max_response_bytes <= MAX_RESPONSE_BYTES:
+        raise ContractError("corporate-action response limit is invalid")
     pages: list[LandedSnapshot] = []
     trusted_clock = require_trusted_clock(clock)
     initial.validate_against_trusted_time(trusted_clock.now())
@@ -558,7 +561,7 @@ def guarded_fetch_corporate_action_pages(
             source="alpaca_corporate_actions",
             url=request.url(),
             timeout_seconds=timeout_seconds,
-            max_response_bytes=MAX_RESPONSE_BYTES,
+            max_response_bytes=max_response_bytes,
             page_index=page_index,
             expected_page_token=request.page_token,
             clock=trusted_clock,
@@ -568,6 +571,7 @@ def guarded_fetch_corporate_action_pages(
             api_key_id=api_key_id,
             api_secret_key=api_secret_key,
             timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
             clock=trusted_clock,
             request_attempt=request_attempt,
         )
@@ -733,6 +737,7 @@ def _fetch_page(
     api_key_id: str,
     api_secret_key: str,
     timeout_seconds: int,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
     clock: TrustedClock,
     request_attempt: NetworkRequestAttempt,
 ) -> HttpResponseEvidence:
@@ -749,7 +754,7 @@ def _fetch_page(
         with open_without_redirects(
             http_request, timeout_seconds=timeout_seconds
         ) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
+            raw = response.read(max_response_bytes + 1)
             headers = normalize_response_headers(
                 {
                     key.lower(): value
@@ -760,7 +765,7 @@ def _fetch_page(
             status = int(response.status)
             response_url = str(response.geturl())
     except HTTPError as response:
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
+        raw = response.read(max_response_bytes + 1)
         headers = normalize_response_headers(
             {
                 key.lower(): value
@@ -772,7 +777,7 @@ def _fetch_page(
         response_url = str(response.geturl())
     if response_url != url:
         raise ContractError("corporate-action response redirected away from its exact request URL")
-    if len(raw) > MAX_RESPONSE_BYTES:
+    if len(raw) > max_response_bytes:
         raise ContractError("corporate-action response exceeded the bounded byte limit")
     return HttpResponseEvidence(
         url=url,

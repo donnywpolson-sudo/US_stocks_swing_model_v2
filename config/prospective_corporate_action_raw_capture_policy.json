@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "PROSPECTIVE_CORPORATE_ACTION_RAW_CAPTURE_PLAN_ONLY",
+  "source": "alpaca_corporate_actions",
+  "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
+  "replaces_capture_plan_id": "0e68260b72adbc27f1ddb71b8eb3b2f07d781f60828afd6b3b4a10daebcaf1f8",
+  "request_contract": {
+    "sort": "asc",
+    "http_timeout_seconds": 30,
+    "host_timeout_seconds": 120,
+    "max_pages": 1,
+    "max_response_bytes": 1048576,
+    "redirects_allowed": false
+  },
+  "coverage": {
+    "semantics": "PROVIDER_PROCESS_DATE_ACQUISITION_ONLY",
+    "effective_event_completeness": false,
+    "delisting_evidence_available": false,
+    "outcomes_may_compute": false,
+    "unresolved_rows_remain_in_denominator": true,
+    "imputation_or_drop_allowed": false
+  }
+}
