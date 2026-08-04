@@ -142,6 +142,12 @@ def test_smoke_plan_package_reloads_exact_plan_and_rejects_altered_receipt(
     written = smoke.write_prospective_sip_smoke_plan_package(plan=plan, repository_root=REPO)
     package = Path(written["directory"])
     assert smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO) == plan
+    monkeypatch.setattr(smoke, "_clean_repository", lambda root: {"commit": "d" * 40, "tree": "e" * 40})
+    monkeypatch.setattr(smoke, "_verify_historical_plan_closure", lambda root, value: None)
+    historical, _ = smoke.load_prospective_sip_smoke_acquisition_package(plan_package=package, repository_root=REPO)
+    assert historical == plan
+    with pytest.raises(IntegrityError, match="repository closure differs"):
+        smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO)
     (package / "receipt.json").write_text("{}", encoding="utf-8")
     with pytest.raises(IntegrityError, match="receipt differs"):
         smoke.load_prospective_sip_smoke_plan_package(plan_package=package, repository_root=REPO)

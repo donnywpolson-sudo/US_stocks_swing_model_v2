@@ -243,8 +243,10 @@ def write_prospective_sip_smoke_plan_package(*, plan: dict[str, object], reposit
     return {"directory": str(final), "plan": plan, "receipt": receipt}
 
 
-def load_prospective_sip_smoke_plan_package(*, plan_package: Path, repository_root: Path) -> dict[str, object]:
-    """Reload and revalidate a persisted plan without rebuilding it."""
+def _load_prospective_sip_smoke_plan_package_contents(
+    *, plan_package: Path, repository_root: Path
+) -> tuple[Path, Path, dict[str, object]]:
+    """Reload the immutable package and validate its internal receipt only."""
     root = Path(repository_root).resolve(strict=True)
     package = require_contained_path(plan_package, root / "data", must_exist=True)
     plan_path, receipt_path = package / "request_plan.json", package / "receipt.json"
@@ -269,6 +271,62 @@ def load_prospective_sip_smoke_plan_package(*, plan_package: Path, repository_ro
         }
     ):
         raise IntegrityError("prospective SIP smoke plan package receipt differs")
+    return package, receipt_path, plan
+
+
+def _verify_historical_plan_closure(root: Path, plan: dict[str, object]) -> None:
+    repository = plan.get("repository")
+    closure = plan.get("code_closure")
+    if not isinstance(repository, dict) or not isinstance(closure, dict):
+        raise IntegrityError("prospective SIP smoke historical closure differs")
+    commit, tree = repository.get("commit"), repository.get("tree")
+    files = closure.get("files")
+    if not isinstance(commit, str) or not isinstance(tree, str) or not isinstance(files, list):
+        raise IntegrityError("prospective SIP smoke historical closure differs")
+    try:
+        actual_tree = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", f"{commit}^{{tree}}"], check=True,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+        ).stdout.strip()
+        if actual_tree != tree:
+            raise IntegrityError("prospective SIP smoke historical tree differs")
+        actual_files: list[dict[str, str]] = []
+        for item in files:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                raise IntegrityError("prospective SIP smoke historical code closure differs")
+            payload = subprocess.run(
+                ["git", "-C", str(root), "show", f"{commit}:{item['path']}"], check=True,
+                capture_output=True, timeout=30,
+            ).stdout
+            actual_files.append({"path": item["path"], "sha256": sha256_bytes(payload)})
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError("prospective SIP smoke historical code closure is unavailable") from exc
+    if closure != _closure_from_files(actual_files):
+        raise IntegrityError("prospective SIP smoke historical code closure differs")
+
+
+def _closure_from_files(files: list[dict[str, str]]) -> dict[str, object]:
+    return {"files": files, "sha256": sha256_bytes(canonical_json_bytes(files))}
+
+
+def load_prospective_sip_smoke_acquisition_package(*, plan_package: Path, repository_root: Path) -> tuple[dict[str, object], str]:
+    """Validate captured acquisition evidence against its own historical closure."""
+    root = Path(repository_root).resolve(strict=True)
+    _, receipt_path, plan = _load_prospective_sip_smoke_plan_package_contents(plan_package=plan_package, repository_root=root)
+    _verify_historical_plan_closure(root, plan)
+    binding = plan.get("source_binding")
+    if not isinstance(binding, dict) or not isinstance(binding.get("qualification_receipt"), str):
+        raise IntegrityError("prospective SIP smoke historical source binding differs")
+    qualification_receipt = require_contained_path(root / binding["qualification_receipt"], root / "data", must_exist=True)
+    if sha256_file(qualification_receipt) != binding.get("qualification_receipt_sha256"):
+        raise IntegrityError("prospective SIP smoke historical qualification receipt differs")
+    return plan, sha256_file(receipt_path)
+
+
+def load_prospective_sip_smoke_plan_package(*, plan_package: Path, repository_root: Path) -> dict[str, object]:
+    """Reload and revalidate a persisted plan for immediate network execution."""
+    root = Path(repository_root).resolve(strict=True)
+    _, _, plan = _load_prospective_sip_smoke_plan_package_contents(plan_package=plan_package, repository_root=root)
     if plan.get("repository") != _clean_repository(root):
         raise IntegrityError("prospective SIP smoke plan repository closure differs")
     if plan.get("code_closure") != _closure(root, CODE_CLOSURE_PATHS):
@@ -340,15 +398,11 @@ def load_prospective_sip_smoke_capture(
 ) -> tuple[dict[str, object], ProspectiveSmokeCandidate, str]:
     """Reload the exact acquisition evidence for plan-only publication work."""
     root = Path(repository_root).resolve(strict=True)
-    plan = load_prospective_sip_smoke_plan_package(plan_package=plan_package, repository_root=root)
-    package = require_contained_path(plan_package, root / "data", must_exist=True)
-    receipt_path = package / "receipt.json"
-    if not receipt_path.is_file() or receipt_path.is_symlink():
-        raise ContractError("prospective SIP smoke acquisition receipt is missing")
+    plan, receipt_sha256 = load_prospective_sip_smoke_acquisition_package(plan_package=plan_package, repository_root=root)
     registry = NetworkAcquisitionRegistry.load(root / "config/alpaca_canonical_bars_network_registry.json", allowed_root=root / "config")
     store = AsReceivedSnapshotStore(root / "data/vault/qualification/as_received/prospective_sip_smoke", allowed_root=root / "data", acquisition_registry=registry)
     snapshot = store.load(snapshot_directory)
-    return plan, build_prospective_sip_smoke_candidate(snapshot, plan=plan), sha256_file(receipt_path)
+    return plan, build_prospective_sip_smoke_candidate(snapshot, plan=plan), receipt_sha256
 
 
 def build_prospective_sip_smoke_publication_plan(
@@ -366,6 +420,10 @@ def build_prospective_sip_smoke_publication_plan(
         raise ContractError("prospective smoke candidate differs from its plan")
     if not isinstance(acquisition_receipt_sha256, str) or len(acquisition_receipt_sha256) != 64:
         raise ContractError("prospective smoke acquisition receipt hash differs")
+    if plan.get("source_binding") != _source_binding(root):
+        raise IntegrityError("prospective SIP smoke source binding changed after capture")
+    if plan.get("policy_sha256") != sha256_file(root / POLICY_PATH) or plan.get("environment_sha256") != sha256_file(root / "config/environment.lock.json"):
+        raise IntegrityError("prospective SIP smoke configuration changed after capture")
     accepted = require_contained_path(Path(accepted_root), root / "data", must_exist=True)
     work = require_contained_path(Path(work_root), root / "data", must_exist=False)
     unsigned = {
