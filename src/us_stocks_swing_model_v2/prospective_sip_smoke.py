@@ -28,6 +28,7 @@ POLICY_PATH = "config/prospective_sip_smoke_policy.json"
 IDENTITY_RELEASE_ID = "2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115"
 SMOKE_SOURCE = "alpaca_sip_canonical_bars"
 PLAN_WORK_ROOT = "data/w/prospective_sip_smoke"
+PUBLICATION_WORK_ROOT = "data/w/prospective_sip_smoke_publication"
 CODE_CLOSURE_PATHS = (
     "src/us_stocks_swing_model_v2/prospective_sip_smoke.py",
     "src/us_stocks_swing_model_v2/cli/prospective_sip_smoke.py",
@@ -334,18 +335,68 @@ def build_prospective_sip_smoke_candidate(snapshot: LandedSnapshot, *, plan: dic
     return ProspectiveSmokeCandidate(plan["prospective_sip_smoke_plan_id"], snapshot.snapshot_id, snapshot.raw_sha256, snapshot.retrieved_at, tuple(rows), sha256_bytes(canonical_json_bytes(unsigned)))
 
 
-def build_prospective_sip_smoke_publication_plan(candidate: ProspectiveSmokeCandidate, *, plan: dict[str, object], accepted_root: Path, work_root: Path) -> dict[str, object]:
+def load_prospective_sip_smoke_capture(
+    *, plan_package: Path, snapshot_directory: Path, repository_root: Path
+) -> tuple[dict[str, object], ProspectiveSmokeCandidate, str]:
+    """Reload the exact acquisition evidence for plan-only publication work."""
+    root = Path(repository_root).resolve(strict=True)
+    plan = load_prospective_sip_smoke_plan_package(plan_package=plan_package, repository_root=root)
+    package = require_contained_path(plan_package, root / "data", must_exist=True)
+    receipt_path = package / "receipt.json"
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise ContractError("prospective SIP smoke acquisition receipt is missing")
+    registry = NetworkAcquisitionRegistry.load(root / "config/alpaca_canonical_bars_network_registry.json", allowed_root=root / "config")
+    store = AsReceivedSnapshotStore(root / "data/vault/qualification/as_received/prospective_sip_smoke", allowed_root=root / "data", acquisition_registry=registry)
+    snapshot = store.load(snapshot_directory)
+    return plan, build_prospective_sip_smoke_candidate(snapshot, plan=plan), sha256_file(receipt_path)
+
+
+def build_prospective_sip_smoke_publication_plan(
+    candidate: ProspectiveSmokeCandidate,
+    *,
+    plan: dict[str, object],
+    acquisition_receipt_sha256: str,
+    accepted_root: Path,
+    work_root: Path,
+    repository_root: Path,
+) -> dict[str, object]:
+    root = Path(repository_root).resolve(strict=True)
+    _request_from_plan(plan)
     if candidate.acquisition_plan_id != plan.get("prospective_sip_smoke_plan_id") or len(candidate.bars) != 2:
         raise ContractError("prospective smoke candidate differs from its plan")
-    unsigned = {"schema_version": 1, "mode": "PROSPECTIVE_SIP_SMOKE_PUBLICATION_PLAN_ONLY", "candidate_id": candidate.candidate_id, "acquisition_plan_id": candidate.acquisition_plan_id, "snapshot_id": candidate.snapshot_id, "accepted_root": str(Path(accepted_root).resolve()), "work_root": str(Path(work_root).resolve()), "dataset": "alpaca_daily_bars", "role": "prospective_as_received", "quality_state": "PASS", "upstream_release_ids": [plan["identity"]["release_id"], plan["calendar"]["release_id"]], "source_activation": False, "publication_authorized": False, "research": False}
+    if not isinstance(acquisition_receipt_sha256, str) or len(acquisition_receipt_sha256) != 64:
+        raise ContractError("prospective smoke acquisition receipt hash differs")
+    accepted = require_contained_path(Path(accepted_root), root / "data", must_exist=True)
+    work = require_contained_path(Path(work_root), root / "data", must_exist=False)
+    unsigned = {
+        "schema_version": 1,
+        "mode": "PROSPECTIVE_SIP_SMOKE_PUBLICATION_PLAN_ONLY",
+        "repository": _clean_repository(root),
+        "code_closure": _closure(root, CODE_CLOSURE_PATHS),
+        "source_binding": _source_binding(root),
+        "candidate_id": candidate.candidate_id,
+        "acquisition_plan_id": candidate.acquisition_plan_id,
+        "acquisition_receipt_sha256": acquisition_receipt_sha256,
+        "snapshot_id": candidate.snapshot_id,
+        "raw_sha256": candidate.raw_sha256,
+        "accepted_root": str(accepted),
+        "work_root": str(work),
+        "dataset": "alpaca_daily_bars",
+        "role": "prospective_as_received",
+        "quality_state": "PASS",
+        "upstream_release_ids": [plan["identity"]["release_id"], plan["calendar"]["release_id"]],
+        "source_activation": False,
+        "publication_authorized": False,
+        "research": False,
+    }
     return {**unsigned, "publication_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 
-def publish_prospective_sip_smoke(*, candidate: ProspectiveSmokeCandidate, plan: dict[str, object], approved_publication_plan_id: str, owner_confirmation: str, accepted_root: Path, work_root: Path) -> Path:
+def publish_prospective_sip_smoke(*, candidate: ProspectiveSmokeCandidate, plan: dict[str, object], acquisition_receipt_sha256: str, approved_publication_plan_id: str, owner_confirmation: str, accepted_root: Path, work_root: Path, repository_root: Path) -> Path:
     """Publish the one non-active smoke release only under a later exact gate."""
     if owner_confirmation != "YES" or os.environ.get("PROSPECTIVE_SIP_SMOKE_PUBLICATION_APPROVED") != "YES":
         raise PermissionError("prospective smoke publication confirmation is absent")
-    publication = build_prospective_sip_smoke_publication_plan(candidate, plan=plan, accepted_root=accepted_root, work_root=work_root)
+    publication = build_prospective_sip_smoke_publication_plan(candidate, plan=plan, acquisition_receipt_sha256=acquisition_receipt_sha256, accepted_root=accepted_root, work_root=work_root, repository_root=repository_root)
     if publication["publication_plan_id"] != approved_publication_plan_id:
         raise PermissionError("approved prospective smoke publication plan differs")
     work = Path(work_root).resolve(); work.mkdir(parents=True, exist_ok=True)
@@ -357,5 +408,5 @@ def publish_prospective_sip_smoke(*, candidate: ProspectiveSmokeCandidate, plan:
     payload = canonical_json_bytes({"schema_version": 1, "rows": rows})
     receipt = canonical_json_bytes({"schema_version": 1, "receipt_class": "PROSPECTIVE_SIP_SMOKE", "candidate_id": candidate.candidate_id, "acquisition_plan_id": candidate.acquisition_plan_id, "snapshot_id": candidate.snapshot_id, "raw_sha256": candidate.raw_sha256, "identity": plan["identity"], "calendar": plan["calendar"], "source_activation": False})
     atomic_write(stage / "daily_bars.json", payload); atomic_write(stage / "prospective_sip_smoke_receipt.json", receipt)
-    manifest = build_manifest(stage, ("daily_bars.json", "prospective_sip_smoke_receipt.json"), project="US_stocks_swing_model_v2", dataset="alpaca_daily_bars", source_epoch="alpaca_basic_sip_raw_v1", role="prospective_as_received", quality_state="PASS", created_at=iso_z(candidate.retrieved_at), row_count=2, event_start="2026-08-03", event_end="2026-08-03", upstream_release_ids=(plan["identity"]["release_id"], plan["calendar"]["release_id"]), schema_fingerprint=sha256_bytes(canonical_json_bytes({"daily_bars": 1, "smoke": 1})), code_hash=sha256_file(Path(__file__)), config_hash=plan["policy_sha256"], environment_hash=plan["environment_sha256"])
+    manifest = build_manifest(stage, ("daily_bars.json", "prospective_sip_smoke_receipt.json"), project="US_stocks_swing_model_v2", dataset="alpaca_daily_bars", source_epoch="alpaca_basic_sip_raw_v1", role="prospective_as_received", quality_state="PASS", created_at=iso_z(candidate.retrieved_at), row_count=2, event_start="2026-08-03", event_end="2026-08-03", upstream_release_ids=(plan["identity"]["release_id"], plan["calendar"]["release_id"]), schema_fingerprint=sha256_bytes(canonical_json_bytes({"daily_bars": 1, "smoke": 1})), code_hash=publication["code_closure"]["sha256"], config_hash=plan["policy_sha256"], environment_hash=plan["environment_sha256"])
     return AtomicReleasePublisher(Path(accepted_root).resolve()).publish(stage, manifest)

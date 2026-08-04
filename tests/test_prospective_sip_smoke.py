@@ -95,7 +95,17 @@ def test_smoke_candidate_requires_exact_two_bar_non_paginated_response(monkeypat
     candidate = smoke.build_prospective_sip_smoke_candidate(snapshot, plan=plan)
     assert len(candidate.bars) == 2
     assert candidate.bars[0]["session"] == "2026-08-03"
-    assert smoke.build_prospective_sip_smoke_publication_plan(candidate, plan=plan, accepted_root=REPO / "data/vault/accepted", work_root=REPO / "data/w/smoke")["publication_authorized"] is False
+    publication = smoke.build_prospective_sip_smoke_publication_plan(
+        candidate,
+        plan=plan,
+        acquisition_receipt_sha256="c" * 64,
+        accepted_root=REPO / "data/vault/accepted",
+        work_root=REPO / "data/w/smoke",
+        repository_root=REPO,
+    )
+    assert publication["publication_authorized"] is False
+    assert publication["raw_sha256"] == snapshot.raw_sha256
+    assert publication["source_activation"] is False
     bad = SimpleNamespace(**{**snapshot.__dict__, "read_verified_bytes": lambda: raw.replace(b'"next_page_token": null', b'"next_page_token": "next"')})
     with pytest.raises(ContractError, match="response shape or pagination"):
         smoke.build_prospective_sip_smoke_candidate(bad, plan=plan)

@@ -24,10 +24,15 @@ release, registers a trial, or starts training.
 4. Reload the landed snapshot from disk. Offline verification requires exactly
    one bar per AAPL/SPY/session, raw-SIP evidence, no page token, and the
    pinned calendar census. Emit only a candidate assessment.
-5. Obtain a separate publication authorization bound to the candidate-plan ID.
-   Only then may a single non-active canonical-bars release be published and
-   independently reloaded/verified. Do not enable the active pipeline.
-6. After bars exist, form a separate corporate-action/delisting capture plan
+5. Generate and inspect a no-write publication plan with
+   `--plan-publication --plan-package <package> --snapshot-directory
+   <snapshot>`. It must bind the acquisition receipt, candidate, raw hash,
+   identity/calendar, source state, and clean code closure.
+6. Obtain a separate publication authorization bound to that exact plan ID.
+   Only then may `--execute-publication` create one non-active canonical-bars
+   release and independently reload/verify it. Do not enable the active
+   pipeline.
+7. After bars exist, form a separate corporate-action/delisting capture plan
    covering the feature lookback and future D1--D5 outcome window. Uncovered
    intervals are abstentions, not absent events or dropped rows.
 
