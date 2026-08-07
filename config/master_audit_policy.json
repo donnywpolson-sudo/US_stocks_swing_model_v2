@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "MASTER_AUDIT_PLAN_ONLY_NO_WRITES",
+  "expected_repository_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2",
+  "specification_path": "MASTER_AUDIT.md",
+  "tracked_corpus": {
+    "expected_path_count": 252,
+    "expected_paths_sha256": "149410f599dcd76489c562ab9fb621b180cd0f3a776b167c8bed04fb09ed242a"
+  },
+  "group_limits": {
+    "maximum_numbered_lines": 400,
+    "maximum_rendered_utf8_bytes": 20000
+  },
+  "runtime_files": [
+    "pyproject.toml",
+    "requirements.lock",
+    "requirements.sha256.lock"
+  ],
+  "common_review_paths": [
+    "AGENTS.md",
+    "MASTER_AUDIT.md",
+    "PROJECT_OUTLINE.md",
+    "README.md",
+    "config/environment.lock.json",
+    "config/research_readiness_contract.json",
+    "config/sources.json",
+    "docs/ASSESSMENT_SCOPE_AND_BLOCKER_DISPOSITIONS.md",
+    "docs/AUDIT_WORKFLOW.md",
+    "docs/CURRENT_STATE.md",
+    "docs/HISTORICAL_RESEARCH_HARNESS.md",
+    "docs/NETWORK_ACQUISITION.md",
+    "docs/REBUILD_CONSTITUTION.md",
+    "src/us_stocks_swing_model_v2/audit_controls.py",
+    "src/us_stocks_swing_model_v2/common.py",
+    "src/us_stocks_swing_model_v2/releases.py",
+    "tests/test_audit_trust_chain_regressions.py",
+    "tests/test_project_isolation.py",
+    "tests/test_releases_and_locking.py"
+  ],
+  "targets": {
+    "REBUILD_COMPLETE": {
+      "requires_completed_target": null,
+      "review_paths": [
+        "config/alpaca_canonical_bars_successor_policy.json",
+        "config/effective_event_delisting_adapter_policy.json",
+        "config/prospective_corporate_action_raw_capture_policy.json",
+        "src/us_stocks_swing_model_v2/corporate_actions.py",
+        "src/us_stocks_swing_model_v2/effective_event_delisting_adapter.py",
+        "src/us_stocks_swing_model_v2/exchange_calendar.py",
+        "src/us_stocks_swing_model_v2/identity.py",
+        "src/us_stocks_swing_model_v2/inference.py",
+        "src/us_stocks_swing_model_v2/monitoring.py",
+        "src/us_stocks_swing_model_v2/prospective_materializers.py",
+        "src/us_stocks_swing_model_v2/providers/network_execution.py",
+        "tests/test_firewall_bundle_inference.py",
+        "tests/test_identity_bitemporal_membership.py",
+        "tests/test_prospective_corporate_action_raw_capture.py",
+        "tests/test_prospective_materializers.py",
+        "tests/test_research_robustness_monitoring.py"
+      ],
+      "accepted_releases": [
+        "data/vault/accepted/alpaca_daily_bars/38ea661cafcedc423b370104f00461c0311bd00f8e3bd61ee03ed62b1de62acb",
+        "data/vault/accepted/alpaca_feed_qualification/c87e98a610c22b6a3e9101d813e69a244d97e79bf078595c3a4b71f8932f1bd0",
+        "data/vault/accepted/identity/2c2898a6748dcd5b4d9f7875cd1549e050902c2f491005ed530a5899c685e115",
+        "data/vault/accepted/xnys_sessions/71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d"
+      ]
+    },
+    "HISTORICAL_RESEARCH_READY": {
+      "requires_completed_target": "REBUILD_COMPLETE",
+      "review_paths": [
+        "config/alpaca_discovery_proxy_feature_wfa_contract.json",
+        "config/alpaca_discovery_three_class_trial_contract.json",
+        "config/alpaca_legacy_discovery_downstream_contract.json",
+        "config/trial_registry_s3_object_lock_policy.json",
+        "src/us_stocks_swing_model_v2/governance.py",
+        "src/us_stocks_swing_model_v2/research/builder.py",
+        "src/us_stocks_swing_model_v2/research/controls.py",
+        "src/us_stocks_swing_model_v2/research/evaluator.py",
+        "src/us_stocks_swing_model_v2/research/executor.py",
+        "src/us_stocks_swing_model_v2/research/robustness.py",
+        "src/us_stocks_swing_model_v2/research/splits.py",
+        "src/us_stocks_swing_model_v2/s3_object_lock_trial_registry.py",
+        "src/us_stocks_swing_model_v2/trials.py",
+        "tests/test_research_contracts_splits.py",
+        "tests/test_research_controls_sleeves_boundary.py",
+        "tests/test_research_executor.py",
+        "tests/test_s3_object_lock_trial_registry.py"
+      ],
+      "accepted_releases": [
+        "data/vault/accepted/alpaca_legacy_daily_bars/20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",
+        "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+        "data/vault/accepted/xnys_sessions/055f18359f3931f587883af9803232f10dae7032a542eae542d620714020d3b1"
+      ]
+    }
+  },
+  "commands": {
+    "metadata_timeout_seconds": 30,
+    "read_group_timeout_seconds": 60,
+    "release_verification_timeout_seconds": 120,
+    "full_test_timeout_seconds": 1200,
+    "git_diff_timeout_seconds": 30
+  },
+  "output": {
+    "destination": "CONVERSATION_ONLY",
+    "retained_report": false,
+    "generated_artifact_write": false
+  },
+  "prohibitions": [
+    "august_raw_capture",
+    "commit_or_push",
+    "destructive_action",
+    "generated_artifact_write",
+    "historical_research_or_row_access",
+    "prediction_or_source_activation",
+    "provider_or_network_activity",
+    "publication_or_cutover",
+    "release_or_receipt_mutation",
+    "retry_after_started_invocation",
+    "secret_or_credential_read",
+    "training_or_evaluation"
+  ]
+}

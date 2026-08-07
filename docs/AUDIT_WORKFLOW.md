@@ -22,6 +22,28 @@ states:
 3. `Project readiness`
 4. `Next gate`
 
+## Master Audit Flow
+
+The current Master Audit is defined by [`MASTER_AUDIT.md`](../MASTER_AUDIT.md)
+and `config/master_audit_policy.json`. It supports only `REBUILD_COMPLETE` and
+`HISTORICAL_RESEARCH_READY`, in that order.
+
+1. Finish unrelated local work and establish a clean committed baseline.
+2. Build the target envelope in memory. It binds the complete tracked corpus,
+   the bounded qualitative review corpus, exact config-declared accepted
+   releases, environment locks, commands, limits, and all-false authorities.
+3. Validate a target-free synthetic transport packet before reviewer creation.
+4. Give the exact compact dispatch to a fresh no-history reviewer. The reviewer
+   runs only its envelope-bound commands and reads every declared group once.
+5. Return the result in conversation. No envelope, report, receipt, release, or
+   generated artifact is retained.
+
+A completed blocked rebuild audit may be followed by the historical-readiness
+audit, but the cumulative target cannot be `SUPPORTABLE` while the rebuild
+prerequisite remains blocked. An incomplete invocation stops the sequence.
+Later local remediation is a separate `LOCAL_CORRECTABLE` phase and does not
+transfer the earlier verdict to the changed commit.
+
 ## Action Classes
 
 `LOCAL_CORRECTABLE` work is repository-local and reversible. An implementation
@@ -60,7 +82,9 @@ work, commit, push, and cutover. It retains exact action-specific authorization.
    attestation, target identity, and group census.
 
 The Meta Audit reviews `MASTER_AUDIT.md` as a specification. It does not execute
-the Master Audit or classify current project readiness.
+the Master Audit or classify current project readiness. Its retained historical
+transport freeze below remains separate from the compact, reconstruction-based
+Master Audit dispatch and is not cleared by a Master Audit transport check.
 
 ## Reviewer Transport Freeze
 
