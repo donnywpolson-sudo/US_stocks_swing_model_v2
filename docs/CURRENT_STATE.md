@@ -52,17 +52,12 @@ capture after the fixed completed session and its 20-minute lag. It requires
 the qualified-but-non-active SIP source plus accepted identity/calendar
 lineage. The July bar fixtures remain diagnostic-only.
 
-## What can proceed
+## Operational routing
 
-Routine local documentation, code, and focused synthetic-test work may proceed
-within a user-requested local phase. See the approval matrix in
-[`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md).
-
-Commit, provider/network activity, generated releases or receipts, historical
-research, training, evaluation, prediction, activation, push, trading, and
-destructive work need their applicable bounded approval. The selected S3 Object
+For the binding task classification, revalidation, and authorization rules, use
+the [canonical checklist in `AGENTS.md`](../AGENTS.md#canonical-task-routing-and-gate-checklist).
+This snapshot does not combine or waive those rules. The selected S3 Object
 Lock registry backend is not configured, so no real trial can be registered.
-This summary does not combine or waive those gates.
 
 ## Non-claims
 

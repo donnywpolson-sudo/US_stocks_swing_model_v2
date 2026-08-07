@@ -50,8 +50,8 @@ Documentation of this roadmap is not permission to execute a phase.
 | Need | Source |
 |---|---|
 | Current milestone and selected next gate | [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) |
-| Repository operation and approval boundaries | [`AGENTS.md`](AGENTS.md) |
-| Ordinary multi-step workflow | [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) |
+| Binding operation, revalidation, and approval boundaries | [`AGENTS.md`](AGENTS.md) |
+| Ordinary multi-step workflow examples | [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md) |
 | Source and publication mechanics | [`docs/NETWORK_ACQUISITION.md`](docs/NETWORK_ACQUISITION.md) |
 | Scientific design and claims | [`docs/REBUILD_CONSTITUTION.md`](docs/REBUILD_CONSTITUTION.md) |
 | Historical research mechanics | [`docs/HISTORICAL_RESEARCH_HARNESS.md`](docs/HISTORICAL_RESEARCH_HARNESS.md) |

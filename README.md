@@ -21,11 +21,12 @@ price-return target.
 
 ## Start here
 
-Read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the current milestone,
-the selected next gate, and the distinction between routine local work and
-work requiring approval. It is a concise snapshot, not authority: current
-code, configuration, accepted releases, Git state, and action-specific
-approval remain authoritative.
+Read [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the current milestone
+and selected next gate. It is a concise snapshot, not authority: current code,
+configuration, accepted releases, Git state, and action-specific approval
+remain authoritative. Use the canonical task-routing and gate checklist in
+[`AGENTS.md`](AGENTS.md#canonical-task-routing-and-gate-checklist) for
+operational rules.
 
 ## Source roles
 
@@ -38,9 +39,10 @@ approval remain authoritative.
 
 ## Key documents
 
-- [`AGENTS.md`](AGENTS.md): binding repository-operation and safety rules.
-- [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md): ordinary workflow and
-  approval matrix.
+- [`AGENTS.md`](AGENTS.md): binding repository-operation, safety, and task
+  routing rules.
+- [`docs/AGENT_WORKFLOW.md`](docs/AGENT_WORKFLOW.md): ordinary workflow
+  examples.
 - [`PROJECT_OUTLINE.md`](PROJECT_OUTLINE.md): enduring objective and roadmap.
 - [`docs/REBUILD_CONSTITUTION.md`](docs/REBUILD_CONSTITUTION.md): binding
   scientific and design contract.

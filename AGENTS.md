@@ -93,9 +93,23 @@
 - These classes never weaken scientific, secret, accepted-release, provider, or
   commit/push controls.
 
-The approval matrix, gate format, and preparation procedure are in
-`docs/AGENT_WORKFLOW.md`. They organize existing authority and never weaken the
-scientific, secret, accepted-release, provider, or commit/push boundaries here.
+### Canonical Task Routing And Gate Checklist
+
+Use this checklist for every task. `docs/AGENT_WORKFLOW.md` gives ordinary
+workflow examples only; it does not add authority or define another approval
+matrix.
+
+| Class | Before work | May proceed | Gate or stop condition |
+|---|---|---|---|
+| `LOCAL_CORRECTABLE` | Confirm repository identity; inspect Git status and the exact target diff; read the applicable binding contracts. | Requested local edits, read-only diagnostics, focused synthetic tests, static checks, and up to two evidenced corrective cycles. | Stop for an unexplained worktree change, contract conflict, scope change, or failed validation outside the corrective-cycle allowance. |
+| `READ_ONLY_INVOCATION` | Confirm repository identity, the selected executable where applicable, and the controlling manifest or assessment contract. | Only the declared read-only audit, assessment, or diagnostic in its required order. | The manifest controls evidence, interruption, and retry; do not turn a failed or incomplete invocation into a new attempt. |
+| `MUTATING_OR_EXTERNAL` | Confirm repository identity, branch, HEAD, status, exact targets, applicable specialist controls, and the action-specific authorization. | Nothing beyond bounded planning and dry-run preparation until every required authorization detail is present. | Require the declared command family, scope, limit, timeout or stop condition, expected outputs, disposition, and action-specific authorization; preserve ambiguous or partial results and stop. |
+
+Immediately before the first write, before staging, and before claiming
+completion, revalidate the exact Git root, branch, HEAD, status, intended target
+paths, and attributable diff against the recorded baseline. The detailed
+controls below remain binding; this checklist organizes them without weakening
+them.
 
 ### Simplicity And Proportionality
 

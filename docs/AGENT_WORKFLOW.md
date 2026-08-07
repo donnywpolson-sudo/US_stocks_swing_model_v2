@@ -1,8 +1,9 @@
-# Agent Workflow
+# Agent Workflow Examples
 
-`AGENTS.md` is binding. This guide explains the ordinary workflow without
-repeating its scientific, source, secret, generated-data, or destructive-action
-controls.
+`AGENTS.md` is binding and contains the canonical task-routing and gate
+checklist. This guide explains ordinary workflow examples without repeating its
+scientific, source, secret, generated-data, destructive-action, revalidation,
+or approval controls.
 
 ## One outcome, one local phase
 
@@ -20,14 +21,10 @@ After an authorized commit, do the safe no-network, no-write planning needed to
 identify the next real gate. Do not detour into non-blocking hardening or
 cleanup unless it blocks the outcome or the user includes it in scope.
 
-## Approval matrix
+## Use The Canonical Checklist
 
-| Work | Normal handling |
-|---|---|
-| Local edits, read-only diagnostics, focused synthetic tests, and static checks | Proceed within the requested local phase. |
-| Commit | Ask once; exact-path staging, one non-amended commit, and post-commit verification may share that gate. |
-| Provider/network activity, generated releases or receipts, research, training, evaluation, prediction, activation, or cutover | Ask once for the bounded action, including scope, limits, outputs, stop condition, and exclusions. |
-| Push, trading, or destructive work | Keep separate unless the user explicitly includes the exact action in its own approval. |
+Classify the work with the [canonical task-routing and gate checklist](../AGENTS.md#canonical-task-routing-and-gate-checklist)
+before choosing an ordinary workflow example.
 
 A direct “Yes” or “Run that gate” applies only to the uniquely identifiable
 preceding gate after live-state revalidation. Never require copied plan IDs,

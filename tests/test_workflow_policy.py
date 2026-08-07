@@ -28,6 +28,10 @@ def test_agents_retains_the_binding_action_and_safety_boundaries() -> None:
     ):
         assert boundary in agents
     assert "docs/AGENT_WORKFLOW.md" in agents
+    assert "### Canonical Task Routing And Gate Checklist" in agents
+    assert "| `LOCAL_CORRECTABLE` |" in agents
+    assert "| `READ_ONLY_INVOCATION` |" in agents
+    assert "| `MUTATING_OR_EXTERNAL` |" in agents
 
 
 def test_policies_prefer_verified_outcome_progress_over_surface_complexity() -> None:
@@ -41,20 +45,16 @@ def test_policies_prefer_verified_outcome_progress_over_surface_complexity() -> 
     assert "simplest robust approach\nthat produces verified progress" in workflow
 
 
-def test_workflow_has_one_approval_matrix_and_no_prompt_churn() -> None:
+def test_workflow_routes_to_the_canonical_checklist_without_prompt_churn() -> None:
     agents = _read("AGENTS.md")
     workflow = _read("docs/AGENT_WORKFLOW.md")
     handoff = _read("CODEX_HANDOFF.md")
     normalized_agents = " ".join(agents.split())
     normalized_handoff = " ".join(handoff.split())
 
-    assert workflow.count("## Approval matrix") == 1
-    for row in (
-        "Local edits, read-only diagnostics, focused synthetic tests, and static checks",
-        "Provider/network activity, generated releases or receipts, research",
-        "Push, trading, or destructive work",
-    ):
-        assert row in workflow
+    assert workflow.count("## Approval matrix") == 0
+    assert "canonical task-routing and gate checklist" in workflow
+    assert "../AGENTS.md#canonical-task-routing-and-gate-checklist" in workflow
     assert "Never require copied plan IDs,\nhashes, commands, or authorization text." in workflow
     assert "After two avoidable clarification or approval exchanges" in agents
     assert "After two avoidable clarification or approval exchanges" in workflow
@@ -77,6 +77,9 @@ def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation()
     assert "`legacy_discovery_only` and cannot enter trusted eligibility" in state
     assert "active-SIP canonical-bars smoke capture remains a separate" in state
     assert "unimplemented" not in state.lower()
+    assert "## Operational routing" in state
+    assert "canonical checklist in `AGENTS.md`" in state
+    assert "## What can proceed" not in state
 
 
 def test_current_state_matches_the_qualified_non_active_sip_source_contract() -> None:
@@ -101,6 +104,9 @@ def test_orientation_and_outline_route_to_specialist_documents() -> None:
     ):
         assert document in readme
     assert "Current milestone and selected next gate" in outline
+    assert "Binding operation, revalidation, and approval boundaries" in outline
+    assert "Ordinary multi-step workflow examples" in outline
+    assert "canonical task-routing and gate checklist" in readme
     assert "Documentation of this roadmap is not permission to execute a phase." in outline
 
 
