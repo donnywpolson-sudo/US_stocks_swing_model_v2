@@ -23,6 +23,20 @@ def _clean_binding(root: Path) -> dict[str, str]:
     }
 
 
+def _historical_pending_source(
+    root: Path,
+    _policy: dict[str, object],
+) -> dict[str, object]:
+    sources = json.loads((root / "config/sources.json").read_text(encoding="utf-8"))
+    return {
+        "path": "config/sources.json",
+        "sha256": "0" * 64,
+        "status": "pending_single_sip_requalification",
+        "qualified_feed": None,
+        "calendar_release_directory": sources["qualification_calendar_release"],
+    }
+
+
 def test_policy_is_exactly_one_sip_request_and_no_iex() -> None:
     policy, _ = qualification.load_policy(ROOT)
     assert policy["symbols"] == ["AAPL", "SPY"]
@@ -49,6 +63,7 @@ def test_policy_is_exactly_one_sip_request_and_no_iex() -> None:
 
 def test_plan_binds_calendar_registry_closure_and_one_page(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(qualification, "_repository_binding", _clean_binding)
+    monkeypatch.setattr(qualification, "_source_binding", _historical_pending_source)
     plan = qualification.build_qualification_plan(repo_root=ROOT, clock=TrustedClock.production())
     assert plan["network_request_plan"]["source"] == "alpaca_sip_qualification"
     assert plan["network_request_plan"]["max_pages"] == 1
@@ -63,6 +78,7 @@ def test_plan_binds_calendar_registry_closure_and_one_page(monkeypatch: pytest.M
 
 def test_altered_plan_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(qualification, "_repository_binding", _clean_binding)
+    monkeypatch.setattr(qualification, "_source_binding", _historical_pending_source)
     plan = qualification.build_qualification_plan(repo_root=ROOT, clock=TrustedClock.production())
     altered = json.loads(json.dumps(plan))
     altered["request"]["feed"] = "iex"
@@ -75,3 +91,14 @@ def test_synthetic_clock_cannot_plan_production_qualification(monkeypatch: pytes
     # A generic non-clock object is also rejected before any plan can be made.
     with pytest.raises(ContractError, match="clock"):
         qualification.build_qualification_plan(repo_root=ROOT, clock=object())  # type: ignore[arg-type]
+
+
+def test_current_qualified_source_rejects_repeat_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(qualification, "_repository_binding", _clean_binding)
+    with pytest.raises(ContractError, match="pending the exact SIP requalification"):
+        qualification.build_qualification_plan(
+            repo_root=ROOT,
+            clock=TrustedClock.production(),
+        )

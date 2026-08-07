@@ -42,9 +42,19 @@ def test_fixed_policy_binds_the_captured_sip_evidence() -> None:
     assert policy["authorities"]["source_activation"] is False
 
 
+def test_current_qualified_source_rejects_duplicate_receipt_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(publisher, "_repository", _repository)
+    monkeypatch.setattr(publisher, "_assessment", _assessment)
+    with pytest.raises(IntegrityError, match="pending source state"):
+        publisher.build_publication_plan(repo_root=ROOT)
+
+
 def test_publication_plan_is_hash_bound_and_non_active(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(publisher, "_repository", _repository)
     monkeypatch.setattr(publisher, "_assessment", _assessment)
+    monkeypatch.setattr(publisher, "_source_is_pending", lambda _root: None)
     plan = publisher.build_publication_plan(repo_root=ROOT)
     assert plan["network_calls"] == 0
     assert plan["source_activation"] is False
@@ -55,6 +65,7 @@ def test_publication_plan_is_hash_bound_and_non_active(monkeypatch: pytest.Monke
 def test_altered_publication_plan_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(publisher, "_repository", _repository)
     monkeypatch.setattr(publisher, "_assessment", _assessment)
+    monkeypatch.setattr(publisher, "_source_is_pending", lambda _root: None)
     plan = publisher.build_publication_plan(repo_root=ROOT)
     altered = json.loads(json.dumps(plan))
     altered["source_activation"] = True
@@ -65,6 +76,7 @@ def test_altered_publication_plan_fails_closed(monkeypatch: pytest.MonkeyPatch) 
 def test_receipt_never_authorizes_activation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(publisher, "_repository", _repository)
     monkeypatch.setattr(publisher, "_assessment", _assessment)
+    monkeypatch.setattr(publisher, "_source_is_pending", lambda _root: None)
     plan = publisher.build_publication_plan(repo_root=ROOT)
     receipt = publisher._receipt(plan, "2026-08-02T00:09:33.720939Z")
     assert receipt["activation_authorized"] is False

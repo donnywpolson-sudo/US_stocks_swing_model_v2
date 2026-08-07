@@ -19,6 +19,10 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, IntegrityError
+from .effective_event_delisting_adapter import (
+    EffectiveEventDelistingEvidenceDescriptor,
+    require_configured_effective_event_delisting_adapter,
+)
 from .governance import LocalIntegrityRecord
 from .releases import verify_accepted_release
 
@@ -377,6 +381,20 @@ class GovernedEffectiveEventCoverage:
         ):
             raise ContractError(
                 "effective-event clock mode differs from provider evidence"
+            )
+        if clock.trust_eligible:
+            provider = self.prepared.provider_coverage
+            require_configured_effective_event_delisting_adapter(
+                EffectiveEventDelistingEvidenceDescriptor(
+                    provider_id="alpaca_corporate_actions_process_date",
+                    source_epoch=provider.source_epoch,
+                    provider_contract_id=self.prepared.provider_contract_id,
+                    raw_snapshot_ids=tuple(sorted(provider.snapshot_ids)),
+                    effective_event_census_complete=False,
+                    delisting_census_complete=False,
+                    revision_history_complete=False,
+                ),
+                repository_root=Path(__file__).resolve().parents[2],
             )
         self.authorization.validate(
             expected_scope=AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS,
@@ -831,7 +849,11 @@ class BitemporalActionLedger:
                     clock=clock,
                 )
             )
-            self.trust_eligible = payload_schema_version == 5
+            self.trust_eligible = (
+                payload_schema_version == 5
+                and clock is not None
+                and clock.trust_eligible
+            )
         else:
             if accepted_release_root is not None:
                 raise ContractError("synthetic corporate actions cannot name an accepted release root")

@@ -42,7 +42,10 @@ from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
     NasdaqCompletenessPolicy,
 )
-from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
+from us_stocks_swing_model_v2.providers.snapshots import (
+    AsReceivedSnapshotStore,
+    NetworkAcquisitionRegistry,
+)
 
 
 REPO = Path(__file__).parents[1]
@@ -140,6 +143,9 @@ def test_checked_in_policy_binds_exact_authorization_and_fail_closed_execution()
     assert (
         policy["authorization_plan"]["base_commit"]
         == "ac5c9142172736e820427024be6ddb902cd9c177"
+    )
+    assert policy["network_registry_id"] == (
+        "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f"
     )
     registry = policy["publication_eligibility_remediation_registry"]
     historical_id = "c07b748c133722aeb10dc65972b7bc433db6946648f9ae4a783bf2205470a782"
@@ -382,6 +388,11 @@ def test_projection_never_silently_deduplicates_selected_symbols(
 
 
 def test_alpaca_asset_request_is_one_page_bounded_and_plan_only() -> None:
+    policy = load_identity_readiness_policy(REPO)
+    current_registry = NetworkAcquisitionRegistry.load(
+        REPO / "config/network_acquisition_registry.json",
+        allowed_root=REPO / "config",
+    )
     plan = build_alpaca_assets_request_plan(REPO)
     assert plan.source == ALPACA_ASSETS_SOURCE
     assert plan.initial_url == ALPACA_ASSETS_URL
@@ -389,6 +400,8 @@ def test_alpaca_asset_request_is_one_page_bounded_and_plan_only() -> None:
     assert plan.max_response_bytes == ALPACA_ASSETS_MAX_BYTES
     assert plan.timeout_seconds == 30
     assert plan.pagination_parameter == "none"
+    assert plan.network_registry_id == current_registry.registry_id
+    assert plan.network_registry_id != policy["network_registry_id"]
 
 
 def test_alpaca_asset_capture_requires_both_network_gate_and_exact_plan(

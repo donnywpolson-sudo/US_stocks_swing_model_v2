@@ -1,6 +1,6 @@
 # US Stocks Swing Model v2 Master Audit
 
-Version: `2.0.0`
+Version: `2.0.1`
 
 Classification: `NON_AUTHORIZING_READ_ONLY_SPECIFICATION`
 
@@ -127,6 +127,27 @@ hashes, source-role drift, recursive discovery, hidden denominator loss,
 post-outcome selection, retry, secret exposure, and authority conflation.
 The command uses pytest's one-line traceback mode so every failing node and
 error remains complete within the reviewer transport bound.
+
+When applicable, the audit must bind the broader remediation controls to exact
+adverse cases and evidence rather than treating their presence in code as a
+pass:
+
+- `audit_controls.assess_traceability_matrix` must check a frozen requirement
+  and threat census, severity consistency, false passes, evidence, and open
+  Critical/High findings;
+- `audit_controls.ProviderLineageEvidence` must bind raw provider bytes,
+  response headers, request and pagination lineage, page order, and
+  raw-before-parse state;
+- `audit_controls.ProspectiveControlProtocol` must enforce finite attempts,
+  direct one-time holdout access, the fixed end, and the complete vintage
+  census without backfill;
+- `research.economics.reconstruct_five_cohort_economics` must independently
+  check the four-sleeve, five-cohort accounting, actual-weight turnover, costs,
+  unavailable outcomes, capacity, and short limitations; and
+- `audit_controls.scan_declared_audit_surfaces` must use the exact `git`, `logs`, `reports`,
+  `caches`, `artifacts`, and `admitted_evidence` censuses,
+  reject an omitted surface, and redact rather than disclose secret-like
+  matches.
 
 ### G8 - Decision and remediation classification
 

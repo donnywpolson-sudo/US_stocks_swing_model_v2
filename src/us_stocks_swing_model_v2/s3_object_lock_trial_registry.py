@@ -25,7 +25,7 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, EvaluationAuthorizationError
-from .trials import TrialSpec
+from .trials import TrialSpec, validate_trial_evidence_roles
 from .governance import verify_release_bindings
 
 
@@ -196,6 +196,7 @@ def register_s3_object_lock_trial(
     )
     if verified != spec.release_bindings:
         raise ContractError("trial release bindings differ from verified release manifests")
+    validate_trial_evidence_roles(spec)
     registered_at = trusted_clock.now()
     payload = {
         **spec.unsigned_dict(),
@@ -301,6 +302,7 @@ def load_s3_object_lock_trial_registration(
     try:
         spec = TrialSpec.from_registered_payload(payload)
         spec.validate()
+        validate_trial_evidence_roles(spec)
     except (KeyError, TypeError, ValueError, ContractError) as exc:
         raise EvaluationAuthorizationError("S3 trial registration payload is invalid") from exc
     binding_id = target.registry_binding_id(policy)

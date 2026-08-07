@@ -23,6 +23,7 @@ from us_stocks_swing_model_v2.providers.nasdaq_bootstrap_publisher import (
     publish_nasdaq_bootstrap_receipt,
     verify_nasdaq_bootstrap_baseline_release,
 )
+from us_stocks_swing_model_v2.providers.snapshots import NetworkAcquisitionRegistry
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -106,6 +107,11 @@ def test_checked_in_publication_policy_is_exact_and_non_authorizing() -> None:
     assert policy["execution_contract"]["activation"] is False
     assert policy["destination"]["publication_count"] == 1
     assert policy["receipt_contract"]["source_active"] is False
+    current_registry = NetworkAcquisitionRegistry.load(
+        REPO / "config/network_acquisition_registry.json",
+        allowed_root=REPO / "config",
+    )
+    assert policy["current_network_registry_id"] != current_registry.registry_id
 
 
 def test_policy_shape_rejects_weakened_activation() -> None:

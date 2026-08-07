@@ -19,11 +19,12 @@ from .contracts import (
 class TemporalSamples:
     """Causal ordering and label intervals for aligned observations.
 
-    ``label_start``/``label_end`` are half-open interval coordinates.  The
-    ``decision_session`` and ``label_known_session`` coordinates are integral
-    session order keys.  Equality at a held-out boundary is not treated as
-    known-before; callers needing sub-session ordering must encode it in the
-    order key.
+    ``label_start``/``label_end`` are the outcome interval coordinates. Purging
+    uses the broader half-open ``[decision_session, label_end)`` information
+    interval required by the frozen contract. ``decision_session`` and
+    ``label_known_session`` are integral session order keys. Equality at a
+    held-out boundary is not treated as known-before; callers needing
+    sub-session ordering must encode it in the order key.
     """
 
     decision_session: np.ndarray
@@ -126,12 +127,12 @@ def purge_and_post_embargo_indices(
 
     keep = np.ones(len(candidates), dtype=np.bool_)
     for position, candidate in enumerate(candidates):
-        c_start = samples.label_start[candidate]
+        c_start = samples.decision_session[candidate]
         c_end = samples.label_end[candidate]
         c_decision = samples.decision_session[candidate]
         overlap = np.any(
             (c_start < samples.label_end[heldout])
-            & (samples.label_start[heldout] < c_end)
+            & (samples.decision_session[heldout] < c_end)
         )
         embargoed = np.any(
             (samples.label_end[heldout] <= c_decision)

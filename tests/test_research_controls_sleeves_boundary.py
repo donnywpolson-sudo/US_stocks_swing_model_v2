@@ -95,7 +95,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         pbo_conservative_maximum=0.20,
     )
     stock_long = evaluate_synthetic_sleeve(
-        sleeve_id="stock-long",
+        sleeve_id="stock_long",
         metrics=_metrics(adjusted_p=0.01),
         thresholds=thresholds,
         permit=permit,
@@ -103,14 +103,14 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
     )
     with np.testing.assert_raises_regex(ValueError, "exact fixture"):
         evaluate_synthetic_sleeve(
-            sleeve_id="stock-long",
+            sleeve_id="stock_long",
             metrics=_metrics(adjusted_p=0.01),
             thresholds=thresholds,
             permit=permit,
             fixture=fixture + 1.0,
         )
     etf_short = evaluate_synthetic_sleeve(
-        sleeve_id="etf-short",
+        sleeve_id="etf_short",
         metrics=_metrics(adjusted_p=0.06),
         thresholds=thresholds,
         permit=permit,
@@ -121,7 +121,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
     assert etf_short.failed_gates == ("ROMANO_WOLF",)
 
     robustness_inconclusive = evaluate_synthetic_sleeve(
-        sleeve_id="stock-long",
+        sleeve_id="stock_long",
         metrics=replace(
             _metrics(adjusted_p=0.01),
             robustness_state=RobustnessState.MECHANICS_INCONCLUSIVE,
@@ -135,7 +135,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         is SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     )
     failure_precedes_robustness = evaluate_synthetic_sleeve(
-        sleeve_id="etf-short",
+        sleeve_id="etf_short",
         metrics=replace(
             _metrics(adjusted_p=0.06),
             robustness_state=RobustnessState.MECHANICS_INCONCLUSIVE,
@@ -148,7 +148,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
 
     with np.testing.assert_raises_regex(ValueError, "explicit real float"):
         evaluate_synthetic_sleeve(
-            sleeve_id="stock-long",
+            sleeve_id="stock_long",
             metrics=replace(_metrics(adjusted_p=0.01), mean_after_costs=True),
             thresholds=thresholds,
             permit=permit,
@@ -156,7 +156,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         )
     with np.testing.assert_raises_regex(ValueError, "exact bool"):
         evaluate_synthetic_sleeve(
-            sleeve_id="stock-long",
+            sleeve_id="stock_long",
             metrics=replace(
                 _metrics(adjusted_p=0.01), power_sufficient=np.bool_(True)
             ),
@@ -166,55 +166,51 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         )
     with np.testing.assert_raises_regex(ValueError, "explicit real"):
         evaluate_synthetic_sleeve(
-            sleeve_id="stock-long",
+            sleeve_id="stock_long",
             metrics=_metrics(adjusted_p=0.01),
             thresholds=replace(thresholds, alpha=True),
             permit=permit,
             fixture=fixture,
         )
 
+    stock_short = replace(stock_long, sleeve_id="stock_short")
+    etf_long = replace(stock_long, sleeve_id="etf_long")
+    etf_short_ready = replace(stock_long, sleeve_id="etf_short")
+    required_sleeves = ("stock_long", "stock_short", "etf_long", "etf_short")
     all_included = PortfolioCharter.create(
-        registered_sleeves=("stock-long", "etf-short"),
-        included_sleeves=("stock-long", "etf-short"),
-    )
-    assert (
-        evaluate_portfolio_mechanics(all_included, (stock_long, etf_short))
-        == PortfolioState.MECHANICS_FAIL_CLOSED
-    )
-    # An exclusion works only when it is already bound in the charter.
-    preregistered_exclusion = PortfolioCharter.create(
-        registered_sleeves=("stock-long", "etf-short"),
-        included_sleeves=("stock-long",),
+        registered_sleeves=required_sleeves,
+        included_sleeves=required_sleeves,
     )
     assert (
         evaluate_portfolio_mechanics(
-            preregistered_exclusion,
-            (stock_long, etf_short),
+            all_included,
+            (stock_long, stock_short, etf_long, etf_short),
         )
-        == PortfolioState.MECHANICS_READY
+        == PortfolioState.MECHANICS_FAIL_CLOSED
     )
+    with np.testing.assert_raises_regex(ValueError, "exact four required sleeves"):
+        PortfolioCharter.create(
+            registered_sleeves=required_sleeves,
+            included_sleeves=required_sleeves[:-1],
+        )
     with np.testing.assert_raises_regex(ValueError, "non-empty"):
         PortfolioCharter.create(
-            registered_sleeves=("stock-long", "etf-short"),
+            registered_sleeves=required_sleeves,
             included_sleeves=(),
         )
     with np.testing.assert_raises_regex(ValueError, "non-empty"):
         evaluate_portfolio_mechanics(
             PortfolioCharter(
-                registered_sleeves=("stock-long", "etf-short"),
+                registered_sleeves=required_sleeves,
                 included_sleeves=(),
                 charter_hash="0" * 64,
             ),
-            (stock_long, etf_short),
+            (stock_long, stock_short, etf_long, etf_short),
         )
-    robustness_charter = PortfolioCharter.create(
-        registered_sleeves=("stock-long", "etf-short"),
-        included_sleeves=("stock-long",),
-    )
     assert (
         evaluate_portfolio_mechanics(
-            robustness_charter,
-            (robustness_inconclusive, etf_short),
+            all_included,
+            (robustness_inconclusive, stock_short, etf_long, etf_short_ready),
         )
         is PortfolioState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     )
@@ -225,23 +221,43 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
 
     with np.testing.assert_raises_regex(ValueError, "exact SleeveState"):
         evaluate_portfolio_mechanics(
-            preregistered_exclusion,
-            (replace(stock_long, state="MECHANICS_READY"), etf_short),
+            all_included,
+            (
+                replace(stock_long, state="MECHANICS_READY"),
+                stock_short,
+                etf_long,
+                etf_short_ready,
+            ),
         )
     with np.testing.assert_raises_regex(ValueError, "terminal sleeve"):
         evaluate_portfolio_mechanics(
-            preregistered_exclusion,
-            (replace(stock_long, state=SleeveState.REGISTERED), etf_short),
+            all_included,
+            (
+                replace(stock_long, state=SleeveState.REGISTERED),
+                stock_short,
+                etf_long,
+                etf_short_ready,
+            ),
         )
     with np.testing.assert_raises_regex(ValueError, "non-failed sleeve"):
         evaluate_portfolio_mechanics(
-            preregistered_exclusion,
-            (replace(stock_long, failed_gates=("FORGED",)), etf_short),
+            all_included,
+            (
+                replace(stock_long, failed_gates=("FORGED",)),
+                stock_short,
+                etf_long,
+                etf_short_ready,
+            ),
         )
     with np.testing.assert_raises_regex(ValueError, "identify failed gates"):
         evaluate_portfolio_mechanics(
             all_included,
-            (stock_long, replace(etf_short, failed_gates=())),
+            (
+                stock_long,
+                stock_short,
+                etf_long,
+                replace(etf_short, failed_gates=()),
+            ),
         )
 
 

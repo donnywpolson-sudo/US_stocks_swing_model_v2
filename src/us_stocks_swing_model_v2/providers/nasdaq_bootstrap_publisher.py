@@ -20,7 +20,6 @@ from ..common import (
     sha256_bytes,
     sha256_file,
 )
-from ..environment import validate_environment_lock
 from ..errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from ..governance import LocalIntegrityRecord, create_local_integrity_record
 from ..releases import (
@@ -256,17 +255,9 @@ def load_nasdaq_bootstrap_publication_policy(
         != payload["preserved_historical_receipt"]["file_sha256"]
     ):
         raise ContractError("preserved Nasdaq receipt bytes changed")
-    registry = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json",
-        allowed_root=root / "config",
-    )
-    if registry.registry_id != payload["current_network_registry_id"]:
-        raise ContractError("Nasdaq bootstrap publication registry differs")
-    environment_id = validate_environment_lock(
-        root / "config" / "environment.lock.json"
-    )
-    if environment_id != payload["current_environment_id"]:
-        raise ContractError("Nasdaq bootstrap publication environment differs")
+    # The publication policy is preserved evidence for an already reviewed
+    # two-capture assessment. Its policy-time registry ID remains hash-bound;
+    # loading it must not rewrite that identity when the live registry evolves.
     return payload
 
 

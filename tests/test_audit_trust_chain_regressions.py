@@ -270,8 +270,30 @@ def test_network_response_landing_is_atomic_single_use_and_locally_verified(
             max_bytes=1024,
         )
     monkeypatch.setattr(store, "_land", original_land)
+    with pytest.raises(EvaluationAuthorizationError, match="replayed"):
+        store._land_network_response(
+            transport_evidence=response,
+            source="fixture",
+            requested_url="https://example.invalid/data",
+            response_url="https://example.invalid/data",
+            http_status=200,
+            raw=raw,
+            headers=headers,
+            clock=clock,
+            max_bytes=1024,
+        )
+
+    replacement_attempt = _attempt(registry, clock=clock)
+    replacement_response = _bind_network_response(
+        replacement_attempt,
+        requested_url="https://example.invalid/data",
+        response_url="https://example.invalid/data",
+        http_status=200,
+        raw=raw,
+        headers=headers,
+    )
     snapshot = store._land_network_response(
-        transport_evidence=response,
+        transport_evidence=replacement_response,
         source="fixture",
         requested_url="https://example.invalid/data",
         response_url="https://example.invalid/data",
@@ -285,7 +307,7 @@ def test_network_response_landing_is_atomic_single_use_and_locally_verified(
     assert snapshot.read_verified_bytes() == raw
     with pytest.raises(EvaluationAuthorizationError, match="replayed"):
         store._land_network_response(
-            transport_evidence=response,
+            transport_evidence=replacement_response,
             source="fixture",
             requested_url="https://example.invalid/data",
             response_url="https://example.invalid/data",

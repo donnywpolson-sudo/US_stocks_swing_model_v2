@@ -9,7 +9,7 @@ import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes, sha256_file
-from us_stocks_swing_model_v2.errors import ContractError, NetworkGuardError
+from us_stocks_swing_model_v2.errors import ContractError
 from us_stocks_swing_model_v2.providers.nasdaq import (
     NASDAQ_TRADED_URL,
     NasdaqCompletenessPolicy,
@@ -21,7 +21,10 @@ from us_stocks_swing_model_v2.providers.nasdaq_bootstrap import (
     load_nasdaq_bootstrap_policy,
     verify_nasdaq_bootstrap_pair,
 )
-from us_stocks_swing_model_v2.providers.snapshots import AsReceivedSnapshotStore
+from us_stocks_swing_model_v2.providers.snapshots import (
+    AsReceivedSnapshotStore,
+    NetworkAcquisitionRegistry,
+)
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -111,6 +114,14 @@ def test_checked_in_bootstrap_policy_binds_fresh_a_and_preserved_receipt() -> No
     )
     assert policy.preserved_record_count == 13050
     assert policy.preserved_receipt_file_sha256 == sha256_file(preserved)
+    assert policy.network_registry_id == (
+        "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f"
+    )
+    current_registry = NetworkAcquisitionRegistry.load(
+        REPO / "config/network_acquisition_registry.json",
+        allowed_root=REPO / "config",
+    )
+    assert current_registry.registry_id != policy.network_registry_id
     assert preserved.read_bytes() == before
     payload = json.loads(
         (REPO / "config" / "nasdaq_bootstrap_policy.json").read_text(
@@ -205,18 +216,4 @@ def test_pair_applies_a_to_b_count_limits_not_preserved_old_count(
             snapshot_a,
             snapshot_b,
             policy=policy,
-        )
-
-
-    assert '"source_activation": false' in output
-
-    with pytest.raises(NetworkGuardError, match="does not accept a historical prior"):
-        qualification_main(
-            [
-                "--verify-nasdaq-bootstrap-pair",
-                str(tmp_path / "a"),
-                str(tmp_path / "b"),
-                "--prior-nasdaq-accepted-record-count",
-                "13050",
-            ]
         )

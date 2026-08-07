@@ -33,7 +33,7 @@ operational rules.
 | Source | Current role |
 |---|---|
 | Alpaca historical archive | Caveated legacy evidence with unresolved universe selection |
-| Alpaca Basic SIP | Sole candidate bar feed; pending single-feed requalification |
+| Alpaca Basic SIP | Sole qualified bar feed; non-active pending prospective smoke capture and activation |
 | Alpaca assets and Nasdaq Trader | Identity evidence, not bar or research authority |
 | Alpha Vantage and options data | Excluded |
 

@@ -31,6 +31,14 @@ class PortfolioState(str, Enum):
     MECHANICS_FAIL_CLOSED = "MECHANICS_FAIL_CLOSED"
 
 
+REQUIRED_SLEEVES = (
+    "stock_long",
+    "stock_short",
+    "etf_long",
+    "etf_short",
+)
+
+
 @dataclass(frozen=True)
 class SleeveThresholds:
     alpha: float
@@ -109,8 +117,10 @@ class PortfolioCharter:
         included = require_unique_ascii_ids(
             self.included_sleeves, name="included_sleeves"
         )
-        if not set(included).issubset(set(registered)):
-            raise ResearchContractError("included sleeves must be preregistered")
+        if registered != REQUIRED_SLEEVES or included != REQUIRED_SLEEVES:
+            raise ResearchContractError(
+                "portfolio charter must include the exact four required sleeves"
+            )
         payload = ("\0".join(registered) + "\1" + "\0".join(included)).encode("ascii")
         expected = hashlib.sha256(payload).hexdigest()
         if self.charter_hash != expected:
@@ -127,8 +137,10 @@ class PortfolioCharter:
             registered_sleeves, name="registered_sleeves"
         )
         included = require_unique_ascii_ids(included_sleeves, name="included_sleeves")
-        if not set(included).issubset(set(registered)):
-            raise ResearchContractError("included sleeves must be preregistered")
+        if registered != REQUIRED_SLEEVES or included != REQUIRED_SLEEVES:
+            raise ResearchContractError(
+                "portfolio charter must include the exact four required sleeves"
+            )
         payload = ("\0".join(registered) + "\1" + "\0".join(included)).encode("ascii")
         return cls(
             registered_sleeves=registered,

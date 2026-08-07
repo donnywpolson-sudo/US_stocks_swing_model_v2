@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.5.0-alpaca-only-prospective",
+  "contract_version": "1.5.1-qualified-sip-non-active",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -69,7 +69,7 @@
   },
   "production_evidence_anchors": {
     "legacy_alpaca_archive_status": "CAVEATED_UNRESOLVED_UNIVERSE_SELECTION",
-    "prospective_sip_status": "PENDING_SINGLE_FEED_REQUALIFICATION",
+    "prospective_sip_status": "QUALIFIED_SIP_NOT_ACTIVE_PENDING_PROSPECTIVE_SMOKE_AND_ACTIVATION",
     "external_worm_anchor_status": "NOT_CONFIGURED_BLOCKS_PRODUCTION",
     "trial_census_exact_status": "INDETERMINATE_BLOCKS_TRUSTED_GATE",
     "eligibility_census_materializer_status": "NOT_IMPLEMENTED_BLOCKS_PRODUCTION",

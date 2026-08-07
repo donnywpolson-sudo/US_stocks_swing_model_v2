@@ -374,7 +374,7 @@ def _qualification_binding(
         or request["qualified_feed"] != "sip"
         or contract["qualification_receipt"] is None
     ):
-        raise IntegrityError("SIP is pending single-feed requalification")
+        raise IntegrityError("qualified-but-non-active SIP binding is unavailable")
     return {
         "receipt_id": str(contract["qualification_receipt"]),
         "selected_feed": "sip",

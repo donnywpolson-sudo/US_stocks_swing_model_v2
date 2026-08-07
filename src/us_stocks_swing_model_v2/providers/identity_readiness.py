@@ -324,12 +324,9 @@ def load_identity_readiness_policy(
     unsigned = {key: value for key, value in policy.items() if key != "policy_id"}
     if policy["policy_id"] != sha256_bytes(canonical_json_bytes(unsigned)):
         raise ContractError("Nasdaq identity readiness policy ID differs")
-    registry = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json",
-        allowed_root=root / "config",
-    )
-    if registry.registry_id != policy["network_registry_id"]:
-        raise ContractError("identity readiness network registry differs")
+    # ``network_registry_id`` belongs to the preserved implementation
+    # authorization plan. Live owner-operated request plans bind the current
+    # registry independently when they are created.
     if (
         validate_environment_lock(root / "config" / "environment.lock.json")
         != policy["environment_id"]
@@ -731,8 +728,6 @@ def assess_identity_inputs(
         root / "config" / "network_acquisition_registry.json",
         allowed_root=root / "config",
     )
-    if registry.registry_id != policy["network_registry_id"]:
-        raise ContractError("identity assessment registry differs")
     store = AsReceivedSnapshotStore(
         expected_store,
         allowed_root=root,

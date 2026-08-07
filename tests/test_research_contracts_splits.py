@@ -111,15 +111,16 @@ def test_half_open_purge_and_post_embargo_oracle() -> None:
     candidates = np.asarray([0, 1, 3, 4], dtype=np.int64)
     heldout = np.asarray([2], dtype=np.int64)
 
-    # [3,5) ends at the held-out [5,6) boundary; [7,9) does not overlap but its
-    # decision is in post-embargo [6,8); decision 8 is boundary-safe.
+    # Outcome intervals [3,5) and [5,6) only touch, but their broader frozen
+    # purge intervals [2,5) and [4,6) overlap from decision time. [6,9) starts
+    # at the held-out end but is in post-embargo [6,8); decision 8 is safe.
     actual = purge_and_post_embargo_indices(
         samples,
         candidates,
         heldout,
         post_embargo_sessions=2,
     )
-    np.testing.assert_array_equal(actual, np.asarray([0, 1, 4], dtype=np.int64))
+    np.testing.assert_array_equal(actual, np.asarray([0, 4], dtype=np.int64))
 
 
 def test_nested_chronological_split_has_strict_known_before_and_session_gap() -> None:

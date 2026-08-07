@@ -303,6 +303,36 @@ class TrialPermit:
             raise EvaluationAuthorizationError("trial permit time authority is invalid")
 
 
+def validate_trial_evidence_roles(spec: TrialSpec) -> None:
+    """Apply the same release-role ceiling at every trial-registry boundary."""
+
+    pass_roles = {
+        "active_historical",
+        "prospective_as_received",
+        "derived_causal",
+        "feature_only",
+        "outcome_only",
+    }
+    for binding in spec.release_bindings:
+        if binding.role == "qualification_evidence_only":
+            raise ContractError("qualification evidence can never enter a trial")
+        if spec.evidence_class == "PROSPECTIVE_FINAL":
+            if binding.role not in pass_roles or binding.quality_state != "PASS":
+                raise ContractError(
+                    "prospective final evidence requires PASS trust-eligible releases"
+                )
+        elif not (
+            (
+                binding.role == "legacy_discovery_only"
+                and binding.quality_state == "LEGACY_CAVEATED"
+            )
+            or (binding.role in pass_roles and binding.quality_state == "PASS")
+        ):
+            raise ContractError(
+                "historical discovery release role/quality is not eligible"
+            )
+
+
 class TrialRegistry:
     def __init__(
         self,
@@ -403,24 +433,7 @@ class TrialRegistry:
 
     @staticmethod
     def _validate_evidence_roles(spec: TrialSpec) -> None:
-        pass_roles = {
-            "active_historical",
-            "prospective_as_received",
-            "derived_causal",
-            "feature_only",
-            "outcome_only",
-        }
-        for binding in spec.release_bindings:
-            if binding.role == "qualification_evidence_only":
-                raise ContractError("qualification evidence can never enter a trial")
-            if spec.evidence_class == "PROSPECTIVE_FINAL":
-                if binding.role not in pass_roles or binding.quality_state != "PASS":
-                    raise ContractError("prospective final evidence requires PASS trust-eligible releases")
-            elif not (
-                (binding.role == "legacy_discovery_only" and binding.quality_state == "LEGACY_CAVEATED")
-                or (binding.role in pass_roles and binding.quality_state == "PASS")
-            ):
-                raise ContractError("historical discovery release role/quality is not eligible")
+        validate_trial_evidence_roles(spec)
 
     def authorize(self, trial_id: str) -> Mapping[str, Any]:
         registered = [

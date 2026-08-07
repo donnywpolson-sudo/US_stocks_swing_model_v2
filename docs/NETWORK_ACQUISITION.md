@@ -6,9 +6,10 @@ bounded request plan, timeout, response cap, and stop condition.
 
 The only candidate bar request is Alpaca SIP with `timeframe=1Day`,
 `adjustment=raw`, ascending sort, no `asof`, and a minimum 20-minute end lag.
-SIP is pending separately authorized single-feed requalification and no bar
-source is active. A failure ends the attempt without retry unless a later
-authorization defines recovery.
+SIP has one accepted qualification receipt but remains non-active. The next bar
+gate is a separately authorized prospective smoke capture; activation remains
+a later independent gate. A failure ends the attempt without retry unless a
+later authorization defines recovery.
 
 Identity capture first lands complete Nasdaq bytes and Alpaca asset evidence.
 Prospective raw bars may be captured only after the corresponding accepted

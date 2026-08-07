@@ -514,6 +514,5 @@ def _consume_network_response(
             headers=headers,
             max_response_bytes=max_response_bytes,
         )
-        result = commit()
         issued["consumed"] = True
-        return result
+        return commit()

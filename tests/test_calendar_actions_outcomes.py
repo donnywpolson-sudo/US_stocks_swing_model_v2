@@ -100,6 +100,30 @@ def _provider_coverage() -> CorporateActionCoverageEvidence:
     )
 
 
+def _network_provider_coverage() -> CorporateActionCoverageEvidence:
+    unsigned = {
+        "schema_version": 2,
+        "coverage_semantics": PROCESS_DATE_ACQUISITION_COVERAGE,
+        "process_date_start": "2026-07-01",
+        "process_date_end": "2026-07-13",
+        "requested_at": "2026-07-13T00:00:00Z",
+        "requested_symbols": ["ABC"],
+        "completed_at": "2026-07-13T01:00:00Z",
+        "snapshot_ids": ["a" * 64],
+        "acquisition_mode": "NETWORK_AS_RECEIVED",
+        "evidence_state": "NETWORK_AS_RECEIVED",
+        "acquisition_capability_ids": ["b" * 64],
+        "synthetic_permit_ids": [],
+        "source_epoch": CORPORATE_ACTION_SOURCE_EPOCH,
+    }
+    return CorporateActionCoverageEvidence.from_dict(
+        {
+            **unsigned,
+            "coverage_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        }
+    )
+
+
 def _governed_coverage() -> tuple[
     GovernedEffectiveEventCoverage,
     TrustedClock,
@@ -128,6 +152,36 @@ def _governed_coverage() -> tuple[
         clock=clock,
     )
     return governed, clock
+
+
+def test_production_process_date_coverage_cannot_clear_effective_event_adapter() -> None:
+    prepared = prepare_effective_event_coverage(
+        _network_provider_coverage(),
+        effective_start_session=date(2026, 7, 7),
+        effective_end_session=date(2026, 7, 13),
+        asset_scope="EXACT_ASSET_IDS",
+        asset_ids=("asset-1",),
+        reviewed_at=AS_OF,
+        source_release_id="0" * 64,
+        provider_contract_id="1" * 64,
+        late_arrival_policy_id="2" * 64,
+    )
+    clock = TrustedClock.production()
+    authorization = create_local_integrity_record(
+        scope=AUTHORIZE_EFFECTIVE_EVENT_COMPLETENESS,
+        subject_id=prepared.coverage.coverage_content_id,
+        bindings=prepared.authorization_bindings(),
+        clock=clock,
+    )
+    with pytest.raises(
+        ContractError,
+        match="process-date evidence cannot be effective-event/delisting-complete",
+    ):
+        authorize_effective_event_coverage(
+            prepared,
+            authorization=authorization,
+            clock=clock,
+        )
 
 
 def _coverage(permit: SyntheticOnlyPermit) -> CorporateActionCoverage:
@@ -684,7 +738,7 @@ def test_verified_zero_action_release_preserves_explicit_coverage(
         date(2026, 7, 13),
         AS_OF,
     )
-    assert ledger.trust_eligible is True
+    assert ledger.trust_eligible is False
 
 
 def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_gate(
@@ -739,7 +793,7 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
         accepted_release_root=governed_root,
         clock=clock,
     )
-    assert governed_actions.trust_eligible is True
+    assert governed_actions.trust_eligible is False
 
     calendar = _calendar()
     bar_source_epoch = "fixture_bars_v1"
@@ -833,12 +887,6 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
         )
     assert not legacy_outcomes._ledger.path.exists()
 
-    class TrustedActionGateReached(Exception):
-        pass
-
-    def trusted_gate_reached(*args: object, **kwargs: object) -> object:
-        raise TrustedActionGateReached
-
     governed_prediction = prediction_for(governed_actions.release_id)
     governed_predictions = SimpleNamespace(
         verify=lambda _: [{"payload": governed_prediction.as_dict()}]
@@ -848,14 +896,13 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
         "BitemporalActionLedger",
         lambda *args, **kwargs: governed_actions,
     )
-    monkeypatch.setattr(ledger_module, "build_outcome", trusted_gate_reached)
     governed_outcomes = OutcomeLedger(
         tmp_path / "governed-outcomes" / "outcomes.jsonl",
         governed_predictions,
         anchor_root=tmp_path / "governed-outcome-anchors",
         clock=clock,
     )
-    with pytest.raises(TrustedActionGateReached):
+    with pytest.raises(ContractError, match="trust-eligible corporate-action"):
         governed_outcomes.mature_from_releases(
             governed_prediction.prediction_id,
             prediction_anchor=tmp_path / "prediction-anchor",
@@ -864,6 +911,7 @@ def test_public_outcome_maturation_rejects_legacy_actions_and_accepts_governed_g
             bar_release_directory=tmp_path / "bar-release",
             action_release_directory=governed_release,
         )
+    assert not governed_outcomes._ledger.path.exists()
 
 
 @pytest.mark.parametrize(

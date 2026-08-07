@@ -21,7 +21,7 @@ from .nasdaq import (
     NasdaqCompletenessPolicy,
     _parse_nasdaq_traded_absolute,
 )
-from .snapshots import LandedSnapshot, NetworkAcquisitionRegistry
+from .snapshots import LandedSnapshot
 
 
 PROJECT = "US_stocks_swing_model_v2"
@@ -289,12 +289,11 @@ def load_nasdaq_bootstrap_policy(
         or preserved_payload.get("record_count") != preserved["record_count"]
     ):
         raise ContractError("preserved Nasdaq comparison metadata differs")
-    registry = NetworkAcquisitionRegistry.load(
-        root / "config" / "network_acquisition_registry.json",
-        allowed_root=root / "config",
-    )
-    if registry.registry_id != payload["network_registry_id"]:
-        raise ContractError("Nasdaq bootstrap network registry binding differs")
+    # This is the immutable registry identity used by the historical two-capture
+    # evidence. Actual production snapshots must still revalidate their exact
+    # acquisition capability against that identity in
+    # ``verify_nasdaq_bootstrap_pair``; the mutable current registry is not a
+    # reason to relabel the historical policy.
     policy = NasdaqBootstrapPolicy(
         policy_id=policy_id,
         status=payload["status"],
