@@ -12,6 +12,7 @@ from us_stocks_swing_model_v2.master_audit import (
     GROUP_FOOTER,
     FileBinding,
     _accepted_release_binding,
+    _command_contract,
     _secret_like,
     _tracked_paths,
     build_dispatch,
@@ -212,6 +213,22 @@ def test_compact_dispatch_binds_commands_and_all_false_authorities() -> None:
     assert set(first["authorities"].values()) == {False}
     unsigned = {key: value for key, value in first.items() if key != "dispatch_id"}
     assert first["dispatch_id"] == sha256_bytes(canonical_json_bytes(unsigned))
+
+
+def test_full_test_command_keeps_complete_failures_transport_bounded() -> None:
+    policy = load_policy(REPO)
+    contract = _command_contract(
+        root=REPO,
+        target_state="REBUILD_COMPLETE",
+        group_count=1,
+        policy=policy,
+    )
+    command = next(
+        item for item in contract["commands"] if item["name"] == "RunFullTests"
+    )
+    assert command["argv"][-2:] == ["-q", "--tb=line"]
+    assert command["expected_exit"] == "REPORTABLE_NONZERO"
+    assert command["output_max_utf8_bytes"] == 200000
 
 
 def test_master_audit_cli_source_has_direct_entrypoint() -> None:

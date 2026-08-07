@@ -480,12 +480,12 @@ def _command_contract(
             },
             {
                 "name": "RunFullTests",
-                "argv": [python, "-m", "pytest", "-q"],
+                "argv": [python, "-m", "pytest", "-q", "--tb=line"],
                 "cwd": str(root),
                 "run_limit": 1,
                 "timeout_seconds": timeouts["full_test_timeout_seconds"],
                 "expected_exit": "REPORTABLE_NONZERO",
-                "output_max_utf8_bytes": 2000000,
+                "output_max_utf8_bytes": 200000,
             },
             {
                 "name": "GitDiffCheck",

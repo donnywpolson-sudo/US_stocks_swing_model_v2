@@ -125,6 +125,8 @@ a reportable audit result; process failure, timeout, undeclared output, or
 environment drift stops the invocation. Review false-pass paths for stale
 hashes, source-role drift, recursive discovery, hidden denominator loss,
 post-outcome selection, retry, secret exposure, and authority conflation.
+The command uses pytest's one-line traceback mode so every failing node and
+error remains complete within the reviewer transport bound.
 
 ### G8 - Decision and remediation classification
 
