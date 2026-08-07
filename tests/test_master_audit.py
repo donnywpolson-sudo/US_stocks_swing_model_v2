@@ -31,6 +31,13 @@ REPO = Path(__file__).parents[1]
 
 def test_checked_in_master_audit_policy_is_current_and_no_write() -> None:
     policy = load_policy(REPO)
+    tracked_paths = _tracked_paths(REPO, policy)
+    tracked_policy = policy["tracked_corpus"]
+    assert len(tracked_paths) == tracked_policy["expected_path_count"]
+    assert (
+        sha256_bytes(canonical_json_bytes(tracked_paths))
+        == tracked_policy["expected_paths_sha256"]
+    )
     assert policy["mode"] == "MASTER_AUDIT_PLAN_ONLY_NO_WRITES"
     assert set(policy["targets"]) == {
         "REBUILD_COMPLETE",
