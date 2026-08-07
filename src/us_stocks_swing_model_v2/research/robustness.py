@@ -198,8 +198,10 @@ def evaluate_variant_stability(
     policy.validate()
     if type(base_effect) is not float or not math.isfinite(base_effect) or base_effect <= 0.0:
         raise ResearchContractError("base effect must be a finite positive explicit float")
-    if type(variants) is not tuple or not variants:
-        raise ResearchContractError("registered stability variants must be nonempty")
+    if type(variants) is not tuple or len(variants) != policy.seed_count:
+        raise ResearchContractError(
+            "registered stability variant census must exactly match seed_count"
+        )
     ids = tuple(item.variant_id for item in variants)
     if any(type(value) is not str or not value.isascii() or not value for value in ids) or len(set(ids)) != len(ids):
         raise ResearchContractError("variant IDs must be unique nonempty ASCII strings")

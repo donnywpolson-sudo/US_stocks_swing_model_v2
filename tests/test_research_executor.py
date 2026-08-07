@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import builtins
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 import hashlib
 import importlib
@@ -10,11 +12,13 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 from types import SimpleNamespace
 import urllib.request
 
 import numpy as np
 import pytest
+from scipy import io as scipy_io
 
 import us_stocks_swing_model_v2.inference as inference_module
 from us_stocks_swing_model_v2.inference import LinearDistributionArtifact
@@ -76,11 +80,12 @@ def _fit_free_ast_violations(
     return tuple(sorted(violations))
 
 
+@contextmanager
 def _install_executor_io_guards(
     monkeypatch: pytest.MonkeyPatch,
     *,
     modules: tuple[object, ...],
-) -> None:
+) -> Iterator[None]:
     """Intercept reviewed runtime I/O capabilities and already-imported aliases."""
 
     targets = (
@@ -100,6 +105,8 @@ def _install_executor_io_guards(
         ("subprocess.check_call", subprocess, "check_call"),
         ("subprocess.check_output", subprocess, "check_output"),
         ("urllib.request.urlopen", urllib.request, "urlopen"),
+        ("scipy.io.loadmat", scipy_io, "loadmat"),
+        ("scipy.io.savemat", scipy_io, "savemat"),
     )
     original_labels = {
         id(getattr(owner, attribute)): label
@@ -121,6 +128,21 @@ def _install_executor_io_guards(
                 monkeypatch.setattr(module, name, guard(f"imported_alias:{name}->{label}"))
     for label, owner, attribute in targets:
         monkeypatch.setattr(owner, attribute, guard(label))
+
+    active = {"enabled": True}
+
+    def audit_guard(event: str, args: tuple[object, ...]) -> None:
+        if active["enabled"] and event == "open":
+            raise AssertionError(
+                "synthetic public executor attempted prohibited I/O capability: "
+                "audit:open"
+            )
+
+    sys.addaudithook(audit_guard)
+    try:
+        yield
+    finally:
+        active["enabled"] = False
 
 
 def _dataset(*, seed: int = 17, signal: bool = True, n: int = 110) -> SyntheticResearchDataset:
@@ -531,6 +553,7 @@ def test_execution_rejects_separately_consistent_evaluation_census_replacement()
 
 def test_public_executor_runtime_capability_surface_excludes_outer_labels_and_io(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     import us_stocks_swing_model_v2.research.executor as executor_module
 
@@ -558,7 +581,9 @@ def test_public_executor_runtime_capability_surface_excludes_outer_labels_and_io
         process_alias=subprocess.run,
         network_alias=urllib.request.urlopen,
     )
-    _install_executor_io_guards(
+    scipy_path = tmp_path / "forbidden.mat"
+    ndarray_path = tmp_path / "forbidden.bin"
+    with _install_executor_io_guards(
         monkeypatch,
         modules=(
             executor_module,
@@ -567,30 +592,39 @@ def test_public_executor_runtime_capability_surface_excludes_outer_labels_and_io
             inference_module,
             imported_aliases,
         ),
-    )
+    ):
+        representative_attempts = (
+            (lambda: builtins.open("forbidden"), "builtins.open"),
+            (lambda: os.open("forbidden", os.O_RDONLY), "os.open"),
+            (lambda: Path("forbidden").read_bytes(), "Path.read_bytes"),
+            (lambda: subprocess.run(("forbidden",), check=False), "subprocess.run"),
+            (lambda: socket.create_connection(("127.0.0.1", 1)), "socket.create_connection"),
+            (lambda: urllib.request.urlopen("https://example.invalid"), "urllib.request.urlopen"),
+            (lambda: imported_aliases.file_alias("forbidden"), "imported_alias:file_alias"),
+            (
+                lambda: imported_aliases.process_alias(("forbidden",), check=False),
+                "imported_alias:process_alias",
+            ),
+            (
+                lambda: imported_aliases.network_alias("https://example.invalid"),
+                "imported_alias:network_alias",
+            ),
+            (
+                lambda: scipy_io.savemat(scipy_path, {"x": np.asarray([1.0])}),
+                "scipy.io.savemat",
+            ),
+            (
+                lambda: np.asarray([1.0]).tofile(ndarray_path),
+                "builtins.open|audit:open",
+            ),
+        )
+        for attempt, diagnostic in representative_attempts:
+            with pytest.raises(AssertionError, match=diagnostic):
+                attempt()
 
-    representative_attempts = (
-        (lambda: builtins.open("forbidden"), "builtins.open"),
-        (lambda: os.open("forbidden", os.O_RDONLY), "os.open"),
-        (lambda: Path("forbidden").read_bytes(), "Path.read_bytes"),
-        (lambda: subprocess.run(("forbidden",), check=False), "subprocess.run"),
-        (lambda: socket.create_connection(("127.0.0.1", 1)), "socket.create_connection"),
-        (lambda: urllib.request.urlopen("https://example.invalid"), "urllib.request.urlopen"),
-        (lambda: imported_aliases.file_alias("forbidden"), "imported_alias:file_alias"),
-        (
-            lambda: imported_aliases.process_alias(("forbidden",), check=False),
-            "imported_alias:process_alias",
-        ),
-        (
-            lambda: imported_aliases.network_alias("https://example.invalid"),
-            "imported_alias:network_alias",
-        ),
-    )
-    for attempt, diagnostic in representative_attempts:
-        with pytest.raises(AssertionError, match=diagnostic):
-            attempt()
-
-    result = _execute(_dataset(), one_fold=True)
+        result = _execute(_dataset(), one_fold=True)
+    assert not scipy_path.exists()
+    assert not ndarray_path.exists()
     assert observed_fields
     assert result.state == "SYNTHETIC_MECHANICS_ONLY"
     assert result.alpha_evidence is False

@@ -491,6 +491,20 @@ class TrialRegistry:
             self._require_closed_outer_pass(trial_id)
         else:
             raise EvaluationAuthorizationError("evaluation scope is invalid")
+        permit_history = self.permits.read_verified()
+        if any(
+            row["payload"].get("trial_id") == trial_id
+            and row["payload"].get("evaluation_scope") == evaluation_scope
+            for row in permit_history
+        ):
+            raise EvaluationAuthorizationError(
+                "evaluation scope already has an issued permit for this trial"
+            )
+        permit_head = (
+            permit_history[-1]["record_hash"]
+            if permit_history
+            else "0" * 64
+        )
         registration_hash = sha256_bytes(canonical_json_bytes(registration))
         required_bindings = {
             "trial_registry_binding_id": self.registry_binding_id,
@@ -535,7 +549,12 @@ class TrialRegistry:
         }
         permit = TrialPermit(**unsigned, permit_id=sha256_bytes(canonical_json_bytes(unsigned)))
         permit.validate()
-        self.permits.append(permit.as_dict(), unique_key="permit_id")
+        self.permits.append(
+            permit.as_dict(),
+            unique_key="permit_id",
+            expected_record_count=len(permit_history),
+            expected_head_hash=permit_head,
+        )
         return permit
 
     def _require_closed_outer_pass(self, trial_id: str) -> None:

@@ -296,6 +296,10 @@ FORBIDDEN_IO_CALL_NAMES = {
     "write_parquet",
     "write_text",
 }
+NDARRAY_IO_CALL_NAMES = {
+    "dump",
+    "tofile",
+}
 FORBIDDEN_IMPORT_ROOTS = {
     "aiohttp",
     "http",
@@ -305,6 +309,9 @@ FORBIDDEN_IMPORT_ROOTS = {
     "requests",
     "socket",
     "urllib",
+}
+FORBIDDEN_IMPORT_PREFIXES = {
+    "scipy.io",
 }
 NUMPY_IO_CALL_NAMES = {
     "DataSource",
@@ -401,11 +408,16 @@ def _research_capability_violations(
             return f"{base}.{node.attr}" if base else ""
         return ""
 
-    def is_numpy_io_capability(node: ast.AST) -> bool:
+    def is_library_io_capability(node: ast.AST) -> bool:
         resolved = resolved_import_path(node)
         return (
-            resolved.startswith("numpy.")
-            and resolved.rsplit(".", maxsplit=1)[-1] in NUMPY_IO_CALL_NAMES
+            (
+                resolved.startswith("numpy.")
+                and resolved.rsplit(".", maxsplit=1)[-1]
+                in NUMPY_IO_CALL_NAMES
+            )
+            or resolved == "scipy.io"
+            or resolved.startswith("scipy.io.")
         )
 
     violations: set[str] = set()
@@ -428,7 +440,14 @@ def _research_capability_violations(
             modules = ()
         for module in modules:
             root = module.split(".", maxsplit=1)[0]
-            if root in FORBIDDEN_IMPORT_ROOTS or root not in ALLOWED_IMPORT_ROOTS:
+            if (
+                root in FORBIDDEN_IMPORT_ROOTS
+                or root not in ALLOWED_IMPORT_ROOTS
+                or any(
+                    module == prefix or module.startswith(f"{prefix}.")
+                    for prefix in FORBIDDEN_IMPORT_PREFIXES
+                )
+            ):
                 violations.add(f"{relative}:{line}:import:{module}")
 
         if isinstance(node, ast.Call):
@@ -459,7 +478,8 @@ def _research_capability_violations(
             if (
                 call_name == "fit"
                 or call_name in FORBIDDEN_IO_CALL_NAMES
-                or is_numpy_io_capability(node.func)
+                or call_name in NDARRAY_IO_CALL_NAMES
+                or is_library_io_capability(node.func)
                 or forbidden_dynamic
             ):
                 violations.add(f"{relative}:{line}:call:{call_name}")
@@ -476,7 +496,8 @@ def _research_capability_violations(
             if (
                 node.attr == "fit"
                 or node.attr in FORBIDDEN_IO_CALL_NAMES
-                or is_numpy_io_capability(node)
+                or node.attr in NDARRAY_IO_CALL_NAMES
+                or is_library_io_capability(node)
             ):
                 violations.add(f"{relative}:{line}:reference:{node.attr}")
         elif isinstance(node, ast.Name):
@@ -499,7 +520,8 @@ def _research_capability_violations(
             if (
                 (
                     node.id in FORBIDDEN_DYNAMIC_NAMES | {"open"}
-                    or is_numpy_io_capability(node)
+                    or node.id in NDARRAY_IO_CALL_NAMES
+                    or is_library_io_capability(node)
                 )
                 and not parent_is_allowed_call
             ):
@@ -628,9 +650,14 @@ def test_research_capability_ast_allows_package_relative_imports(
         "from numpy import memmap as mapped\nvalues = mapped('history.bin')",
         "from numpy import fromfile\nvalues = fromfile('history.bin')",
         "import numpy.lib.format as fmt\nvalues = fmt.open_memmap('history.npy')",
+        "import numpy as np\nvalues = np.asarray([1.0])\nvalues.tofile('history.bin')",
+        "import numpy as np\nvalues = np.asarray([1.0])\nvalues.dump('history.pkl')",
+        "import scipy.io as sio\nsio.savemat('history.mat', {'x': [1.0]})",
+        "from scipy import io as sio\nsio.savemat('history.mat', {'x': [1.0]})",
+        "from scipy.io import savemat as write_mat\nwrite_mat('history.mat', {'x': [1.0]})",
     ],
 )
-def test_research_capability_ast_rejects_resolved_numpy_io(
+def test_research_capability_ast_rejects_resolved_library_io(
     source: str,
 ) -> None:
     assert _research_capability_violations(

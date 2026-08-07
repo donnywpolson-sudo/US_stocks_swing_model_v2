@@ -1246,6 +1246,8 @@ def _final_permit(
     *,
     initial_holdout,
     permit_issued_at: datetime = datetime(2026, 7, 15, 3, tzinfo=timezone.utc),
+    evaluation_input_hash: str = "a" * 64,
+    evaluator_code_hash: str = "b" * 64,
 ):
     registration = registry.authorize(trial_id)
     registration_hash = sha256_bytes(canonical_json_bytes(registration))
@@ -1259,8 +1261,8 @@ def _final_permit(
         "trial_registry_binding_id": registry.registry_binding_id,
         "registration_hash": registration_hash,
         "evaluation_scope": "FINAL_HOLDOUT",
-        "evaluation_input_hash": "a" * 64,
-        "evaluator_code_hash": "b" * 64,
+        "evaluation_input_hash": evaluation_input_hash,
+        "evaluator_code_hash": evaluator_code_hash,
         "evaluator_closure_hash": spec.evaluator_closure_hash,
         "census_anchor_id": spec.census_anchor_id,
         "trial_family_anchor_id": spec.trial_family_anchor_id,
@@ -1279,8 +1281,8 @@ def _final_permit(
     permit = registry.with_clock(_clock(permit_issued_at)).issue_permit(
         trial_id,
         evaluation_scope="FINAL_HOLDOUT",
-        evaluation_input_hash="a" * 64,
-        evaluator_code_hash="b" * 64,
+        evaluation_input_hash=evaluation_input_hash,
+        evaluator_code_hash=evaluator_code_hash,
         holdout_receipt=unlocked,
         initial_holdout_receipt=initial_holdout,
         action_record=authorization,
@@ -1525,6 +1527,17 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
     )
     assert final_permit.evaluation_scope == "FINAL_HOLDOUT"
     assert final_permit.holdout_receipt_id == unlocked.receipt_id
+    with pytest.raises(EvaluationAuthorizationError, match="already has an issued permit"):
+        _final_permit(
+            registry,
+            spec,
+            trial_id,
+            initial_holdout=holdout,
+            permit_issued_at=datetime(2026, 7, 15, 4, tzinfo=timezone.utc),
+            evaluation_input_hash="c" * 64,
+            evaluator_code_hash="d" * 64,
+        )
+    assert len(registry.permits.read_verified()) == 2
 
     malformed_path = governance_root / "malformed-trials.jsonl"
     malformed = TrialRegistry(

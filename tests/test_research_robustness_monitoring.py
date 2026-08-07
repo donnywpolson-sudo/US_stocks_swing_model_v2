@@ -24,6 +24,7 @@ from us_stocks_swing_model_v2.monitoring_policy import (
 )
 from us_stocks_swing_model_v2.research import (
     FoldEffect,
+    ResearchContractError,
     RobustnessState,
     SourceEpochEffect,
     SourceEpochPolicy,
@@ -130,6 +131,27 @@ def test_temporal_and_variant_gates_are_binding_inconclusive(mechanics) -> None:
 
     assert deterministic_stability_seeds("a" * 64) == deterministic_stability_seeds("a" * 64)
     assert verify_deterministic_repeat("1" * 64, "1" * 64)
+
+
+@pytest.mark.parametrize("variant_count", (1, 4, 6))
+def test_variant_stability_rejects_incomplete_or_expanded_census(
+    mechanics,
+    variant_count: int,
+) -> None:
+    fixture, permit = mechanics
+    variants = tuple(
+        VariantEffect(f"variant-{index}", 1.0)
+        for index in range(variant_count)
+    )
+
+    with pytest.raises(ResearchContractError, match="census.*seed_count"):
+        evaluate_variant_stability(
+            base_effect=1.0,
+            variants=variants,
+            policy=StabilityPolicy(),
+            permit=permit,
+            fixture=fixture,
+        )
 
 
 def test_single_temporal_fold_is_controlled_inconclusive(mechanics) -> None:
