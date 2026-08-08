@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Iterable
 
-from .common import canonical_json_bytes, require_aware_utc, sha256_bytes
+from .common import (
+    canonical_json_bytes,
+    require_aware_utc,
+    require_sha256,
+    sha256_bytes,
+)
 from .corporate_actions import BitemporalActionLedger
 from .errors import ContractError
 
@@ -67,7 +72,34 @@ class CoverageAssessment:
             and self.status == COMPLETE
         )
 
+    def validate(self) -> None:
+        CoverageRequirement(
+            self.asset_id,
+            self.start_session,
+            self.end_session,
+        ).validate()
+        if (
+            type(self.action_coverage_complete) is not bool
+            or type(self.delisting_coverage_complete) is not bool
+        ):
+            raise ContractError("coverage assessment flags must be boolean")
+        covered = self.action_coverage_complete and self.delisting_coverage_complete
+        if self.action_coverage_complete != self.delisting_coverage_complete:
+            raise ContractError(
+                "governed effective-event coverage must bind actions and delistings together"
+            )
+        if covered:
+            if self.status != COMPLETE or self.reason is not None:
+                raise ContractError("complete coverage assessment state differs")
+        elif (
+            self.status != UNRESOLVED
+            or self.reason
+            != "effective-event coverage is unavailable by the evidence cutoff"
+        ):
+            raise ContractError("unresolved coverage assessment state differs")
+
     def as_dict(self) -> dict[str, object]:
+        self.validate()
         return {
             "asset_id": self.asset_id,
             "start_session": self.start_session.isoformat(),
@@ -98,6 +130,29 @@ class ProspectiveCoverageCensus:
             "trust_eligible": self.trust_eligible,
             "assessments": [item.as_dict() for item in self.assessments],
         }
+
+    def validate(self) -> None:
+        require_sha256(self.action_release_id, "coverage_census.action_release_id")
+        if type(self.source_epoch) is not str or not self.source_epoch:
+            raise ContractError("coverage census source_epoch is required")
+        require_aware_utc(self.evidence_view_as_of, "coverage_census.evidence_view_as_of")
+        if type(self.trust_eligible) is not bool:
+            raise ContractError("coverage census trust state must be boolean")
+        if type(self.assessments) is not tuple or not self.assessments:
+            raise ContractError("coverage census assessments must be a nonempty tuple")
+        identities: list[tuple[str, date, date]] = []
+        for item in self.assessments:
+            if type(item) is not CoverageAssessment:
+                raise ContractError("coverage census contains an invalid assessment")
+            item.validate()
+            identities.append((item.asset_id, item.start_session, item.end_session))
+        if identities != sorted(set(identities)):
+            raise ContractError("coverage assessments must be sorted and unique")
+        require_sha256(self.coverage_census_id, "coverage_census.coverage_census_id")
+        if self.coverage_census_id != sha256_bytes(
+            canonical_json_bytes(self.unsigned_dict())
+        ):
+            raise ContractError("coverage census ID differs from its content")
 
     @property
     def complete_count(self) -> int:
@@ -159,7 +214,7 @@ def materialize_action_and_delisting_coverage(
         "trust_eligible": ledger.trust_eligible,
         "assessments": [item.as_dict() for item in assessments],
     }
-    return ProspectiveCoverageCensus(
+    result = ProspectiveCoverageCensus(
         action_release_id=ledger.release_id,
         source_epoch=ledger.source_epoch,
         evidence_view_as_of=cutoff,
@@ -167,3 +222,5 @@ def materialize_action_and_delisting_coverage(
         assessments=tuple(assessments),
         coverage_census_id=sha256_bytes(canonical_json_bytes(unsigned)),
     )
+    result.validate()
+    return result

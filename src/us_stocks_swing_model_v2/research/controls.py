@@ -16,6 +16,14 @@ class NegativeControlState(str, Enum):
     INVALID = "INVALID"
 
 
+REQUIRED_NEGATIVE_CONTROL_IDS = (
+    "WHOLE_SESSION_CIRCULAR_DATE_SHIFT",
+    "WITHIN_DATE_SYMBOL_LABEL_PERMUTATION",
+    "DETERMINISTIC_RANDOM_FEATURE",
+    "FUTURE_ADJUSTMENT_AND_MEMBERSHIP_CANARIES_REJECTED_BEFORE_FIT",
+)
+
+
 @dataclass(frozen=True)
 class NegativeControlOutcome:
     control_id: str
@@ -29,6 +37,39 @@ class NegativeControlResult:
     control_ids: tuple[str, ...]
     suspicious_controls: tuple[str, ...]
     incomplete_controls: tuple[str, ...]
+
+    def validate(self) -> None:
+        if type(self.state) is not NegativeControlState:
+            raise ResearchContractError("negative-control state must be exact")
+        if self.control_ids != REQUIRED_NEGATIVE_CONTROL_IDS:
+            raise ResearchContractError(
+                "negative-control result must bind the frozen four-control census"
+            )
+        suspicious = require_unique_ascii_ids(
+            self.suspicious_controls,
+            name="suspicious_controls",
+        ) if self.suspicious_controls else ()
+        incomplete = require_unique_ascii_ids(
+            self.incomplete_controls,
+            name="incomplete_controls",
+        ) if self.incomplete_controls else ()
+        if (
+            any(value not in REQUIRED_NEGATIVE_CONTROL_IDS for value in suspicious)
+            or any(value not in REQUIRED_NEGATIVE_CONTROL_IDS for value in incomplete)
+            or set(suspicious).intersection(incomplete)
+        ):
+            raise ResearchContractError("negative-control result census is invalid")
+        expected_state = (
+            NegativeControlState.INVALID
+            if incomplete
+            else NegativeControlState.LEAKAGE_SUSPECTED
+            if suspicious
+            else NegativeControlState.CLEAR
+        )
+        if self.state is not expected_state:
+            raise ResearchContractError(
+                "negative-control state differs from its complete census"
+            )
 
 
 def circular_block_derangement_indices(
@@ -95,11 +136,17 @@ def synthetic_noise_control(
 def evaluate_negative_controls(
     outcomes: tuple[NegativeControlOutcome, ...],
 ) -> NegativeControlResult:
-    if not outcomes:
-        raise ResearchContractError("at least one negative control is required")
+    if type(outcomes) is not tuple:
+        raise ResearchContractError("negative controls must be an exact tuple")
+    if any(type(outcome) is not NegativeControlOutcome for outcome in outcomes):
+        raise ResearchContractError("negative controls contain an invalid outcome")
     ids = require_unique_ascii_ids(
         (outcome.control_id for outcome in outcomes), name="control_ids"
     )
+    if ids != REQUIRED_NEGATIVE_CONTROL_IDS:
+        raise ResearchContractError(
+            "negative controls must exactly cover the frozen four-control census"
+        )
     if any(type(outcome.complete) is not bool for outcome in outcomes):
         raise ResearchContractError("control completeness must be boolean")
     if any(type(outcome.candidate_gate_passed) is not bool for outcome in outcomes):
@@ -118,9 +165,11 @@ def evaluate_negative_controls(
         state = NegativeControlState.LEAKAGE_SUSPECTED
     else:
         state = NegativeControlState.CLEAR
-    return NegativeControlResult(
+    result = NegativeControlResult(
         state=state,
         control_ids=ids,
         suspicious_controls=suspicious,
         incomplete_controls=incomplete,
     )
+    result.validate()
+    return result

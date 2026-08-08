@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from us_stocks_swing_model_v2.common import canonical_json_bytes
+from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, EvaluationAuthorizationError
 from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     S3ObjectLockRegistryPolicy,
@@ -48,8 +48,9 @@ def _policy(repo_root: Path) -> S3ObjectLockRegistryPolicy:
         repo_root / "config" / "trial_registry_s3_object_lock_policy.json",
         repository_root=repo_root,
     )
+    unsigned = policy.unsigned_dict() | {"status": "CONFIGURED"}
     return S3ObjectLockRegistryPolicy(
-        policy_id=policy.policy_id,
+        policy_id=sha256_bytes(canonical_json_bytes(unsigned)),
         minimum_retention_days=policy.minimum_retention_days,
         status="CONFIGURED",
     )
@@ -105,15 +106,25 @@ def _spec() -> TrialSpec:
     return TrialSpec.from_registered_payload(payload)
 
 
-def test_loads_only_a_versioned_compliance_retained_trial_record() -> None:
+def test_loads_only_a_versioned_compliance_retained_trial_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     policy = _policy(repo_root)
     target = _target()
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
     reader = _Reader({"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651), "Body": BytesIO(canonical_json_bytes(payload))})
+    spec = TrialSpec.from_registered_payload(payload)
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
 
-    record = load_s3_object_lock_trial_registration(reader=reader, policy=policy, target=target, trial_id=trial_id)
+    record = load_s3_object_lock_trial_registration(
+        reader=reader, policy=policy, target=target, trial_id=trial_id,
+        verified_release_directories=(), accepted_release_root=repo_root,
+    )
 
     assert record.trial_id == trial_id
     assert len(record.external_anchor_receipt_id) == 64
@@ -130,7 +141,10 @@ def test_rejects_nonimmutable_or_wrong_version_evidence(field: str, value: objec
     response: dict[str, object] = {"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651), "Body": BytesIO(canonical_json_bytes(payload))}
     response[field] = value
     with pytest.raises(EvaluationAuthorizationError, match=message):
-        load_s3_object_lock_trial_registration(reader=_Reader(response), policy=policy, target=target, trial_id=trial_id)
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
+            verified_release_directories=(), accepted_release_root=repo_root,
+        )
 
 
 def test_rejects_short_retention_and_local_backend_status() -> None:
@@ -139,14 +153,20 @@ def test_rejects_short_retention_and_local_backend_status() -> None:
     target = _target()
     trial_id = "9" * 64
     with pytest.raises(EvaluationAuthorizationError, match="not configured"):
-        load_s3_object_lock_trial_registration(reader=_Reader({}), policy=selected, target=target, trial_id=trial_id)
+        load_s3_object_lock_trial_registration(
+            reader=_Reader({}), policy=selected, target=target, trial_id=trial_id,
+            verified_release_directories=(), accepted_release_root=repo_root,
+        )
 
     policy = _policy(repo_root)
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
     response = {"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=1), "Body": BytesIO(canonical_json_bytes(payload))}
     with pytest.raises(EvaluationAuthorizationError, match="shorter"):
-        load_s3_object_lock_trial_registration(reader=_Reader(response), policy=policy, target=target, trial_id=trial_id)
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
+            verified_release_directories=(), accepted_release_root=repo_root,
+        )
 
 
 def test_registration_requests_compliance_retention_and_reloads_its_version(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -250,7 +270,47 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
             policy=policy,
             target=target,
             trial_id=trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
         )
+
+
+def test_loaded_registration_rejects_unverified_release_bindings() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    policy = _policy(repo_root)
+    target = _target()
+    payload = _payload(binding_id=target.registry_binding_id(policy))
+    trial_id = str(payload["trial_id"])
+    response = {
+        "VersionId": target.version_id,
+        "ObjectLockMode": "COMPLIANCE",
+        "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651),
+        "Body": BytesIO(canonical_json_bytes(payload)),
+    }
+    with pytest.raises(EvaluationAuthorizationError, match="accepted-release verification"):
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(response),
+            policy=policy,
+            target=target,
+            trial_id=trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
+        )
+
+
+def test_policy_status_cannot_be_forged_with_a_stale_policy_id() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    selected = S3ObjectLockRegistryPolicy.load(
+        repo_root / "config" / "trial_registry_s3_object_lock_policy.json",
+        repository_root=repo_root,
+    )
+    forged = S3ObjectLockRegistryPolicy(
+        policy_id=selected.policy_id,
+        minimum_retention_days=selected.minimum_retention_days,
+        status="CONFIGURED",
+    )
+    with pytest.raises(ContractError, match="differs from its canonical policy"):
+        forged.require_configured()
 
 
 def test_sdk_factory_rejects_an_invalid_region_before_loading_boto3() -> None:

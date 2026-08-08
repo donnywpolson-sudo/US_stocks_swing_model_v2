@@ -15,6 +15,7 @@ from .contracts import (
     require_synthetic_permit,
     require_unique_ascii_ids,
 )
+from .controls import NegativeControlResult, NegativeControlState
 from .robustness import RobustnessState
 
 
@@ -70,7 +71,7 @@ class SyntheticSleeveMetrics:
     dsr_probability: float
     pbo_conservative: float
     power_sufficient: bool
-    negative_controls_clear: bool
+    negative_control_result: NegativeControlResult
     numerically_valid: bool
     robustness_state: RobustnessState
 
@@ -178,9 +179,14 @@ def evaluate_synthetic_sleeve(
             raise ResearchContractError(f"{name} must be an explicit real float")
         if not np.isfinite(value):
             raise ResearchContractError(f"{name} must be finite")
-    for name in ("power_sufficient", "negative_controls_clear", "numerically_valid"):
+    for name in ("power_sufficient", "numerically_valid"):
         if type(getattr(metrics, name)) is not bool:
             raise ResearchContractError(f"{name} must be an exact bool")
+    if type(metrics.negative_control_result) is not NegativeControlResult:
+        raise ResearchContractError(
+            "negative_control_result must be an exact NegativeControlResult"
+        )
+    metrics.negative_control_result.validate()
     if type(metrics.robustness_state) is not RobustnessState:
         raise ResearchContractError("robustness_state must be an exact RobustnessState")
     numeric_values = np.asarray(
@@ -219,7 +225,7 @@ def evaluate_synthetic_sleeve(
         failed.append("PBO")
     if metrics.power_sufficient is not True:
         failed.append("POWER")
-    if metrics.negative_controls_clear is not True:
+    if metrics.negative_control_result.state is not NegativeControlState.CLEAR:
         failed.append("NEGATIVE_CONTROLS")
     if failed:
         state = SleeveState.MECHANICS_FAIL_CLOSED

@@ -16,10 +16,12 @@ before acting.
 - Alpaca SIP is the sole qualified bar feed, but remains non-active. The
   canonical source record is
   [`config/sources.json`](../config/sources.json).
-- A caveated current-identity-seeded Alpaca SIP historical release, proxy
-  features, proxy outcomes, and joined proxy inputs exist. They are
-  `legacy_discovery_only` and cannot enter trusted eligibility, feature,
-  outcome, registration, or evaluation work.
+- A caveated current-identity-seeded Alpaca SIP historical release is retained
+  as `legacy_discovery_only`. Proxy feature, proxy outcome, and joined-input
+  contracts and publication mechanics exist, but those three materialized
+  releases are not established by the currently reviewed accepted-release
+  census. No proxy artifact can enter trusted eligibility, feature, outcome,
+  registration, or evaluation work.
 - The first bounded active-SIP canonical-bars smoke capture remains a separate
   time-gated external action. The prospective epoch planner binds accepted
   identity, bars, action, and calendar releases before any downstream release

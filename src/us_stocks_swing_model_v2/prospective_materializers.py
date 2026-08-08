@@ -13,7 +13,9 @@ from datetime import date, datetime
 from typing import Iterable, Mapping
 
 from .common import canonical_json_bytes, require_aware_utc, require_sha256, sha256_bytes
+from .corporate_actions import BitemporalActionLedger
 from .errors import ContractError
+from .identity import BitemporalIdentityLedger
 from .prospective_coverage import ProspectiveCoverageCensus
 from .prospective_price_features import (
     CausalPriceBar,
@@ -95,6 +97,16 @@ class EligibleUniverseDecision:
     def eligible(self) -> bool:
         return self.status == ELIGIBLE
 
+    def validate(self, context: ProspectiveMaterializationContext) -> None:
+        if type(self.candidate) is not ProspectiveCandidate:
+            raise ContractError("eligible-universe decision candidate is invalid")
+        self.candidate.validate()
+        expected = _decision_for_candidate(context, self.candidate)
+        if self != expected:
+            raise ContractError(
+                "eligible-universe decision differs from its candidate evidence"
+            )
+
     def as_dict(self) -> dict[str, object]:
         return {
             "asset_id": self.candidate.asset_id,
@@ -112,6 +124,28 @@ class FeatureMaterializationDecision:
     status: str
     reason: str | None
     feature_row: FeatureRow | None
+
+
+def _decision_for_candidate(
+    context: ProspectiveMaterializationContext,
+    candidate: ProspectiveCandidate,
+) -> EligibleUniverseDecision:
+    if candidate.identity_known_at > context.decision_at:
+        reason = "identity evidence was unavailable by the decision time"
+    elif not candidate.membership_active:
+        reason = "membership is unresolved or inactive for the decision session"
+    elif not candidate.asset_type_confirmed or candidate.security_type is SecurityType.UNKNOWN:
+        reason = "stock or ETF asset type is unresolved"
+    elif not candidate.bar_present:
+        reason = "canonical SIP bar evidence is missing"
+    else:
+        sleeves = (
+            ("STOCK_LONG", "STOCK_SHORT")
+            if candidate.security_type is SecurityType.STOCK
+            else ("ETF_LONG", "ETF_SHORT")
+        )
+        return EligibleUniverseDecision(candidate, ELIGIBLE, None, sleeves)
+    return EligibleUniverseDecision(candidate, ABSTAIN, reason, ())
 
 
 def materialize_eligible_universe(
@@ -134,23 +168,7 @@ def materialize_eligible_universe(
 
     decisions: list[EligibleUniverseDecision] = []
     for candidate in items:
-        if candidate.identity_known_at > context.decision_at:
-            reason = "identity evidence was unavailable by the decision time"
-        elif not candidate.membership_active:
-            reason = "membership is unresolved or inactive for the decision session"
-        elif not candidate.asset_type_confirmed or candidate.security_type is SecurityType.UNKNOWN:
-            reason = "stock or ETF asset type is unresolved"
-        elif not candidate.bar_present:
-            reason = "canonical SIP bar evidence is missing"
-        else:
-            sleeves = (
-                ("STOCK_LONG", "STOCK_SHORT")
-                if candidate.security_type is SecurityType.STOCK
-                else ("ETF_LONG", "ETF_SHORT")
-            )
-            decisions.append(EligibleUniverseDecision(candidate, ELIGIBLE, None, sleeves))
-            continue
-        decisions.append(EligibleUniverseDecision(candidate, ABSTAIN, reason, ()))
+        decisions.append(_decision_for_candidate(context, candidate))
     return tuple(decisions)
 
 
@@ -166,6 +184,14 @@ def eligible_universe_census_id(
         raise ContractError("eligible-universe decisions cannot be empty")
     if any(type(item) is not EligibleUniverseDecision for item in items):
         raise ContractError("eligible-universe census contains an invalid decision")
+    identities = [
+        (item.candidate.asset_id, item.candidate.symbol)
+        for item in items
+    ]
+    if identities != sorted(set(identities)):
+        raise ContractError("eligible-universe decisions must be sorted and unique")
+    for item in items:
+        item.validate(context)
     return sha256_bytes(canonical_json_bytes({
         "context": {
             "identity_release_id": context.identity_release_id,
@@ -186,8 +212,9 @@ def materialize_price_only_feature_rows(
     *,
     sessions: tuple[date, ...],
     bars_by_asset: Mapping[str, Iterable[CausalPriceBar]],
+    identity: BitemporalIdentityLedger,
     coverage: ProspectiveCoverageCensus,
-    action_or_delisting_sessions: Mapping[str, frozenset[date]],
+    actions: BitemporalActionLedger,
 ) -> tuple[FeatureMaterializationDecision, ...]:
     """Emit frozen feature rows only for fully causal, eligible candidates.
 
@@ -196,16 +223,109 @@ def materialize_price_only_feature_rows(
     """
 
     context.validate()
-    if coverage.action_release_id != context.action_release_id or coverage.source_epoch != context.source_epoch:
+    if type(identity) is not BitemporalIdentityLedger:
+        raise ContractError("feature materialization requires a governed identity ledger")
+    if type(actions) is not BitemporalActionLedger:
+        raise ContractError("feature materialization requires a governed action ledger")
+    if (
+        identity.release_id != context.identity_release_id
+        or identity.source_epoch != context.source_epoch
+    ):
+        raise ContractError("identity ledger provenance differs from materialization context")
+    coverage.validate()
+    if (
+        coverage.action_release_id != context.action_release_id
+        or coverage.source_epoch != context.source_epoch
+        or actions.release_id != context.action_release_id
+        or actions.source_epoch != context.source_epoch
+    ):
         raise ContractError("coverage census provenance differs from materialization context")
+    if coverage.trust_eligible != actions.trust_eligible:
+        raise ContractError("coverage census trust state differs from its action ledger")
+    if coverage.evidence_view_as_of != context.decision_at:
+        raise ContractError("coverage evidence view differs from the decision context")
+    if (
+        type(sessions) is not tuple
+        or not sessions
+        or tuple(sorted(sessions)) != sessions
+        or len(set(sessions)) != len(sessions)
+        or context.decision_session not in sessions
+        or any(type(session) is not date for session in sessions)
+    ):
+        raise ContractError("feature sessions must be sorted, unique, and include D0")
+
+    normalized_bars: dict[str, tuple[CausalPriceBar, ...]] = {}
+    for asset_id, supplied in bars_by_asset.items():
+        if type(asset_id) is not str or not asset_id:
+            raise ContractError("feature bar census asset IDs must be exact text")
+        bars = tuple(supplied)
+        if not bars:
+            raise ContractError("empty feature bar censuses must be omitted")
+        seen_sessions: set[date] = set()
+        for bar in bars:
+            if type(bar) is not CausalPriceBar or bar.asset_id != asset_id:
+                raise ContractError("feature bar census contains a mismatched row")
+            bar.validate()
+            if bar.session in seen_sessions:
+                raise ContractError("feature bar census contains a duplicate session")
+            seen_sessions.add(bar.session)
+        normalized_bars[asset_id] = bars
+
+    visible_identity = identity.visible_as_of(
+        effective_as_of=context.decision_at,
+        known_as_of=context.decision_at,
+    )
+    if not visible_identity:
+        raise ContractError("governed identity view is empty at the decision time")
+    if any(
+        row.identity_snapshot_id != context.identity_snapshot_id
+        for row in visible_identity
+    ):
+        raise ContractError("identity view differs from the bound snapshot")
+    visible_asset_ids = {row.asset_id for row in visible_identity}
+    if not set(normalized_bars).issubset(visible_asset_ids):
+        raise ContractError("feature bars contain an asset outside the identity census")
+    derived_candidates = tuple(
+        ProspectiveCandidate(
+            asset_id=row.asset_id,
+            symbol=row.symbol,
+            security_type=row.security_type,
+            identity_known_at=row.known_at,
+            membership_active=(row.active and row.membership_present and row.eligible),
+            asset_type_confirmed=(
+                row.security_type in {SecurityType.STOCK, SecurityType.ETF}
+            ),
+            bar_present=any(
+                bar.session == context.decision_session
+                for bar in normalized_bars.get(row.asset_id, ())
+            ),
+        )
+        for row in visible_identity
+    )
+    expected_universe = materialize_eligible_universe(context, derived_candidates)
     coverage_by_asset = {item.asset_id: item for item in coverage.assessments}
     entries = tuple(universe)
     if not entries:
         raise ContractError("feature materialization requires an eligible-universe census")
+    if entries != expected_universe:
+        raise ContractError(
+            "eligible-universe census differs from governed identity and bar evidence"
+        )
+    eligible_asset_ids = tuple(
+        entry.candidate.asset_id for entry in entries if entry.eligible
+    )
+    if (
+        len(coverage_by_asset) != len(coverage.assessments)
+        or tuple(sorted(coverage_by_asset)) != tuple(sorted(eligible_asset_ids))
+    ):
+        raise ContractError("coverage asset census differs from the eligible universe")
+    decision_position = sessions.index(context.decision_session)
+    required_start = sessions[max(0, decision_position - 5)]
     results: list[FeatureMaterializationDecision] = []
     for entry in entries:
         if type(entry) is not EligibleUniverseDecision:
             raise ContractError("feature materialization contains an invalid universe decision")
+        entry.validate(context)
         candidate = entry.candidate
         if not entry.eligible:
             results.append(FeatureMaterializationDecision(entry, FEATURE_ABSTAIN, entry.reason, None))
@@ -214,17 +334,31 @@ def materialize_price_only_feature_rows(
         if coverage_row is None:
             results.append(FeatureMaterializationDecision(entry, FEATURE_ABSTAIN, "action/delisting coverage denominator row is missing", None))
             continue
-        bars = tuple(bars_by_asset.get(candidate.asset_id, ()))
+        if (
+            coverage_row.start_session > required_start
+            or coverage_row.end_session < context.decision_session
+        ):
+            raise ContractError(
+                "coverage interval does not contain the feature materialization window"
+            )
+        bars = normalized_bars.get(candidate.asset_id, ())
         if not bars:
             results.append(FeatureMaterializationDecision(entry, FEATURE_ABSTAIN, "missing required causal OHLC evidence", None))
             continue
+        event_sessions = frozenset(
+            action.effective_session
+            for action in actions.visible_as_of(candidate.asset_id, context.decision_at)
+            if required_start
+            <= action.effective_session
+            <= context.decision_session
+        )
         feature_result = materialize_price_only_features(
             bars,
             sessions=sessions,
             decision_session=context.decision_session,
             decision_at=context.decision_at,
             action_coverage_complete=coverage_row.complete,
-            action_or_delisting_sessions=action_or_delisting_sessions.get(candidate.asset_id, frozenset()),
+            action_or_delisting_sessions=event_sessions,
         )
         if len(feature_result) != 1 or feature_result[0].asset_id != candidate.asset_id:
             raise ContractError("feature bars must contain exactly one candidate asset")
@@ -247,7 +381,10 @@ def materialize_price_only_feature_rows(
             action_release_id=context.action_release_id,
             source_epoch=context.source_epoch,
             identity_known_at=candidate.identity_known_at,
-            point_in_time_state="PIT_CONFIRMED",
+            # This in-memory builder has no accepted-release bar loader.  It
+            # therefore cannot independently establish trust-eligible PIT
+            # state even when its identity/action views are verified.
+            point_in_time_state="PIT_UNRESOLVED",
             prediction_deadline_at=context.prediction_deadline_at,
             information_barrier_at=context.information_barrier_at,
             values=result.values,

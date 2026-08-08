@@ -28,14 +28,19 @@ class TemporalConcentrationPolicy:
     require_positive_leave_one_out: bool = True
 
     def validate(self) -> None:
-        if type(self.minimum_folds) is not int or self.minimum_folds < 2:
-            raise ResearchContractError("temporal minimum_folds must be an integer at least two")
-        if type(self.minimum_positive_fraction) is not float or not (
-            0.0 < self.minimum_positive_fraction <= 1.0
+        if type(self.minimum_folds) is not int or self.minimum_folds != 8:
+            raise ResearchContractError("temporal minimum_folds must remain exactly eight")
+        if (
+            type(self.minimum_positive_fraction) is not float
+            or self.minimum_positive_fraction != 0.625
         ):
-            raise ResearchContractError("temporal positive-fold fraction is invalid")
-        if type(self.require_positive_leave_one_out) is not bool:
-            raise ResearchContractError("leave-one-out policy must be an exact bool")
+            raise ResearchContractError(
+                "temporal positive-fold fraction must remain exactly 0.625"
+            )
+        if self.require_positive_leave_one_out is not True:
+            raise ResearchContractError(
+                "positive leave-one-fold-out policy must remain required"
+            )
 
 
 @dataclass(frozen=True)
@@ -64,12 +69,20 @@ class StabilityPolicy:
     def validate(self) -> None:
         if type(self.seed_count) is not int or self.seed_count != 5:
             raise ResearchContractError("stability seed_count must remain exactly five")
-        for name, value in (
-            ("minimum_positive_variant_fraction", self.minimum_positive_variant_fraction),
-            ("minimum_median_retention", self.minimum_median_retention),
+        if (
+            type(self.minimum_positive_variant_fraction) is not float
+            or self.minimum_positive_variant_fraction != 0.8
         ):
-            if type(value) is not float or not (0.0 < value <= 1.0):
-                raise ResearchContractError(f"{name} must lie in (0,1]")
+            raise ResearchContractError(
+                "minimum_positive_variant_fraction must remain exactly 0.8"
+            )
+        if (
+            type(self.minimum_median_retention) is not float
+            or self.minimum_median_retention != 0.5
+        ):
+            raise ResearchContractError(
+                "minimum_median_retention must remain exactly 0.5"
+            )
 
 
 @dataclass(frozen=True)
@@ -89,17 +102,30 @@ class StabilityResult:
 
 
 @dataclass(frozen=True)
+class SourceEpochReleaseBinding:
+    release_id: str
+    source_epoch: str
+
+    def validate(self) -> None:
+        if type(self.release_id) is not str or _SHA256.fullmatch(self.release_id) is None:
+            raise ResearchContractError(
+                "source-epoch release ID must be an exact lowercase SHA-256"
+            )
+        if (
+            type(self.source_epoch) is not str
+            or not self.source_epoch
+            or not self.source_epoch.isascii()
+        ):
+            raise ResearchContractError(
+                "source-epoch release binding requires a nonempty ASCII epoch"
+            )
+
+
+@dataclass(frozen=True)
 class SourceEpochPolicy:
-    required_epoch_ids: tuple[str, ...]
     minimum_distinct_oos_dates: int = 252
 
     def validate(self) -> None:
-        if type(self.required_epoch_ids) is not tuple or not self.required_epoch_ids:
-            raise ResearchContractError("source-epoch policy requires explicit epochs")
-        if any(type(value) is not str or not value.isascii() or not value for value in self.required_epoch_ids):
-            raise ResearchContractError("source-epoch IDs must be nonempty ASCII strings")
-        if tuple(sorted(set(self.required_epoch_ids))) != self.required_epoch_ids:
-            raise ResearchContractError("source-epoch IDs must be unique and sorted")
         if type(self.minimum_distinct_oos_dates) is not int or self.minimum_distinct_oos_dates != 252:
             raise ResearchContractError("source-epoch minimum must remain exactly 252 OOS dates")
 
@@ -224,15 +250,35 @@ def evaluate_variant_stability(
 
 def evaluate_source_epoch_robustness(
     *, effects: tuple[SourceEpochEffect, ...], policy: SourceEpochPolicy,
+    release_bindings: tuple[SourceEpochReleaseBinding, ...],
     permit: SyntheticOnlyPermit, fixture: np.ndarray,
 ) -> SourceEpochResult:
     require_synthetic_permit(permit, fixture)
     policy.validate()
+    if type(release_bindings) is not tuple or not release_bindings:
+        raise ResearchContractError(
+            "source-epoch robustness requires release-derived bindings"
+        )
+    release_ids: list[str] = []
+    for binding in release_bindings:
+        if type(binding) is not SourceEpochReleaseBinding:
+            raise ResearchContractError("source-epoch release binding is invalid")
+        binding.validate()
+        release_ids.append(binding.release_id)
+    if release_ids != sorted(set(release_ids)):
+        raise ResearchContractError(
+            "source-epoch release bindings must be sorted and unique"
+        )
+    required_epoch_ids = tuple(
+        sorted({binding.source_epoch for binding in release_bindings})
+    )
     if type(effects) is not tuple:
         raise ResearchContractError("source-epoch effects must be a tuple")
     ids = tuple(item.epoch_id for item in effects)
-    if ids != tuple(sorted(set(ids))) or ids != policy.required_epoch_ids:
-        raise ResearchContractError("source-epoch evidence must exactly cover required sorted epochs")
+    if ids != tuple(sorted(set(ids))) or ids != required_epoch_ids:
+        raise ResearchContractError(
+            "source-epoch evidence must exactly cover release-derived sorted epochs"
+        )
     reasons: list[str] = []
     for item in effects:
         if type(item.distinct_oos_dates) is not int or item.distinct_oos_dates < 0:

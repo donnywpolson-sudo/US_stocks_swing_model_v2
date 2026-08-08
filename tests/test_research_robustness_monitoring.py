@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import get_type_hints
@@ -28,6 +29,7 @@ from us_stocks_swing_model_v2.research import (
     RobustnessState,
     SourceEpochEffect,
     SourceEpochPolicy,
+    SourceEpochReleaseBinding,
     StabilityPolicy,
     TemporalConcentrationPolicy,
     VariantEffect,
@@ -133,6 +135,28 @@ def test_temporal_and_variant_gates_are_binding_inconclusive(mechanics) -> None:
     assert verify_deterministic_repeat("1" * 64, "1" * 64)
 
 
+def test_robustness_policy_thresholds_cannot_be_weakened() -> None:
+    with pytest.raises(ResearchContractError, match="exactly eight"):
+        replace(TemporalConcentrationPolicy(), minimum_folds=2).validate()
+    with pytest.raises(ResearchContractError, match="exactly 0.625"):
+        replace(
+            TemporalConcentrationPolicy(),
+            minimum_positive_fraction=0.1,
+        ).validate()
+    with pytest.raises(ResearchContractError, match="remain required"):
+        replace(
+            TemporalConcentrationPolicy(),
+            require_positive_leave_one_out=False,
+        ).validate()
+    with pytest.raises(ResearchContractError, match="exactly 0.8"):
+        replace(
+            StabilityPolicy(),
+            minimum_positive_variant_fraction=0.2,
+        ).validate()
+    with pytest.raises(ResearchContractError, match="exactly 0.5"):
+        replace(StabilityPolicy(), minimum_median_retention=0.1).validate()
+
+
 @pytest.mark.parametrize("variant_count", (1, 4, 6))
 def test_variant_stability_rejects_incomplete_or_expanded_census(
     mechanics,
@@ -169,13 +193,17 @@ def test_single_temporal_fold_is_controlled_inconclusive(mechanics) -> None:
 
 def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
     fixture, permit = mechanics
-    policy = SourceEpochPolicy(("LEGACY_EPOCH_A", "LEGACY_EPOCH_B"))
+    policy = SourceEpochPolicy()
+    bindings = (
+        SourceEpochReleaseBinding("a" * 64, "LEGACY_EPOCH_A"),
+        SourceEpochReleaseBinding("b" * 64, "LEGACY_EPOCH_B"),
+    )
     passed = evaluate_source_epoch_robustness(
         effects=(
             SourceEpochEffect("LEGACY_EPOCH_A", 252, 0.01),
             SourceEpochEffect("LEGACY_EPOCH_B", 252, 0.02),
         ),
-        policy=policy, permit=permit, fixture=fixture,
+        policy=policy, release_bindings=bindings, permit=permit, fixture=fixture,
     )
     assert passed.state is RobustnessState.MECHANICS_READY
 
@@ -184,13 +212,21 @@ def test_source_epochs_require_252_dates_and_positive_effect(mechanics) -> None:
             SourceEpochEffect("LEGACY_EPOCH_A", 251, 0.01),
             SourceEpochEffect("LEGACY_EPOCH_B", 252, 0.0),
         ),
-        policy=policy, permit=permit, fixture=fixture,
+        policy=policy, release_bindings=bindings, permit=permit, fixture=fixture,
     )
     assert insufficient.state is RobustnessState.MECHANICS_INCONCLUSIVE
     assert set(insufficient.reasons) == {
         "LEGACY_EPOCH_A:INSUFFICIENT_OOS_DATES",
         "LEGACY_EPOCH_B:NONPOSITIVE_STRESS_COST_EFFECT",
     }
+    with pytest.raises(ResearchContractError, match="release-derived sorted epochs"):
+        evaluate_source_epoch_robustness(
+            effects=(SourceEpochEffect("CALLER_CHOSEN_EPOCH", 252, 0.01),),
+            policy=policy,
+            release_bindings=bindings,
+            permit=permit,
+            fixture=fixture,
+        )
 
 
 def test_monitoring_boundaries_pause_and_abstain() -> None:

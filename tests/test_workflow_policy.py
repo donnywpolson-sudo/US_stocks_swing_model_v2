@@ -74,7 +74,9 @@ def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation()
     assert "not\nexecution authority" in state
     assert "current code, configuration, accepted\nreleases, Git state" in state
     assert "PROSPECTIVE_EVIDENCE_WAITING_PERIOD_FOUNDATIONS_IMPLEMENTED" in state
-    assert "`legacy_discovery_only` and cannot enter trusted eligibility" in state
+    assert "as `legacy_discovery_only`" in state
+    assert "materialized\n  releases are not established" in state
+    assert "No proxy artifact can enter trusted eligibility" in state
     assert "active-SIP canonical-bars smoke capture remains a separate" in state
     assert "unimplemented" not in state.lower()
     assert "## Operational routing" in state

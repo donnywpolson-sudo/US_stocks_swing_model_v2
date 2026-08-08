@@ -32,6 +32,12 @@ from .governance import verify_release_bindings
 _BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _REGION = re.compile(r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
 _MAX_RECORD_BYTES = 512 * 1024
+_POLICY_FIXED_FIELDS = {
+    "backend": "AWS_S3_OBJECT_LOCK_COMPLIANCE",
+    "mode": "EXTERNAL_IMMUTABLE_TRIAL_REGISTRY",
+    "project": "US_stocks_swing_model_v2",
+    "schema_version": 1,
+}
 
 
 class S3ObjectReader(Protocol):
@@ -47,6 +53,28 @@ class S3ObjectLockRegistryPolicy:
     policy_id: str
     minimum_retention_days: int
     status: str
+
+    def unsigned_dict(self) -> dict[str, object]:
+        return {
+            **_POLICY_FIXED_FIELDS,
+            "minimum_retention_days": self.minimum_retention_days,
+            "status": self.status,
+        }
+
+    def validate(self) -> None:
+        if (
+            type(self.minimum_retention_days) is not int
+            or not 3650 <= self.minimum_retention_days <= 36500
+            or self.status not in {"BACKEND_SELECTED_NOT_CONFIGURED", "CONFIGURED"}
+        ):
+            raise ContractError("S3 Object Lock registry policy is invalid")
+        require_sha256(self.policy_id, "S3 Object Lock registry policy ID")
+        if self.policy_id != sha256_bytes(
+            canonical_json_bytes(self.unsigned_dict())
+        ):
+            raise ContractError(
+                "S3 Object Lock registry policy ID differs from its canonical policy"
+            )
 
     @classmethod
     def load(cls, path: Path, *, repository_root: Path) -> "S3ObjectLockRegistryPolicy":
@@ -76,14 +104,16 @@ class S3ObjectLockRegistryPolicy:
         ):
             raise ContractError("S3 Object Lock registry policy is invalid")
         unsigned = dict(value)
-        return cls(
+        result = cls(
             policy_id=sha256_bytes(canonical_json_bytes(unsigned)),
             minimum_retention_days=value["minimum_retention_days"],
             status=value["status"],
         )
+        result.validate()
+        return result
 
     def require_configured(self) -> None:
-        require_sha256(self.policy_id, "S3 Object Lock registry policy ID")
+        self.validate()
         if self.status != "CONFIGURED":
             raise EvaluationAuthorizationError(
                 "S3 Object Lock trial registry backend is not configured"
@@ -113,7 +143,7 @@ class S3ObjectLockTrialRegistryTarget:
 
     def registry_binding_id(self, policy: S3ObjectLockRegistryPolicy) -> str:
         self.validate()
-        require_sha256(policy.policy_id, "S3 Object Lock registry policy ID")
+        policy.validate()
         return sha256_bytes(
             canonical_json_bytes(
                 {
@@ -189,8 +219,9 @@ def register_s3_object_lock_trial(
     trusted_clock = require_trusted_clock(clock)
     if not trusted_clock.trust_eligible:
         raise EvaluationAuthorizationError("external trial registration requires production UTC")
+    release_directories = tuple(verified_release_directories)
     verified = verify_release_bindings(
-        verified_release_directories,
+        release_directories,
         accepted_release_root=Path(accepted_release_root),
         expected_project="US_stocks_swing_model_v2",
     )
@@ -226,6 +257,8 @@ def register_s3_object_lock_trial(
         policy=policy,
         target=target,
         trial_id=spec.trial_id,
+        verified_release_directories=release_directories,
+        accepted_release_root=accepted_release_root,
         clock=trusted_clock,
     )
 
@@ -252,6 +285,8 @@ def load_s3_object_lock_trial_registration(
     policy: S3ObjectLockRegistryPolicy,
     target: S3ObjectLockTrialRegistryTarget,
     trial_id: str,
+    verified_release_directories: Iterable[Path],
+    accepted_release_root: Path,
     clock: TrustedClock | None = None,
 ) -> ExternalTrialRegistration:
     """Load one immutable externally retained registration and verify its evidence."""
@@ -305,10 +340,24 @@ def load_s3_object_lock_trial_registration(
         validate_trial_evidence_roles(spec)
     except (KeyError, TypeError, ValueError, ContractError) as exc:
         raise EvaluationAuthorizationError("S3 trial registration payload is invalid") from exc
-    binding_id = target.registry_binding_id(policy)
     registered_at = parse_utc_z(str(payload["registered_at"]), "registered_at")
     if retained_at < registered_at + timedelta(days=policy.minimum_retention_days):
         raise EvaluationAuthorizationError("S3 trial record retention is shorter than policy")
+    try:
+        verified = verify_release_bindings(
+            verified_release_directories,
+            accepted_release_root=Path(accepted_release_root),
+            expected_project="US_stocks_swing_model_v2",
+        )
+    except ContractError as exc:
+        raise EvaluationAuthorizationError(
+            "S3 trial registration accepted-release verification failed"
+        ) from exc
+    if verified != spec.release_bindings:
+        raise EvaluationAuthorizationError(
+            "S3 trial registration release bindings differ from verified accepted releases"
+        )
+    binding_id = target.registry_binding_id(policy)
     if (
         spec.trial_id != trial_id
         or payload.get("trial_id") != trial_id

@@ -52,8 +52,16 @@ def _surface_census(
     return result
 
 
+def _surface_roots() -> dict[str, tuple[str, ...]]:
+    return {surface: (surface,) for surface in AUDIT_SURFACES}
+
+
 def test_secret_scan_covers_every_surface_and_reports_no_secret_bytes(tmp_path: Path) -> None:
-    clean = scan_declared_audit_surfaces(tmp_path, _surface_census(tmp_path))
+    clean = scan_declared_audit_surfaces(
+        tmp_path,
+        _surface_census(tmp_path),
+        surface_roots=_surface_roots(),
+    )
     assert clean.passed is True
     assert clean.findings == ()
     assert tuple(name for name, _ in clean.surface_counts) == AUDIT_SURFACES
@@ -62,6 +70,7 @@ def test_secret_scan_covers_every_surface_and_reports_no_secret_bytes(tmp_path: 
     poisoned = scan_declared_audit_surfaces(
         poison_root,
         _surface_census(poison_root, poisoned_surface="reports"),
+        surface_roots=_surface_roots(),
     )
     assert poisoned.passed is False
     assert len(poisoned.findings) == 1
@@ -77,6 +86,7 @@ def test_secret_scan_detects_each_required_surface(surface: str, tmp_path: Path)
     result = scan_declared_audit_surfaces(
         tmp_path,
         _surface_census(tmp_path, poisoned_surface=surface),
+        surface_roots=_surface_roots(),
     )
     assert result.passed is False
     assert {finding.surface for finding in result.findings} == {surface}
@@ -99,7 +109,11 @@ def test_secret_filename_is_flagged_without_reading_its_bytes(
         return original(path)
 
     monkeypatch.setattr(Path, "read_bytes", guarded_read)
-    result = scan_declared_audit_surfaces(tmp_path, surfaces)
+    result = scan_declared_audit_surfaces(
+        tmp_path,
+        surfaces,
+        surface_roots=_surface_roots(),
+    )
     assert result.passed is False
     assert result.findings[0].category == "FORBIDDEN_SECRET_FILENAME"
     assert result.findings[0].line_number is None
@@ -116,26 +130,17 @@ def test_secret_scan_proves_absent_and_empty_surfaces_and_rejects_unexpected_fil
     (tmp_path / "artifacts").mkdir(exist_ok=True)
     surfaces["logs"] = ()
     surfaces["artifacts"] = ()
-    empty_roots = {
-        surface: (
-            (surface,)
-            if surface in {"logs", "artifacts"}
-            else ()
-        )
-        for surface in AUDIT_SURFACES
-    }
-
     result = scan_declared_audit_surfaces(
         tmp_path,
         surfaces,
-        empty_surface_roots=empty_roots,
+        surface_roots=_surface_roots(),
     )
     assert result.passed is True
     assert dict(result.surface_counts)["logs"] == 0
     assert dict(result.surface_counts)["artifacts"] == 0
     states = {
         (root.surface, root.relative_path): root.state
-        for root in result.empty_surface_roots
+        for root in result.surface_roots
     }
     assert states[("logs", "logs")] == "ABSENT"
     assert states[("artifacts", "artifacts")] == "EMPTY_DIRECTORY"
@@ -144,20 +149,23 @@ def test_secret_scan_proves_absent_and_empty_surfaces_and_rejects_unexpected_fil
         "unexpected",
         encoding="utf-8",
     )
-    with pytest.raises(ContractError, match="unexpected file"):
+    with pytest.raises(ContractError, match="differs from files below its roots"):
         scan_declared_audit_surfaces(
             tmp_path,
             surfaces,
-            empty_surface_roots=empty_roots,
+            surface_roots=_surface_roots(),
         )
 
 
-def test_secret_scan_rejects_omitted_empty_surface_proof(tmp_path: Path) -> None:
+def test_secret_scan_rejects_a_file_omitted_from_the_declared_census(tmp_path: Path) -> None:
     surfaces = _surface_census(tmp_path)
-    (tmp_path / surfaces["logs"][0]).unlink()
     surfaces["logs"] = ()
-    with pytest.raises(ContractError, match="either files or explicit empty roots"):
-        scan_declared_audit_surfaces(tmp_path, surfaces)
+    with pytest.raises(ContractError, match="differs from files below its roots"):
+        scan_declared_audit_surfaces(
+            tmp_path,
+            surfaces,
+            surface_roots=_surface_roots(),
+        )
 
 
 def _traceability_row(
@@ -237,26 +245,35 @@ def test_traceability_false_pass_and_open_high_findings_cannot_support() -> None
 
 
 def test_provider_lineage_binds_raw_headers_request_and_pagination() -> None:
+    pages = (b"provider-page-one", b"provider-page-two")
     evidence = ProviderLineageEvidence.create(
-        raw_bytes_sha256="1" * 64,
+        raw_bytes=b"".join(pages),
+        page_payloads=pages,
+        expected_page_count=2,
         response_headers_sha256="2" * 64,
         request_contract_sha256="3" * 64,
         request_lineage_sha256="4" * 64,
         pagination_lineage_sha256="5" * 64,
-        page_sha256s=("6" * 64, "7" * 64),
-        page_count=2,
         raw_landed_before_parse=True,
-        complete_page_census=True,
     )
     evidence.validate()
     with pytest.raises(ContractError, match="land before parse"):
         replace(evidence, raw_landed_before_parse=False).validate()
-    with pytest.raises(ContractError, match="complete page census"):
-        replace(evidence, complete_page_census=False).validate()
     with pytest.raises(ContractError, match="page hash census"):
-        replace(evidence, page_sha256s=("6" * 64,)).validate()
-    with pytest.raises(ContractError, match="differs from its content"):
-        replace(evidence, page_sha256s=("7" * 64, "6" * 64)).validate()
+        replace(evidence, page_sha256s=evidence.page_sha256s[:1]).validate()
+    with pytest.raises(ContractError, match="page census ID differs"):
+        replace(evidence, page_sha256s=tuple(reversed(evidence.page_sha256s))).validate()
+    with pytest.raises(ContractError, match="ordered page composition"):
+        ProviderLineageEvidence.create(
+            raw_bytes=b"not-the-pages",
+            page_payloads=pages,
+            expected_page_count=2,
+            response_headers_sha256="2" * 64,
+            request_contract_sha256="3" * 64,
+            request_lineage_sha256="4" * 64,
+            pagination_lineage_sha256="5" * 64,
+            raw_landed_before_parse=True,
+        )
 
 
 def _prospective_protocol(
@@ -275,6 +292,7 @@ def _prospective_protocol(
         indirect_holdout_queries_allowed=False,
         failed_holdout_reuse_allowed=False,
         early_stop_policy_id="6" * 64,
+        expected_vintage_ids=("v1", "v2"),
     )
 
 
@@ -290,7 +308,6 @@ def test_optional_stop_fixed_end_and_missed_vintages_fail_closed() -> None:
     assert (
         verify_prospective_vintage_census(
             complete,
-            expected_vintage_ids=("v1", "v2"),
             observed_vintage_ids=("v1", "v2"),
             backfilled_vintage_ids=(),
         )
@@ -299,17 +316,26 @@ def test_optional_stop_fixed_end_and_missed_vintages_fail_closed() -> None:
     with pytest.raises(ContractError, match="cannot be backfilled"):
         verify_prospective_vintage_census(
             complete,
-            expected_vintage_ids=("v1", "v2"),
             observed_vintage_ids=("v1", "v2"),
             backfilled_vintage_ids=("v2",),
         )
     with pytest.raises(ContractError, match="out-of-order"):
         verify_prospective_vintage_census(
             complete,
-            expected_vintage_ids=("v1", "v2"),
             observed_vintage_ids=("v2", "v1"),
             backfilled_vintage_ids=(),
         )
+    assert verify_prospective_vintage_census(
+        complete,
+        observed_vintage_ids=(),
+        backfilled_vintage_ids=(),
+    ) == "INCONCLUSIVE_MISSED_VINTAGES"
+    with pytest.raises(ContractError, match="protocol ID differs"):
+        replace(complete, expected_vintage_ids=("v1",)).validate()
+    values = complete.unsigned_dict()
+    values["expected_vintage_ids"] = ()
+    with pytest.raises(ContractError, match="cannot be empty"):
+        ProspectiveControlProtocol.create(**values)
 
 
 def test_indirect_and_reused_holdout_access_is_rejected() -> None:

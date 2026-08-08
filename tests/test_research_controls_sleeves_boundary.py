@@ -12,6 +12,8 @@ from us_stocks_swing_model_v2.research import (
     NegativeControlState,
     PortfolioCharter,
     PortfolioState,
+    REQUIRED_NEGATIVE_CONTROL_IDS,
+    ResearchContractError,
     RobustnessState,
     SleeveState,
     SleeveThresholds,
@@ -24,6 +26,21 @@ from us_stocks_swing_model_v2.research import (
     make_synthetic_permit,
     synthetic_noise_control,
 )
+
+
+def _control_outcomes(
+    *,
+    suspicious: str | None = None,
+    incomplete: str | None = None,
+) -> tuple[NegativeControlOutcome, ...]:
+    return tuple(
+        NegativeControlOutcome(
+            control_id,
+            complete=control_id != incomplete,
+            candidate_gate_passed=control_id == suspicious,
+        )
+        for control_id in REQUIRED_NEGATIVE_CONTROL_IDS
+    )
 
 
 def test_block_derangement_is_shared_deterministic_and_preserves_blocks() -> None:
@@ -51,24 +68,23 @@ def test_noise_control_is_seeded_float64() -> None:
 
 
 def test_negative_controls_fail_on_leakage_or_incompleteness() -> None:
-    clear = evaluate_negative_controls(
-        (
-            NegativeControlOutcome("block-shift", True, False),
-            NegativeControlOutcome("noise", True, False),
-        )
-    )
+    clear = evaluate_negative_controls(_control_outcomes())
     assert clear.state == NegativeControlState.CLEAR
 
     suspicious = evaluate_negative_controls(
-        (NegativeControlOutcome("block-shift", True, True),)
+        _control_outcomes(suspicious=REQUIRED_NEGATIVE_CONTROL_IDS[0])
     )
     assert suspicious.state == NegativeControlState.LEAKAGE_SUSPECTED
-    assert suspicious.suspicious_controls == ("block-shift",)
+    assert suspicious.suspicious_controls == (REQUIRED_NEGATIVE_CONTROL_IDS[0],)
 
     incomplete = evaluate_negative_controls(
-        (NegativeControlOutcome("noise", False, False),)
+        _control_outcomes(incomplete=REQUIRED_NEGATIVE_CONTROL_IDS[2])
     )
     assert incomplete.state == NegativeControlState.INVALID
+    with pytest.raises(ResearchContractError, match="frozen four-control census"):
+        evaluate_negative_controls(_control_outcomes()[:-1])
+    with pytest.raises(ResearchContractError, match="differs from its complete census"):
+        replace(incomplete, state=NegativeControlState.CLEAR).validate()
 
 
 def _metrics(*, adjusted_p: float) -> SyntheticSleeveMetrics:
@@ -80,7 +96,7 @@ def _metrics(*, adjusted_p: float) -> SyntheticSleeveMetrics:
         dsr_probability=0.99,
         pbo_conservative=0.10,
         power_sufficient=True,
-        negative_controls_clear=True,
+        negative_control_result=evaluate_negative_controls(_control_outcomes()),
         numerically_valid=True,
         robustness_state=RobustnessState.MECHANICS_READY,
     )
@@ -118,6 +134,21 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
     )
     assert stock_long.state == SleeveState.MECHANICS_READY
     assert etf_short.state == SleeveState.MECHANICS_FAIL_CLOSED
+    suspicious_controls = evaluate_negative_controls(
+        _control_outcomes(suspicious=REQUIRED_NEGATIVE_CONTROL_IDS[1])
+    )
+    controlled_failure = evaluate_synthetic_sleeve(
+        sleeve_id="stock_long",
+        metrics=replace(
+            _metrics(adjusted_p=0.01),
+            negative_control_result=suspicious_controls,
+        ),
+        thresholds=thresholds,
+        permit=permit,
+        fixture=fixture,
+    )
+    assert controlled_failure.state is SleeveState.MECHANICS_FAIL_CLOSED
+    assert "NEGATIVE_CONTROLS" in controlled_failure.failed_gates
     assert etf_short.failed_gates == ("ROMANO_WOLF",)
 
     robustness_inconclusive = evaluate_synthetic_sleeve(
