@@ -3,6 +3,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from us_stocks_swing_model_v2.cli import (
+    execute_legacy_purge,
+    generate_legacy_cleanup_plan,
+    hash_copy,
+    plan_alpaca_discovery_proxy_features,
+    plan_alpaca_discovery_proxy_outcomes,
+    plan_alpaca_sip_non_active_cutover,
+    publish_alpaca_historical_backfill,
+    publish_alpaca_sip_qualification_receipt,
+    publish_xnys_calendar_successor,
+    qualify_alpaca_sip,
+    qualify_identity_sources,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -124,3 +140,176 @@ def test_audit_status_vocabulary_stays_in_the_audit_workflow() -> None:
         "COMPLETE",
     ):
         assert status in audit
+
+
+class _CredentialReadTrap(dict[str, str]):
+    def get(self, key: str, default: str | None = None) -> str | None:
+        if key in {"APCA_API_KEY_ID", "APCA_API_SECRET_KEY"}:
+            raise AssertionError("credentials were read before owner network confirmation")
+        return super().get(key, default)
+
+
+def test_identity_cli_rejects_network_before_reading_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        qualify_identity_sources.os,
+        "environ",
+        _CredentialReadTrap(),
+    )
+    monkeypatch.setattr(
+        qualify_identity_sources,
+        "build_alpaca_assets_request_plan",
+        lambda _root: type("Plan", (), {"as_dict": lambda self: {}})(),
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="FREE_SOURCE_QUALIFICATION_APPROVED=YES",
+    ):
+        qualify_identity_sources.main(
+            ["--execute-network", "--approved-plan-id", "a" * 64]
+        )
+
+
+def _unexpected_mutation(*_args: object, **_kwargs: object) -> object:
+    raise AssertionError("CLI default reached a mutating operation")
+
+
+class _DryCopyPlan:
+    def concise_summary(self) -> dict[str, object]:
+        return {"entry_count": 0}
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(())
+
+
+def test_mutation_capable_cli_adapters_default_to_nonmutating_plans(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        execute_legacy_purge,
+        "prepare_purge_execution",
+        lambda *_args, **_kwargs: {"plan": {}},
+    )
+    monkeypatch.setattr(execute_legacy_purge, "execute_purge", _unexpected_mutation)
+    assert execute_legacy_purge.main(
+        ["--plan-id", execute_legacy_purge.APPROVED_CLEANUP_PLAN_ID]
+    ) == 0
+
+    monkeypatch.setattr(hash_copy, "load_migration_config", lambda *_args: object())
+    monkeypatch.setattr(hash_copy, "plan_migration", lambda *_args: _DryCopyPlan())
+    monkeypatch.setattr(hash_copy, "execute_copy_plan", _unexpected_mutation)
+    assert hash_copy.main(["--config", "unused.json"]) == 0
+
+    monkeypatch.setattr(
+        plan_alpaca_discovery_proxy_features,
+        "build_feature_release_plan",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        plan_alpaca_discovery_proxy_features,
+        "publish_feature_release",
+        _unexpected_mutation,
+    )
+    assert plan_alpaca_discovery_proxy_features.main(
+        [
+            "--source-release-directory",
+            "source",
+            "--calendar-release-directory",
+            "calendar",
+        ]
+    ) == 0
+
+    monkeypatch.setattr(
+        plan_alpaca_discovery_proxy_outcomes,
+        "build_proxy_outcome_plan",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        plan_alpaca_discovery_proxy_outcomes,
+        "publish_proxy_outcomes",
+        _unexpected_mutation,
+    )
+    assert plan_alpaca_discovery_proxy_outcomes.main(
+        [
+            "--release-directory",
+            "source",
+            "--calendar-release-directory",
+            "calendar",
+        ]
+    ) == 0
+
+    monkeypatch.setattr(
+        plan_alpaca_sip_non_active_cutover,
+        "build_cutover_plan",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        plan_alpaca_sip_non_active_cutover,
+        "execute_cutover",
+        _unexpected_mutation,
+    )
+    assert plan_alpaca_sip_non_active_cutover.main([]) == 0
+
+    monkeypatch.setattr(
+        publish_alpaca_sip_qualification_receipt,
+        "build_publication_plan",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        publish_alpaca_sip_qualification_receipt,
+        "publish_receipt",
+        _unexpected_mutation,
+    )
+    assert publish_alpaca_sip_qualification_receipt.main([]) == 0
+
+    monkeypatch.setattr(
+        publish_xnys_calendar_successor,
+        "build_calendar_successor_plan",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        publish_xnys_calendar_successor,
+        "publish_calendar_successor",
+        _unexpected_mutation,
+    )
+    assert publish_xnys_calendar_successor.main([]) == 0
+
+    monkeypatch.setattr(
+        qualify_alpaca_sip,
+        "build_qualification_plan",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        qualify_alpaca_sip,
+        "execute_qualification_capture",
+        _unexpected_mutation,
+    )
+    assert qualify_alpaca_sip.main([]) == 0
+    assert "PLAN_ONLY" in capsys.readouterr().out
+
+
+def test_write_only_cli_adapters_stop_before_mutation_without_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        generate_legacy_cleanup_plan,
+        "write_cleanup_plan",
+        _unexpected_mutation,
+    )
+    with pytest.raises(SystemExit) as cleanup_exit:
+        generate_legacy_cleanup_plan.main(["--expected-commit", "a" * 40])
+    assert cleanup_exit.value.code == 2
+
+    monkeypatch.setattr(
+        publish_alpaca_historical_backfill,
+        "publish_historical_backfill_release",
+        _unexpected_mutation,
+    )
+    with pytest.raises(SystemExit) as publication_exit:
+        publish_alpaca_historical_backfill.main(
+            ["--created-at", "2026-08-08T00:00:00Z", "--approved-plan-id", "b" * 64]
+        )
+    assert publication_exit.value.code == 2

@@ -20,7 +20,13 @@ from us_stocks_swing_model_v2.audit_controls import (
 )
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
-from us_stocks_swing_model_v2.errors import ContractError, EvaluationAuthorizationError
+from us_stocks_swing_model_v2.errors import (
+    ContractError,
+    EvaluationAuthorizationError,
+    IntegrityError,
+)
+from us_stocks_swing_model_v2 import meta_audit_harness
+from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.research.contracts import ResearchContractError
 from us_stocks_swing_model_v2.research.economics import (
     DailyCohortBook,
@@ -28,6 +34,146 @@ from us_stocks_swing_model_v2.research.economics import (
     reconstruct_five_cohort_economics,
 )
 from us_stocks_swing_model_v2.trials import build_holdout_receipt
+
+
+def _meta_binding(root: Path, relative_path: str) -> meta_audit_harness.FileBinding:
+    payload = (root / relative_path).read_bytes()
+    return meta_audit_harness.FileBinding(
+        path=relative_path,
+        bytes=len(payload),
+        sha256=sha256_bytes(payload),
+        git_blob=meta_audit_harness.git_blob_sha1_bytes(payload),
+    )
+
+
+def _meta_v2_envelope(root: Path) -> dict[str, object]:
+    payloads = {
+        "reference.txt": b"reference one\nreference two\n",
+        "target.txt": b"target one\ntarget two\n",
+        "controller.md": b"controller\n",
+        "corpus.json": b"{}\n",
+        "reader.ps1": b"# reader\n",
+    }
+    for relative_path, payload in payloads.items():
+        (root / relative_path).write_bytes(payload)
+    reference = _meta_binding(root, "reference.txt")
+    target = _meta_binding(root, "target.txt")
+    controller = _meta_binding(root, "controller.md")
+    corpus = _meta_binding(root, "corpus.json")
+    script = _meta_binding(root, "reader.ps1")
+    groups = meta_audit_harness.build_maximal_read_groups(
+        root=root,
+        reference_bindings=(reference,),
+        target_binding=target,
+    )
+    powershell = root / "pwsh.exe"
+    commands = [
+        meta_audit_harness._v2_command(
+            ordinal=1,
+            mode="Preflight",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=powershell,
+            script_path=root / script.path,
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        ),
+        meta_audit_harness._v2_command(
+            ordinal=2,
+            mode="PlanGroups",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=powershell,
+            script_path=root / script.path,
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        ),
+    ]
+    for group in groups:
+        commands.append(
+            meta_audit_harness._v2_command(
+                ordinal=len(commands) + 1,
+                mode="ReadGroup",
+                group_ordinal=group.group_ordinal,
+                root=root,
+                powershell_executable=powershell,
+                script_path=root / script.path,
+                timeout_seconds=60,
+                output_max_utf8_bytes=group.rendered_utf8_bytes,
+            )
+        )
+    commands.append(
+        meta_audit_harness._v2_command(
+            ordinal=len(commands) + 1,
+            mode="FinalPreflight",
+            group_ordinal=None,
+            root=root,
+            powershell_executable=powershell,
+            script_path=root / script.path,
+            timeout_seconds=30,
+            output_max_utf8_bytes=4_000,
+        )
+    )
+    first_target_group = next(
+        group.group_ordinal for group in groups if group.phase == "TARGET"
+    )
+    unsigned = {
+        "schema_version": 2,
+        "repository": {
+            "root": str(root),
+            "branch": "main",
+            "head": "a" * 40,
+            "tree": "b" * 40,
+            "require_clean": True,
+        },
+        "host": {
+            "powershell_executable": str(powershell),
+            "powershell_sha256": "c" * 64,
+            "powershell_file_version": "1",
+            "ps_version": "7",
+            "ps_edition": "Core",
+            "clr_version": "1",
+            "is_64bit_process": True,
+            "sha256_hash_data_available": True,
+            "sha1_hash_data_available": True,
+            "path_get_relative_path_available": True,
+        },
+        "script": script.as_dict(),
+        "target": target.as_dict(),
+        "controller": controller.as_dict(),
+        "corpus_policy": corpus.as_dict(),
+        "reference_census": {
+            "count": 1,
+            "sha256": sha256_bytes(canonical_json_bytes([reference.as_dict()])),
+            "paths_sha256": sha256_bytes(canonical_json_bytes([reference.path])),
+        },
+        "read_groups": [group.as_dict() for group in groups],
+        "commands": commands,
+        "barriers": [
+            {
+                "name": "B01_BLIND_CENSUS_FROZEN",
+                "after_command_ordinal": first_target_group + 1,
+                "before_command_ordinal": first_target_group + 2,
+            },
+            {
+                "name": "B02_MAPPING_COMPLETE",
+                "after_command_ordinal": len(groups) + 2,
+                "before_command_ordinal": len(groups) + 3,
+            },
+        ],
+        "reviewer_independence": {
+            "reviewer_instance_binding": "d" * 64,
+            "no_inherited_turns": True,
+            "no_prior_target_access": True,
+            "target_access_barrier": "B01_BLIND_CENSUS_FROZEN",
+            "final_attestation_required": True,
+        },
+        "failure_class": "READ_ONLY_INVOCATION",
+        "encoding": {"name": "UTF-8", "bom": False, "console": "UTF-8"},
+        "output": {"destination": "CONVERSATION_ONLY", "retained": False},
+        "prohibitions": list(meta_audit_harness.PROHIBITIONS),
+    }
+    return meta_audit_harness.build_v2_envelope_payload(unsigned)
 
 
 def _surface_census(
@@ -589,3 +735,103 @@ def test_meta_audit_targets_the_master_specification_not_project_readiness() -> 
         "for a later project-targeted Master Audit"
     ) in normalized
     assert "The review must not apply those amendments." in normalized
+
+
+def test_meta_audit_v2_groups_are_bounded_blind_first_and_identity_bound(
+    tmp_path: Path,
+) -> None:
+    reference_path = tmp_path / "reference.txt"
+    target_path = tmp_path / "target.txt"
+    reference_path.write_text(
+        "".join(f"reference {index:04d}\n" for index in range(450)),
+        encoding="utf-8",
+        newline="\n",
+    )
+    target_path.write_text("target\n", encoding="utf-8", newline="\n")
+    reference = _meta_binding(tmp_path, "reference.txt")
+    target = _meta_binding(tmp_path, "target.txt")
+
+    groups = meta_audit_harness.build_maximal_read_groups(
+        root=tmp_path,
+        reference_bindings=(reference,),
+        target_binding=target,
+    )
+
+    assert [group.group_ordinal for group in groups] == list(
+        range(1, len(groups) + 1)
+    )
+    phases = [group.phase for group in groups]
+    first_target = phases.index("TARGET")
+    assert set(phases[:first_target]) == {"REFERENCE"}
+    assert set(phases[first_target:]) == {"TARGET"}
+    assert sum(
+        item.line_count
+        for group in groups
+        for item in group.slices
+        if group.phase == "REFERENCE"
+    ) == 450
+    assert all(
+        group.rendered_line_count <= meta_audit_harness.MAX_GROUP_LINES
+        and group.rendered_utf8_bytes <= meta_audit_harness.MAX_GROUP_UTF8_BYTES
+        for group in groups
+    )
+
+    reference_path.write_text("changed\n", encoding="utf-8", newline="\n")
+    with pytest.raises(IntegrityError, match="REFERENCE_IDENTITY_MISMATCH"):
+        meta_audit_harness.build_maximal_read_groups(
+            root=tmp_path,
+            reference_bindings=(reference,),
+            target_binding=target,
+        )
+
+
+def test_meta_audit_v2_rejects_non_lf_and_unrenderable_reference_text(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "target.txt"
+    target_path.write_bytes(b"target\n")
+    target = _meta_binding(tmp_path, "target.txt")
+
+    reference_path = tmp_path / "reference.txt"
+    reference_path.write_bytes(b"one\r\ntwo\r\n")
+    with pytest.raises(ContractError, match="NON_LF_TEXT"):
+        meta_audit_harness.build_maximal_read_groups(
+            root=tmp_path,
+            reference_bindings=(_meta_binding(tmp_path, "reference.txt"),),
+            target_binding=target,
+        )
+
+    reference_path.write_bytes(b"x" * meta_audit_harness.MAX_GROUP_UTF8_BYTES)
+    with pytest.raises(ContractError, match="UNRENDERABLE_LINE"):
+        meta_audit_harness.build_maximal_read_groups(
+            root=tmp_path,
+            reference_bindings=(_meta_binding(tmp_path, "reference.txt"),),
+            target_binding=target,
+        )
+
+
+def test_meta_audit_v2_dispatch_is_canonical_and_rejects_semantic_tampering(
+    tmp_path: Path,
+) -> None:
+    envelope = _meta_v2_envelope(tmp_path)
+    envelope_path = (tmp_path / "envelope.json").resolve()
+    envelope_sha256 = "e" * 64
+    dispatch = meta_audit_harness.build_reviewer_dispatch(
+        envelope,
+        envelope_path=envelope_path,
+        envelope_sha256=envelope_sha256,
+    )
+
+    rendered = meta_audit_harness.canonical_reviewer_dispatch_bytes(dispatch)
+    assert rendered == canonical_json_bytes(dispatch)
+    assert b"target one" not in rendered
+    assert b"reference one" not in rendered
+
+    tampered = dict(dispatch)
+    tampered_commands = [dict(command) for command in dispatch["commands"]]
+    tampered_commands[2]["required_stdout_footer"] = None
+    tampered["commands"] = tampered_commands
+    unsigned = {key: value for key, value in tampered.items() if key != "dispatch_id"}
+    tampered["dispatch_id"] = sha256_bytes(canonical_json_bytes(unsigned))
+    with pytest.raises(ContractError, match="FOOTER_MISMATCH"):
+        meta_audit_harness.canonical_reviewer_dispatch_bytes(tampered)

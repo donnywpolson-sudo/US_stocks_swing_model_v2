@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from ..clock import TrustedClock
+from ..providers.alpaca import AUTH_ENVIRONMENT_TOKEN
 from ..providers.identity_readiness import (
     assess_identity_inputs,
     build_alpaca_assets_request_plan,
@@ -115,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.approved_plan_id:
         parser().error("--execute-network requires --approved-plan-id")
+    if os.environ.get(AUTH_ENVIRONMENT_TOKEN) != "YES":
+        raise PermissionError(
+            f"--execute-network requires {AUTH_ENVIRONMENT_TOKEN}=YES"
+        )
     source_config = json.loads(
         (root / "config" / "sources.json").read_text(encoding="utf-8")
     )
@@ -133,11 +138,15 @@ def main(argv: list[str] | None = None) -> int:
         allowed_root=root,
         acquisition_registry=registry,
     )
+    api_key_id = os.environ.get("APCA_API_KEY_ID", "")
+    api_secret_key = os.environ.get("APCA_API_SECRET_KEY", "")
+    if not api_key_id or not api_secret_key:
+        raise PermissionError("Alpaca credentials are absent from the process environment")
     snapshot = guarded_capture_alpaca_assets(
         approved_plan_id=args.approved_plan_id,
         snapshot_store=store,
-        api_key_id=os.environ.get("APCA_API_KEY_ID", ""),
-        api_secret_key=os.environ.get("APCA_API_SECRET_KEY", ""),
+        api_key_id=api_key_id,
+        api_secret_key=api_secret_key,
         clock=TrustedClock.production(),
         repo_root=root,
         network_enabled=True,
