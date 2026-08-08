@@ -173,6 +173,12 @@ def test_smoke_execution_uses_trusted_execution_time_without_changing_plan(
 
 
 def test_calendar_successor_plan_requires_clean_closure_and_production_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    synthetic_environment_sha256 = "d" * 64
+    monkeypatch.setattr(
+        successor,
+        "calendar_environment_hash",
+        lambda: synthetic_environment_sha256,
+    )
     monkeypatch.setattr(
         "us_stocks_swing_model_v2.calendar_successor._clean_repository",
         lambda root: {"commit": "a" * 40, "tree": "b" * 40},
@@ -196,7 +202,8 @@ def test_calendar_successor_plan_requires_clean_closure_and_production_clock(mon
     assert plan["calendar"]["start"] == "2000-01-01"
     assert plan["calendar"]["end"] == "2035-12-31"
     assert Path(plan["outputs"]["work_root"]).parent == REPO / "data/w/xnys_calendar_successor"
-    assert Path(plan["outputs"]["work_root"]).name == plan["environment_sha256"]
+    assert Path(plan["outputs"]["work_root"]).name == synthetic_environment_sha256
+    assert plan["environment_sha256"] == synthetic_environment_sha256
     assert plan["recovery"]["preservation_state"] == "VERIFIED_UNCHANGED"
     assert plan["authorities"]["cleanup"] is False
     assert plan["authorities"]["spent_plan_retry"] is False
