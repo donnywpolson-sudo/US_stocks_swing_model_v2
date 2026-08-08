@@ -9,7 +9,20 @@ from us_stocks_swing_model_v2.schemas import SecurityType
 
 def _context() -> ProspectiveMaterializationContext:
     at = datetime(2026, 8, 3, 21, tzinfo=timezone.utc)
-    return ProspectiveMaterializationContext("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64, "prospective_sip_v1", date(2026, 8, 3), at, at, datetime(2026, 8, 4, tzinfo=timezone.utc))
+    return ProspectiveMaterializationContext(
+        identity_release_id="a" * 64,
+        identity_snapshot_id="b" * 64,
+        bar_release_id="c" * 64,
+        action_release_id="d" * 64,
+        calendar_release_id="e" * 64,
+        identity_source_epoch="prospective_identity_v1",
+        bar_source_epoch="prospective_sip_v1",
+        action_source_epoch="prospective_actions_v1",
+        decision_session=date(2026, 8, 3),
+        decision_at=at,
+        prediction_deadline_at=at,
+        information_barrier_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+    )
 
 
 def test_eligible_universe_release_plan_is_hash_bound_and_zero_write() -> None:
@@ -19,6 +32,9 @@ def test_eligible_universe_release_plan_is_hash_bound_and_zero_write() -> None:
     assert plan["publication"]["dataset"] == "eligible_universe"
     assert plan["publication"]["publication_authorized"] is False
     assert plan["authorities"]["release_write"] is False
+    assert plan["lineage"]["identity_source_epoch"] == "prospective_identity_v1"
+    assert plan["lineage"]["bar_source_epoch"] == "prospective_sip_v1"
+    assert plan["lineage"]["action_source_epoch"] == "prospective_actions_v1"
     assert len(plan["downstream_release_plan_id"]) == 64
 
 

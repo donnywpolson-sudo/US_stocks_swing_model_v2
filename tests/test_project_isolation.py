@@ -1,6 +1,7 @@
 import ast
 from collections import Counter
 from pathlib import Path
+import re
 
 import pytest
 
@@ -12,6 +13,7 @@ FOREIGN_PROJECT_IDENTIFIERS = (
     "futures_rebuild",
     "futures_intraday_model",
     "futures_intraday_model_v2",
+    "us_stocks_swing_model",
 )
 APPROVED_FOREIGN_LITERAL_COUNTS: dict[tuple[str, str, str], int] = {}
 
@@ -19,9 +21,11 @@ APPROVED_FOREIGN_LITERAL_COUNTS: dict[tuple[str, str, str], int] = {}
 def _matches_foreign_identifier(value: str) -> bool:
     normalized = value.casefold()
     return any(
-        normalized == identifier
-        or normalized.startswith(f"{identifier}.")
-        or identifier in normalized
+        re.search(
+            rf"(?<![a-z0-9_]){re.escape(identifier)}(?![a-z0-9_])",
+            normalized,
+        )
+        is not None
         for identifier in FOREIGN_PROJECT_IDENTIFIERS
     )
 
@@ -110,7 +114,7 @@ def _project_isolation_observations(
     return tuple(violations), approved
 
 
-def test_source_tree_has_only_approved_futures_project_references() -> None:
+def test_source_tree_has_only_approved_foreign_project_references() -> None:
     source_root = Path(__file__).resolve().parents[1] / "src"
     violations: list[str] = []
     approved: Counter[tuple[str, str, str]] = Counter()
@@ -133,6 +137,10 @@ def test_source_tree_has_only_approved_futures_project_references() -> None:
         "from futures_intraday_model import engine as alias",
         "value = futures_intraday_model_v2.runtime",
         "path = 'C:/foreign/futures_intraday_model/data'",
+        "import US_stocks_swing_model",
+        "from US_stocks_swing_model.runtime import loader",
+        "module = __import__('US_stocks_swing_model.runtime')",
+        "path = 'C:/Users/donny/Desktop/US_stocks_swing_model/data'",
     ],
 )
 def test_project_isolation_detects_import_name_attribute_and_path_references(
@@ -155,9 +163,31 @@ def test_project_isolation_rejects_all_foreign_literals() -> None:
 
 
 @pytest.mark.parametrize(
-    "foreign_name", ("futures_intraday_model", "futures_intraday_model_v2")
+    "source",
+    [
+        "import us_stocks_swing_model_v2",
+        "from us_stocks_swing_model_v2 import releases",
+        "path = 'C:/Users/donny/Desktop/US_stocks_swing_model_v2/src'",
+    ],
 )
-def test_active_containment_guard_rejects_futures_roots(foreign_name: str) -> None:
+def test_project_isolation_does_not_match_the_active_v2_project(source: str) -> None:
+    violations, approved = _project_isolation_observations(
+        source,
+        relative="fixture.py",
+    )
+    assert violations == ()
+    assert approved == Counter()
+
+
+@pytest.mark.parametrize(
+    "foreign_name",
+    (
+        "futures_intraday_model",
+        "futures_intraday_model_v2",
+        "US_stocks_swing_model",
+    ),
+)
+def test_active_containment_guard_rejects_foreign_roots(foreign_name: str) -> None:
     active = Path(__file__).resolve().parents[1]
     foreign = Path.home() / "Desktop" / foreign_name / "forbidden-write.json"
     with pytest.raises(ContractError, match="escapes its approved root"):

@@ -177,7 +177,9 @@ def _context(
         bar_release_id=IDS["bars"],
         action_release_id=actions.release_id,
         calendar_release_id=IDS["calendar"],
-        source_epoch=actions.source_epoch,
+        identity_source_epoch=identity.source_epoch,
+        bar_source_epoch="SYNTHETIC_BARS_ONLY",
+        action_source_epoch=actions.source_epoch,
         decision_session=SESSIONS[-1],
         decision_at=AT,
         prediction_deadline_at=AT,
@@ -229,6 +231,7 @@ def test_universe_and_features_keep_incomplete_candidates_as_abstentions() -> No
     assert features[0].status == READY_STATUS
     assert features[0].feature_row is not None
     assert features[0].feature_row.feature_schema_id == FEATURE_SCHEMA_ID
+    assert features[0].feature_row.source_epoch == context.bar_source_epoch
     assert features[0].feature_row.point_in_time_state == "PIT_UNRESOLVED"
     assert features[1].status == FEATURE_ABSTAIN
     assert features[1].feature_row is None
@@ -311,3 +314,55 @@ def test_coverage_window_and_evidence_view_are_bound_to_context() -> None:
             coverage=narrow,
             actions=actions,
         )
+
+
+def test_multi_source_epochs_are_bound_independently() -> None:
+    identity, snapshot_id = _identity()
+    actions, coverage = _actions()
+    context = _context(identity, snapshot_id, actions)
+    universe = _universe(context)
+
+    assert context.bar_source_epoch not in {
+        context.identity_source_epoch,
+        context.action_source_epoch,
+    }
+    baseline_census_id = eligible_universe_census_id(context, universe)
+    for field in (
+        "identity_source_epoch",
+        "bar_source_epoch",
+        "action_source_epoch",
+    ):
+        changed = replace(context, **{field: f"CHANGED_{field.upper()}"})
+        assert eligible_universe_census_id(changed, universe) != baseline_census_id
+
+    with pytest.raises(ContractError, match="identity ledger provenance differs"):
+        materialize_price_only_feature_rows(
+            replace(context, identity_source_epoch="WRONG_IDENTITY_EPOCH"),
+            universe,
+            sessions=SESSIONS,
+            bars_by_asset=_bars(),
+            identity=identity,
+            coverage=coverage,
+            actions=actions,
+        )
+    with pytest.raises(ContractError, match="coverage census provenance differs"):
+        materialize_price_only_feature_rows(
+            replace(context, action_source_epoch="WRONG_ACTION_EPOCH"),
+            universe,
+            sessions=SESSIONS,
+            bars_by_asset=_bars(),
+            identity=identity,
+            coverage=coverage,
+            actions=actions,
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("identity_source_epoch", "bar_source_epoch", "action_source_epoch"),
+)
+def test_context_requires_each_source_epoch(field: str) -> None:
+    identity, snapshot_id = _identity()
+    actions, _ = _actions()
+    with pytest.raises(ContractError, match=field):
+        replace(_context(identity, snapshot_id, actions), **{field: ""}).validate()

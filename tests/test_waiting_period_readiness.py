@@ -93,7 +93,9 @@ def _context(
 ) -> ProspectiveMaterializationContext:
     return ProspectiveMaterializationContext(
         identity_release_id=identity.release_id, identity_snapshot_id=identity_snapshot_id, bar_release_id=IDS["bars"],
-        action_release_id=ledger.release_id, calendar_release_id=IDS["calendar"], source_epoch=ledger.source_epoch,
+        action_release_id=ledger.release_id, calendar_release_id=IDS["calendar"],
+        identity_source_epoch=identity.source_epoch, bar_source_epoch="SYNTHETIC_BARS_ONLY",
+        action_source_epoch=ledger.source_epoch,
         decision_session=date(2026, 8, 3), decision_at=AT, prediction_deadline_at=AT,
         information_barrier_at=datetime(2026, 8, 12, tzinfo=timezone.utc),
     )

@@ -39,7 +39,9 @@ class ProspectiveMaterializationContext:
     bar_release_id: str
     action_release_id: str
     calendar_release_id: str
-    source_epoch: str
+    identity_source_epoch: str
+    bar_source_epoch: str
+    action_source_epoch: str
     decision_session: date
     decision_at: datetime
     prediction_deadline_at: datetime
@@ -51,8 +53,14 @@ class ProspectiveMaterializationContext:
             "action_release_id", "calendar_release_id",
         ):
             require_sha256(getattr(self, name), f"prospective_context.{name}")
-        if type(self.source_epoch) is not str or not self.source_epoch:
-            raise ContractError("prospective context source_epoch is required")
+        for name in (
+            "identity_source_epoch",
+            "bar_source_epoch",
+            "action_source_epoch",
+        ):
+            value = getattr(self, name)
+            if type(value) is not str or not value:
+                raise ContractError(f"prospective context {name} is required")
         if type(self.decision_session) is not date:
             raise ContractError("prospective context decision_session must be a date")
         decision = require_aware_utc(self.decision_at, "decision_at")
@@ -199,7 +207,9 @@ def eligible_universe_census_id(
             "bar_release_id": context.bar_release_id,
             "action_release_id": context.action_release_id,
             "calendar_release_id": context.calendar_release_id,
-            "source_epoch": context.source_epoch,
+            "identity_source_epoch": context.identity_source_epoch,
+            "bar_source_epoch": context.bar_source_epoch,
+            "action_source_epoch": context.action_source_epoch,
             "decision_session": context.decision_session.isoformat(),
         },
         "decisions": [item.as_dict() for item in items],
@@ -229,15 +239,15 @@ def materialize_price_only_feature_rows(
         raise ContractError("feature materialization requires a governed action ledger")
     if (
         identity.release_id != context.identity_release_id
-        or identity.source_epoch != context.source_epoch
+        or identity.source_epoch != context.identity_source_epoch
     ):
         raise ContractError("identity ledger provenance differs from materialization context")
     coverage.validate()
     if (
         coverage.action_release_id != context.action_release_id
-        or coverage.source_epoch != context.source_epoch
+        or coverage.source_epoch != context.action_source_epoch
         or actions.release_id != context.action_release_id
-        or actions.source_epoch != context.source_epoch
+        or actions.source_epoch != context.action_source_epoch
     ):
         raise ContractError("coverage census provenance differs from materialization context")
     if coverage.trust_eligible != actions.trust_eligible:
@@ -379,7 +389,7 @@ def materialize_price_only_feature_rows(
             security_type_evidence_id=context.identity_snapshot_id,
             calendar_release_id=context.calendar_release_id,
             action_release_id=context.action_release_id,
-            source_epoch=context.source_epoch,
+            source_epoch=context.bar_source_epoch,
             identity_known_at=candidate.identity_known_at,
             # This in-memory builder has no accepted-release bar loader.  It
             # therefore cannot independently establish trust-eligible PIT
