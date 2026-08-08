@@ -201,15 +201,109 @@ class S3ObjectLockTrialRegistryLocation:
 
 @dataclass(frozen=True)
 class ExternalTrialRegistration:
+    schema_version: int
+    backend: str
+    policy_id: str
     trial_id: str
     trial_registry_binding_id: str
     registration_hash: str
-    external_anchor_receipt_id: str
     registration_authorization_record_id: str
+    bucket: str
+    region: str
+    key: str
     s3_version_id: str
+    object_sha256: str
     object_created_at: str
+    object_lock_mode: str
     retained_until: str
     registered_payload: Mapping[str, Any]
+    external_anchor_receipt_id: str
+
+    def anchor_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "backend": self.backend,
+            "policy_id": self.policy_id,
+            "trial_registry_binding_id": self.trial_registry_binding_id,
+            "trial_id": self.trial_id,
+            "registration_hash": self.registration_hash,
+            "registration_authorization_record_id": self.registration_authorization_record_id,
+            "bucket": self.bucket,
+            "region": self.region,
+            "key": self.key,
+            "version_id": self.s3_version_id,
+            "object_sha256": self.object_sha256,
+            "object_created_at": self.object_created_at,
+            "object_lock_mode": self.object_lock_mode,
+            "retained_until": self.retained_until,
+        }
+
+    def validate(self) -> None:
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 2
+            or self.backend != "AWS_S3_OBJECT_LOCK_COMPLIANCE"
+            or self.object_lock_mode != "COMPLIANCE"
+        ):
+            raise EvaluationAuthorizationError(
+                "external trial registration receipt contract differs"
+            )
+        for name in (
+            "policy_id",
+            "trial_id",
+            "trial_registry_binding_id",
+            "registration_hash",
+            "registration_authorization_record_id",
+            "object_sha256",
+            "external_anchor_receipt_id",
+        ):
+            try:
+                require_sha256(getattr(self, name), f"external_registration.{name}")
+            except ContractError as exc:
+                raise EvaluationAuthorizationError(str(exc)) from exc
+        S3ObjectLockTrialRegistryTarget(
+            bucket=self.bucket,
+            region=self.region,
+            prefix=str(Path(self.key).parent).replace("\\", "/"),
+            version_id=self.s3_version_id,
+        ).validate()
+        if Path(self.key).name != f"{self.trial_id}.json":
+            raise EvaluationAuthorizationError(
+                "external trial registration key differs from its trial"
+            )
+        created = parse_utc_z(
+            self.object_created_at,
+            "external_registration.object_created_at",
+        )
+        retained = parse_utc_z(
+            self.retained_until,
+            "external_registration.retained_until",
+        )
+        if retained <= created:
+            raise EvaluationAuthorizationError(
+                "external trial registration retention is not prospective"
+            )
+        if type(self.registered_payload) is not dict:
+            raise EvaluationAuthorizationError(
+                "external trial registration payload is invalid"
+            )
+        payload_hash = sha256_bytes(canonical_json_bytes(self.registered_payload))
+        if (
+            payload_hash != self.registration_hash
+            or payload_hash != self.object_sha256
+            or self.registered_payload.get("trial_id") != self.trial_id
+            or self.registered_payload.get("trial_registry_binding_id")
+            != self.trial_registry_binding_id
+        ):
+            raise EvaluationAuthorizationError(
+                "external trial registration differs from its immutable object"
+            )
+        if self.external_anchor_receipt_id != sha256_bytes(
+            canonical_json_bytes(self.anchor_payload())
+        ):
+            raise EvaluationAuthorizationError(
+                "external trial registration anchor differs from its evidence"
+            )
 
 
 def _registration_action_bindings(
@@ -573,14 +667,24 @@ def load_s3_object_lock_trial_registration(
         "object_lock_mode": "COMPLIANCE",
         "retained_until": iso_z(retained_at),
     }
-    return ExternalTrialRegistration(
+    registration = ExternalTrialRegistration(
+        schema_version=2,
+        backend="AWS_S3_OBJECT_LOCK_COMPLIANCE",
+        policy_id=policy.policy_id,
         trial_id=trial_id,
         trial_registry_binding_id=binding_id,
         registration_hash=registration_hash,
-        external_anchor_receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
         registration_authorization_record_id=action_record.record_id,
+        bucket=target.bucket,
+        region=target.region,
+        key=key,
         s3_version_id=target.version_id,
+        object_sha256=sha256_bytes(raw),
         object_created_at=iso_z(object_created_at),
+        object_lock_mode="COMPLIANCE",
         retained_until=iso_z(retained_at),
         registered_payload=payload,
+        external_anchor_receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
     )
+    registration.validate()
+    return registration

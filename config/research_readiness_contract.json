@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.5.1-qualified-sip-non-active",
+  "contract_version": "1.6.0-production-control-mechanics",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
   "independence": {
@@ -72,9 +72,11 @@
     "prospective_sip_status": "QUALIFIED_SIP_NOT_ACTIVE_PENDING_PROSPECTIVE_SMOKE_AND_ACTIVATION",
     "external_worm_anchor_status": "NOT_CONFIGURED_BLOCKS_PRODUCTION",
     "trial_census_exact_status": "INDETERMINATE_BLOCKS_TRUSTED_GATE",
-    "eligibility_census_materializer_status": "NOT_IMPLEMENTED_BLOCKS_PRODUCTION",
-    "holdout_access_receipt_status": "DESIGN_ONLY_BLOCKS_PRODUCTION",
-    "readiness_receipt_status": "ISSUED_NON_AUTHORIZING_MECHANICAL_RECEIPT",
+    "eligibility_census_materializer_status": "IMPLEMENTED_REQUIRES_VERIFIED_READY_BUNDLE",
+    "holdout_access_receipt_status": "IMPLEMENTED_GOVERNED_APPEND_ONLY_REQUIRES_AUTHORITY",
+    "gate_result_contract_status": "IMPLEMENTED_POST_PERMIT_POLICY_DERIVED_APPEND_ONLY",
+    "bundle_readiness_verifier_status": "IMPLEMENTED_PRODUCTION_NOT_ISSUED",
+    "readiness_receipt_status": "SYNTHETIC_MECHANICS_ONLY_PRODUCTION_NOT_ISSUED",
     "statistical_array_binding_required": true,
     "local_hash_chain_or_local_anchor_is_external_immutability_proof": false,
     "synthetic_fixture_evidence_is_production_evidence": false

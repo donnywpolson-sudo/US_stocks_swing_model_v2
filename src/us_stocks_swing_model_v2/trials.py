@@ -648,6 +648,337 @@ def build_holdout_receipt(
 
 
 @dataclass(frozen=True)
+class GovernedHoldoutAccessReceipt:
+    """Append-only production-capable holdout transition evidence."""
+
+    schema_version: int
+    trial_registry_binding_id: str
+    trial_id: str
+    state: str
+    unlock_count: int
+    holdout_state_receipt_id: str
+    holdout_state_previous_receipt_id: str | None
+    previous_receipt_id: str | None
+    pre_unlock_trial_ledger_head: str | None
+    authorization_record_id: str | None
+    created_at: str
+    time_authority: str
+    synthetic_clock_permit_id: str | None
+    receipt_id: str
+
+    def unsigned_dict(self) -> dict[str, object]:
+        return {
+            name: getattr(self, name)
+            for name in self.__dataclass_fields__
+            if name != "receipt_id"
+        }
+
+    def as_dict(self) -> dict[str, object]:
+        return {**self.unsigned_dict(), "receipt_id": self.receipt_id}
+
+    def validate(self) -> None:
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise EvaluationAuthorizationError("governed holdout receipt schema differs")
+        for name in (
+            "trial_registry_binding_id",
+            "trial_id",
+            "holdout_state_receipt_id",
+            "receipt_id",
+        ):
+            try:
+                require_sha256(getattr(self, name), f"governed_holdout.{name}")
+            except ContractError as exc:
+                raise EvaluationAuthorizationError(str(exc)) from exc
+        parse_utc_z(self.created_at, "governed_holdout.created_at")
+        if self.time_authority == "PRODUCTION_SYSTEM_UTC":
+            if self.synthetic_clock_permit_id is not None:
+                raise EvaluationAuthorizationError("production holdout carries synthetic time")
+        elif self.time_authority == "SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE":
+            try:
+                require_sha256(
+                    self.synthetic_clock_permit_id or "",
+                    "governed_holdout.synthetic_clock_permit_id",
+                )
+            except ContractError as exc:
+                raise EvaluationAuthorizationError(str(exc)) from exc
+        else:
+            raise EvaluationAuthorizationError("governed holdout time authority is invalid")
+        locked = (
+            self.state == "LOCKED"
+            and self.unlock_count == 0
+            and self.holdout_state_previous_receipt_id is None
+            and self.previous_receipt_id is None
+            and self.pre_unlock_trial_ledger_head is None
+            and self.authorization_record_id is None
+        )
+        transitioned = (
+            self.state in {"UNLOCKED_ONCE", "CLOSED"}
+            and self.unlock_count == 1
+            and self.holdout_state_previous_receipt_id is not None
+            and self.previous_receipt_id is not None
+            and self.pre_unlock_trial_ledger_head is not None
+            and self.authorization_record_id is not None
+        )
+        if type(self.unlock_count) is not int or not (locked or transitioned):
+            raise EvaluationAuthorizationError("governed holdout transition shape is invalid")
+        if transitioned:
+            for name in (
+                "previous_receipt_id",
+                "holdout_state_previous_receipt_id",
+                "pre_unlock_trial_ledger_head",
+                "authorization_record_id",
+            ):
+                try:
+                    require_sha256(getattr(self, name), f"governed_holdout.{name}")
+                except ContractError as exc:
+                    raise EvaluationAuthorizationError(str(exc)) from exc
+        if self.receipt_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
+            raise EvaluationAuthorizationError("governed holdout receipt ID differs")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "GovernedHoldoutAccessReceipt":
+        if type(payload) is not dict or set(payload) != set(cls.__dataclass_fields__):
+            raise EvaluationAuthorizationError("governed holdout receipt fields differ")
+        receipt = cls(**payload)
+        receipt.validate()
+        return receipt
+
+
+def _validate_governed_holdout_payload(payload: Mapping[str, Any]) -> None:
+    GovernedHoldoutAccessReceipt.from_dict(payload)
+
+
+class GovernedHoldoutAccessStore:
+    """Serialize one irreversible holdout-access chain per registered trial."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        governance_root: Path,
+        clock: TrustedClock,
+    ):
+        root = Path(governance_root).resolve(strict=True)
+        candidate = require_contained_path(Path(path), root, must_exist=False)
+        self._clock = require_trusted_clock(clock)
+        self._ledger = HashChainLedger(
+            candidate,
+            "governed_holdout_access_v1",
+            clock=self._clock,
+            payload_validator=_validate_governed_holdout_payload,
+        )
+
+    def with_clock(self, clock: TrustedClock) -> "GovernedHoldoutAccessStore":
+        rebound = object.__new__(GovernedHoldoutAccessStore)
+        rebound._clock = require_trusted_clock(clock)
+        rebound._ledger = self._ledger.with_clock(clock)
+        return rebound
+
+    def _history(self) -> tuple[list[dict[str, Any]], list[GovernedHoldoutAccessReceipt]]:
+        history = self._ledger.read_verified()
+        receipts = [
+            GovernedHoldoutAccessReceipt.from_dict(entry["payload"])
+            for entry in history
+        ]
+        return history, receipts
+
+    def latest(self, trial_id: str) -> GovernedHoldoutAccessReceipt:
+        require_sha256(trial_id, "governed_holdout.trial_id")
+        _, receipts = self._history()
+        matches = [receipt for receipt in receipts if receipt.trial_id == trial_id]
+        if not matches:
+            raise EvaluationAuthorizationError("governed holdout trial has no receipt")
+        return matches[-1]
+
+    def initialize(
+        self,
+        *,
+        trial_registry_binding_id: str,
+        holdout_receipt: HoldoutStateReceipt,
+    ) -> GovernedHoldoutAccessReceipt:
+        require_sha256(trial_registry_binding_id, "governed_holdout.trial_registry_binding_id")
+        if type(holdout_receipt) is not HoldoutStateReceipt:
+            raise EvaluationAuthorizationError(
+                "governed holdout initialization requires the exact holdout receipt"
+            )
+        holdout_receipt.validate()
+        if holdout_receipt.state != "LOCKED":
+            raise EvaluationAuthorizationError(
+                "governed holdout initialization requires the initial lock"
+            )
+        trial_id = holdout_receipt.trial_id
+        history, receipts = self._history()
+        if any(receipt.trial_id == trial_id for receipt in receipts):
+            raise EvaluationAuthorizationError("governed holdout trial is already initialized")
+        return self._append(
+            history,
+            trial_registry_binding_id=trial_registry_binding_id,
+            trial_id=trial_id,
+            state="LOCKED",
+            holdout_state_receipt_id=holdout_receipt.receipt_id,
+            holdout_state_previous_receipt_id=None,
+            previous_receipt_id=None,
+            pre_unlock_trial_ledger_head=None,
+            authorization_record_id=None,
+        )
+
+    def unlock_once(
+        self,
+        *,
+        locked_receipt: GovernedHoldoutAccessReceipt,
+        unlocked_holdout_receipt: HoldoutStateReceipt,
+        pre_unlock_trial_ledger_head: str,
+        authorization: LocalIntegrityRecord,
+    ) -> GovernedHoldoutAccessReceipt:
+        locked_receipt.validate()
+        if type(unlocked_holdout_receipt) is not HoldoutStateReceipt:
+            raise EvaluationAuthorizationError(
+                "governed holdout unlock requires the exact holdout receipt"
+            )
+        unlocked_holdout_receipt.validate()
+        if (
+            unlocked_holdout_receipt.trial_id != locked_receipt.trial_id
+            or unlocked_holdout_receipt.state != "UNLOCKED_ONCE"
+            or unlocked_holdout_receipt.previous_receipt_id
+            != locked_receipt.holdout_state_receipt_id
+        ):
+            raise EvaluationAuthorizationError(
+                "governed holdout unlock differs from the initial holdout lock"
+            )
+        require_sha256(pre_unlock_trial_ledger_head, "governed_holdout.pre_unlock_trial_ledger_head")
+        history, receipts = self._history()
+        self._require_latest(receipts, locked_receipt, expected_state="LOCKED")
+        required = {
+            "trial_registry_binding_id": locked_receipt.trial_registry_binding_id,
+            "locked_governed_receipt_id": locked_receipt.receipt_id,
+            "locked_holdout_state_receipt_id": locked_receipt.holdout_state_receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_holdout_receipt.receipt_id,
+            "pre_unlock_trial_ledger_head": pre_unlock_trial_ledger_head,
+        }
+        authorization.validate(
+            expected_scope="AUTHORIZE_FINAL_HOLDOUT_ACCESS",
+            expected_subject_id=locked_receipt.trial_id,
+            required_bindings=required,
+            clock=self._clock,
+        )
+        return self._append(
+            history,
+            trial_registry_binding_id=locked_receipt.trial_registry_binding_id,
+            trial_id=locked_receipt.trial_id,
+            state="UNLOCKED_ONCE",
+            holdout_state_receipt_id=unlocked_holdout_receipt.receipt_id,
+            holdout_state_previous_receipt_id=unlocked_holdout_receipt.previous_receipt_id,
+            previous_receipt_id=locked_receipt.receipt_id,
+            pre_unlock_trial_ledger_head=pre_unlock_trial_ledger_head,
+            authorization_record_id=authorization.record_id,
+        )
+
+    def close(
+        self,
+        *,
+        unlocked_receipt: GovernedHoldoutAccessReceipt,
+        closed_holdout_receipt: HoldoutStateReceipt,
+        authorization: LocalIntegrityRecord,
+    ) -> GovernedHoldoutAccessReceipt:
+        unlocked_receipt.validate()
+        if type(closed_holdout_receipt) is not HoldoutStateReceipt:
+            raise EvaluationAuthorizationError(
+                "governed holdout closure requires the exact holdout receipt"
+            )
+        closed_holdout_receipt.validate()
+        if (
+            closed_holdout_receipt.trial_id != unlocked_receipt.trial_id
+            or closed_holdout_receipt.state != "CLOSED"
+            or closed_holdout_receipt.previous_receipt_id
+            != unlocked_receipt.holdout_state_receipt_id
+        ):
+            raise EvaluationAuthorizationError(
+                "governed holdout closure differs from the one authorized unlock"
+            )
+        history, receipts = self._history()
+        self._require_latest(receipts, unlocked_receipt, expected_state="UNLOCKED_ONCE")
+        required = {
+            "trial_registry_binding_id": unlocked_receipt.trial_registry_binding_id,
+            "unlocked_governed_receipt_id": unlocked_receipt.receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_receipt.holdout_state_receipt_id,
+            "closed_holdout_state_receipt_id": closed_holdout_receipt.receipt_id,
+            "pre_unlock_trial_ledger_head": unlocked_receipt.pre_unlock_trial_ledger_head or "",
+        }
+        authorization.validate(
+            expected_scope="CLOSE_FINAL_HOLDOUT_ACCESS",
+            expected_subject_id=unlocked_receipt.trial_id,
+            required_bindings=required,
+            clock=self._clock,
+        )
+        return self._append(
+            history,
+            trial_registry_binding_id=unlocked_receipt.trial_registry_binding_id,
+            trial_id=unlocked_receipt.trial_id,
+            state="CLOSED",
+            holdout_state_receipt_id=closed_holdout_receipt.receipt_id,
+            holdout_state_previous_receipt_id=closed_holdout_receipt.previous_receipt_id,
+            previous_receipt_id=unlocked_receipt.receipt_id,
+            pre_unlock_trial_ledger_head=unlocked_receipt.pre_unlock_trial_ledger_head,
+            authorization_record_id=authorization.record_id,
+        )
+
+    @staticmethod
+    def _require_latest(
+        receipts: list[GovernedHoldoutAccessReceipt],
+        supplied: GovernedHoldoutAccessReceipt,
+        *,
+        expected_state: str,
+    ) -> None:
+        matches = [receipt for receipt in receipts if receipt.trial_id == supplied.trial_id]
+        if (
+            not matches
+            or matches[-1].as_dict() != supplied.as_dict()
+            or supplied.state != expected_state
+        ):
+            raise EvaluationAuthorizationError("governed holdout transition is stale or replayed")
+
+    def _append(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        trial_registry_binding_id: str,
+        trial_id: str,
+        state: str,
+        holdout_state_receipt_id: str,
+        holdout_state_previous_receipt_id: str | None,
+        previous_receipt_id: str | None,
+        pre_unlock_trial_ledger_head: str | None,
+        authorization_record_id: str | None,
+    ) -> GovernedHoldoutAccessReceipt:
+        unsigned = {
+            "schema_version": 1,
+            "trial_registry_binding_id": trial_registry_binding_id,
+            "trial_id": trial_id,
+            "state": state,
+            "unlock_count": 0 if state == "LOCKED" else 1,
+            "holdout_state_receipt_id": holdout_state_receipt_id,
+            "holdout_state_previous_receipt_id": holdout_state_previous_receipt_id,
+            "previous_receipt_id": previous_receipt_id,
+            "pre_unlock_trial_ledger_head": pre_unlock_trial_ledger_head,
+            "authorization_record_id": authorization_record_id,
+            "created_at": iso_z(self._clock.now()),
+            "time_authority": self._clock.mode,
+            "synthetic_clock_permit_id": self._clock.synthetic_permit_id,
+        }
+        receipt = GovernedHoldoutAccessReceipt(
+            **unsigned,
+            receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+        )
+        receipt.validate()
+        self._ledger.append(
+            receipt.as_dict(),
+            expected_record_count=len(history),
+            expected_head_hash=history[-1]["record_hash"] if history else "0" * 64,
+        )
+        return receipt
+
+
+@dataclass(frozen=True)
 class TrialPermit:
     trial_registry_binding_id: str
     trial_id: str

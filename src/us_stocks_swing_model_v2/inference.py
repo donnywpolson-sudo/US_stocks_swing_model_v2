@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from .bundle import SealedBundleMetadata, load_bundle
+from .bundle import BundleReadinessReceipt, SealedBundleMetadata, load_bundle
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .common import (
     canonical_json_bytes,
@@ -112,15 +112,41 @@ class FitFreeInferenceEngine:
         bundle_dir: Path,
         *,
         accepted_release_root: Path,
+        readiness_receipt: BundleReadinessReceipt | None = None,
         clock: TrustedClock | None = None,
     ):
         self.bundle_dir = Path(bundle_dir)
         self.accepted_release_root = Path(accepted_release_root)
         self._clock = require_trusted_clock(clock)
         self.metadata = load_bundle(self.bundle_dir)
-        if self._clock.trust_eligible and not self.metadata.trust_eligible:
+        self.readiness_receipt = readiness_receipt
+        if self._clock.trust_eligible:
+            if type(readiness_receipt) is not BundleReadinessReceipt:
+                raise ContractError(
+                    "production inference rejects bundles without the exact readiness receipt"
+                )
+            readiness_receipt.validate()
+            if (
+                not readiness_receipt.trust_eligible
+                or readiness_receipt.candidate_id != self.metadata.candidate_id
+                or readiness_receipt.trial_registry_binding_id
+                != self.metadata.trial_registry_binding_id
+                or readiness_receipt.trial_id != self.metadata.trial_id
+                or readiness_receipt.registration_hash
+                != self.metadata.registration_hash
+                or readiness_receipt.evaluation_permit_id
+                != self.metadata.evaluation_permit_id
+                or readiness_receipt.gate_receipt_id
+                != self.metadata.gate_receipt.receipt_id
+                or readiness_receipt.eligibility_census_contract_id
+                != self.metadata.eligibility_census_contract_id
+            ):
+                raise ContractError(
+                    "production inference rejects a mismatched or non-trust readiness receipt"
+                )
+        elif readiness_receipt is not None:
             raise ContractError(
-                "production inference rejects synthetic or readiness-blocked bundles"
+                "synthetic inference cannot substitute a production readiness receipt"
             )
         model_paths = [item.path for item in self.metadata.artifacts if item.path.endswith("model.json")]
         if len(model_paths) != 1:
@@ -215,6 +241,18 @@ class FitFreeInferenceEngine:
             raise ContractError(
                 "non-synthetic prediction cannot use a synthetic-only permit"
             )
+        if eligibility_census.evidence_state == "PRODUCTION_TRUST_ELIGIBLE":
+            if type(self.readiness_receipt) is not BundleReadinessReceipt:
+                raise ContractError(
+                    "production eligibility lacks the engine readiness receipt"
+                )
+            expected_readiness_receipt_id = self.readiness_receipt.receipt_id
+            expected_external_anchor_receipt_id = (
+                self.readiness_receipt.external_anchor_receipt_id
+            )
+        else:
+            expected_readiness_receipt_id = self.metadata.readiness_receipt_id
+            expected_external_anchor_receipt_id = self.metadata.external_anchor_receipt_id
         if (
             eligibility_census.contract_id != self.metadata.eligibility_census_contract_id
             or eligibility_census.bundle_id != self.metadata.bundle_id
@@ -225,6 +263,10 @@ class FitFreeInferenceEngine:
             != self.metadata.evaluation_permit_id
             or eligibility_census.gate_receipt_id
             != self.metadata.gate_receipt.receipt_id
+            or eligibility_census.readiness_receipt_id
+            != expected_readiness_receipt_id
+            or eligibility_census.external_anchor_receipt_id
+            != expected_external_anchor_receipt_id
         ):
             raise ContractError("eligibility census differs from the sealed bundle contract")
         asset_ids = tuple(sorted(row.asset_id for row in materialized))

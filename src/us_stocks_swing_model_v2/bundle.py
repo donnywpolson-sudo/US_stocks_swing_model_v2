@@ -11,6 +11,7 @@ from .common import (
     assert_exact_tree,
     atomic_write,
     canonical_json_bytes,
+    iso_z,
     parse_utc_z,
     reject_link,
     require_sha256,
@@ -45,6 +46,78 @@ TRUST_ELIGIBLE_ROLES = {
     "feature_only",
     "outcome_only",
 }
+
+
+@dataclass(frozen=True)
+class BundleReadinessReceipt:
+    """Verified transition evidence for a blocked bundle candidate."""
+
+    schema_version: int
+    candidate_id: str
+    trial_registry_binding_id: str
+    trial_id: str
+    registration_hash: str
+    evaluation_permit_id: str
+    gate_receipt_id: str
+    closed_holdout_receipt_id: str
+    eligibility_census_contract_id: str
+    external_anchor_receipt_id: str
+    release_bindings_hash: str
+    authorization_record_id: str
+    verified_at: str
+    time_authority: str
+    synthetic_clock_permit_id: str | None
+    evidence_state: str
+    receipt_id: str
+
+    def unsigned_dict(self) -> dict[str, object]:
+        return {
+            name: getattr(self, name)
+            for name in self.__dataclass_fields__
+            if name != "receipt_id"
+        }
+
+    def as_dict(self) -> dict[str, object]:
+        return {**self.unsigned_dict(), "receipt_id": self.receipt_id}
+
+    def validate(self) -> None:
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise ContractError("bundle readiness receipt schema differs")
+        for name in (
+            "candidate_id",
+            "trial_registry_binding_id",
+            "trial_id",
+            "registration_hash",
+            "evaluation_permit_id",
+            "gate_receipt_id",
+            "closed_holdout_receipt_id",
+            "eligibility_census_contract_id",
+            "external_anchor_receipt_id",
+            "release_bindings_hash",
+            "authorization_record_id",
+            "receipt_id",
+        ):
+            require_sha256(getattr(self, name), f"bundle_readiness.{name}")
+        parse_utc_z(self.verified_at, "bundle_readiness.verified_at")
+        if self.time_authority == "PRODUCTION_SYSTEM_UTC":
+            if self.synthetic_clock_permit_id is not None or self.evidence_state != "PRODUCTION_VERIFIED_READY":
+                raise ContractError("production readiness receipt authority differs")
+        elif self.time_authority == "SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE":
+            require_sha256(
+                self.synthetic_clock_permit_id or "",
+                "bundle_readiness.synthetic_clock_permit_id",
+            )
+            if self.evidence_state != "SYNTHETIC_MECHANICS_ONLY_NOT_TRUST_ELIGIBLE":
+                raise ContractError("synthetic readiness receipt state differs")
+        else:
+            raise ContractError("bundle readiness receipt time authority differs")
+        if self.receipt_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
+            raise IntegrityError("bundle readiness receipt ID differs")
+
+    @property
+    def trust_eligible(self) -> bool:
+        self.validate()
+        return self.evidence_state == "PRODUCTION_VERIFIED_READY"
 
 
 def _require_reachable_sealing_time(sealed_at: str, observed_at: datetime) -> None:
@@ -332,7 +405,7 @@ class SealedBundleMetadata:
             raise ContractError("external anchor receipt must be the exact not-configured blocker")
         if self.production_readiness_state != "NOT_CONFIGURED_BLOCKS_PRODUCTION":
             raise ContractError(
-                "production readiness verification is not implemented; candidate must remain blocked"
+                "schema-v3 bundles cannot embed verified readiness; candidate must remain blocked"
             )
         self.gate_receipt.validate()
         if (
@@ -620,6 +693,212 @@ class PreparedBundleCandidate:
             "robustness_policy_hash": payload["robustness_policy_hash"],
             "robustness_evidence_hash": payload["robustness_evidence_hash"],
         }
+
+
+def verify_production_bundle_readiness(
+    candidate: PreparedBundleCandidate,
+    *,
+    external_registration: "ExternalTrialRegistration",
+    holdout_access_chain: Iterable["GovernedHoldoutAccessReceipt"],
+    unlock_authorization: LocalIntegrityRecord,
+    close_authorization: LocalIntegrityRecord,
+    eligibility_census_contract_id: str,
+    verified_release_directories: Iterable[Path],
+    accepted_release_root: Path,
+    authorization: LocalIntegrityRecord,
+    clock: TrustedClock,
+) -> BundleReadinessReceipt:
+    """Verify the exact production prerequisites without sealing a bundle."""
+    from .s3_object_lock_trial_registry import ExternalTrialRegistration
+    from .trials import GovernedHoldoutAccessReceipt
+
+    if type(candidate) is not PreparedBundleCandidate:
+        raise ContractError("bundle readiness requires an exact prepared candidate")
+    payload = candidate.candidate_dict()
+    if (
+        payload["readiness_receipt_id"] != BLOCKED_READINESS_RECEIPT_ID
+        or payload["external_anchor_receipt_id"] != BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID
+        or payload["production_readiness_state"] != "NOT_CONFIGURED_BLOCKS_PRODUCTION"
+    ):
+        raise ContractError("bundle readiness requires the exact blocked candidate state")
+    gate = GateReceipt.from_dict(payload["gate_receipt"])
+    if (
+        gate.state != GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value
+        or gate.evaluation_scope != "FINAL_HOLDOUT"
+    ):
+        raise ContractError(
+            "bundle readiness requires an exact PASS final-holdout gate receipt"
+        )
+    if type(external_registration) is not ExternalTrialRegistration:
+        raise ContractError("bundle readiness requires an external immutable registration")
+    external_registration.validate()
+    if (
+        external_registration.trial_id != payload["trial_id"]
+        or external_registration.trial_registry_binding_id
+        != payload["trial_registry_binding_id"]
+        or external_registration.registration_hash != payload["registration_hash"]
+        or external_registration.external_anchor_receipt_id
+        == BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID
+    ):
+        raise ContractError("bundle readiness external registration differs from the candidate")
+    chain = tuple(holdout_access_chain)
+    if len(chain) != 3 or any(
+        type(receipt) is not GovernedHoldoutAccessReceipt for receipt in chain
+    ):
+        raise ContractError("bundle readiness requires the exact governed holdout chain")
+    for receipt in chain:
+        receipt.validate()
+    locked_holdout_receipt, unlocked_holdout_receipt, closed_holdout_receipt = chain
+    if (
+        tuple(receipt.state for receipt in chain)
+        != ("LOCKED", "UNLOCKED_ONCE", "CLOSED")
+        or unlocked_holdout_receipt.previous_receipt_id
+        != locked_holdout_receipt.receipt_id
+        or closed_holdout_receipt.previous_receipt_id
+        != unlocked_holdout_receipt.receipt_id
+        or unlocked_holdout_receipt.holdout_state_previous_receipt_id
+        != locked_holdout_receipt.holdout_state_receipt_id
+        or closed_holdout_receipt.holdout_state_previous_receipt_id
+        != unlocked_holdout_receipt.holdout_state_receipt_id
+        or unlocked_holdout_receipt.holdout_state_receipt_id
+        != gate.holdout_receipt_id
+        or closed_holdout_receipt.holdout_state_previous_receipt_id
+        != gate.holdout_receipt_id
+        or closed_holdout_receipt.state != "CLOSED"
+        or any(receipt.trial_id != payload["trial_id"] for receipt in chain)
+        or any(
+            receipt.trial_registry_binding_id
+            != payload["trial_registry_binding_id"]
+            for receipt in chain
+        )
+    ):
+        raise ContractError("bundle readiness holdout closure differs from the gate")
+    require_sha256(
+        eligibility_census_contract_id,
+        "bundle_readiness.eligibility_census_contract_id",
+    )
+    if eligibility_census_contract_id != payload["eligibility_census_contract_id"]:
+        raise ContractError("bundle readiness eligibility contract differs")
+    verified = verify_release_bindings(
+        verified_release_directories,
+        accepted_release_root=Path(accepted_release_root),
+        expected_project="US_stocks_swing_model_v2",
+    )
+    candidate_bindings = tuple(
+        ReleaseBinding(**entry) for entry in payload["release_bindings"]
+    )
+    if verified != candidate_bindings:
+        raise ContractError("bundle readiness accepted-release census differs")
+    bindings_hash = release_bindings_hash(verified)
+    required_bindings = {
+        "candidate_id": candidate.candidate_id,
+        "trial_registry_binding_id": payload["trial_registry_binding_id"],
+        "trial_id": payload["trial_id"],
+        "registration_hash": payload["registration_hash"],
+        "external_anchor_receipt_id": external_registration.external_anchor_receipt_id,
+        "gate_receipt_id": gate.receipt_id,
+        "closed_holdout_receipt_id": closed_holdout_receipt.receipt_id,
+        "eligibility_census_contract_id": eligibility_census_contract_id,
+        "release_bindings_hash": bindings_hash,
+    }
+    trusted_clock = require_trusted_clock(clock)
+    verified_at = trusted_clock.now()
+    expected_clock_mode = trusted_clock.mode
+    expected_synthetic_permit_id = trusted_clock.synthetic_permit_id
+    if (
+        gate.time_authority != expected_clock_mode
+        or gate.synthetic_clock_permit_id != expected_synthetic_permit_id
+        or any(receipt.time_authority != expected_clock_mode for receipt in chain)
+        or any(
+            receipt.synthetic_clock_permit_id != expected_synthetic_permit_id
+            for receipt in chain
+        )
+    ):
+        raise ContractError("bundle readiness evidence authority differs")
+    unlock_authorization.validate_at(
+        expected_scope="AUTHORIZE_FINAL_HOLDOUT_ACCESS",
+        expected_subject_id=payload["trial_id"],
+        required_bindings={
+            "trial_registry_binding_id": payload["trial_registry_binding_id"],
+            "locked_governed_receipt_id": locked_holdout_receipt.receipt_id,
+            "locked_holdout_state_receipt_id": locked_holdout_receipt.holdout_state_receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_holdout_receipt.holdout_state_receipt_id,
+            "pre_unlock_trial_ledger_head": unlocked_holdout_receipt.pre_unlock_trial_ledger_head or "",
+        },
+        observed_at=verified_at,
+        expected_clock_mode=expected_clock_mode,
+        expected_synthetic_permit_id=expected_synthetic_permit_id,
+    )
+    close_authorization.validate_at(
+        expected_scope="CLOSE_FINAL_HOLDOUT_ACCESS",
+        expected_subject_id=payload["trial_id"],
+        required_bindings={
+            "trial_registry_binding_id": payload["trial_registry_binding_id"],
+            "unlocked_governed_receipt_id": unlocked_holdout_receipt.receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_holdout_receipt.holdout_state_receipt_id,
+            "closed_holdout_state_receipt_id": closed_holdout_receipt.holdout_state_receipt_id,
+            "pre_unlock_trial_ledger_head": closed_holdout_receipt.pre_unlock_trial_ledger_head or "",
+        },
+        observed_at=verified_at,
+        expected_clock_mode=expected_clock_mode,
+        expected_synthetic_permit_id=expected_synthetic_permit_id,
+    )
+    if (
+        unlocked_holdout_receipt.authorization_record_id
+        != unlock_authorization.record_id
+        or closed_holdout_receipt.authorization_record_id
+        != close_authorization.record_id
+    ):
+        raise ContractError("bundle readiness holdout authorization receipt differs")
+    authorization.validate(
+        expected_scope="VERIFY_PRODUCTION_BUNDLE_READINESS",
+        expected_subject_id=candidate.candidate_id,
+        required_bindings=required_bindings,
+        clock=trusted_clock,
+    )
+    if (
+        parse_utc_z(gate.evaluated_at, "gate.evaluated_at") > verified_at
+        or any(
+            parse_utc_z(receipt.created_at, "holdout.created_at") > verified_at
+            for receipt in chain
+        )
+        or not (
+            parse_utc_z(locked_holdout_receipt.created_at, "holdout.locked_at")
+            < parse_utc_z(unlocked_holdout_receipt.created_at, "holdout.unlocked_at")
+            < parse_utc_z(closed_holdout_receipt.created_at, "holdout.closed_at")
+        )
+        or parse_utc_z(external_registration.object_created_at, "external.object_created_at")
+        > verified_at
+    ):
+        raise ContractError("bundle readiness evidence postdates verification")
+    unsigned = {
+        "schema_version": 1,
+        "candidate_id": candidate.candidate_id,
+        "trial_registry_binding_id": payload["trial_registry_binding_id"],
+        "trial_id": payload["trial_id"],
+        "registration_hash": payload["registration_hash"],
+        "evaluation_permit_id": payload["evaluation_permit_id"],
+        "gate_receipt_id": gate.receipt_id,
+        "closed_holdout_receipt_id": closed_holdout_receipt.receipt_id,
+        "eligibility_census_contract_id": eligibility_census_contract_id,
+        "external_anchor_receipt_id": external_registration.external_anchor_receipt_id,
+        "release_bindings_hash": bindings_hash,
+        "authorization_record_id": authorization.record_id,
+        "verified_at": iso_z(verified_at),
+        "time_authority": trusted_clock.mode,
+        "synthetic_clock_permit_id": trusted_clock.synthetic_permit_id,
+        "evidence_state": (
+            "PRODUCTION_VERIFIED_READY"
+            if trusted_clock.trust_eligible
+            else "SYNTHETIC_MECHANICS_ONLY_NOT_TRUST_ELIGIBLE"
+        ),
+    }
+    receipt = BundleReadinessReceipt(
+        **unsigned,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    receipt.validate()
+    return receipt
 
 
 def prepare_bundle_candidate(

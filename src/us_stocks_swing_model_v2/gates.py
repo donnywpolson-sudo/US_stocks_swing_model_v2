@@ -5,14 +5,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-from .common import canonical_json_bytes, parse_utc_z, require_sha256, sha256_bytes
+from .common import canonical_json_bytes, iso_z, parse_utc_z, require_sha256, sha256_bytes
 from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError
 
 
 REQUIRED_SLEEVES = ("stock_long", "stock_short", "etf_long", "etf_short")
 EVALUATION_SCOPES = {"OUTER_SCREEN", "FINAL_HOLDOUT"}
-GATE_RESULT_CONTRACT_UNAVAILABLE = "GATE_RESULT_CONTRACT_UNAVAILABLE"
 
 
 class GateState(str, Enum):
@@ -168,6 +167,74 @@ class SleeveMetric:
             "robustness_state": self.robustness_state,
             "robustness_evidence_hash": self.robustness_evidence_hash,
         }
+
+
+@dataclass(frozen=True)
+class GateEvaluationEvidence:
+    """Exact post-permit metrics from which the frozen gate is derived."""
+
+    schema_version: int
+    evaluation_permit_id: str
+    metrics: tuple[tuple[str, SleeveMetric], ...]
+    robustness_evidence_hash: str
+    evidence_id: str
+
+    def unsigned_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "evaluation_permit_id": self.evaluation_permit_id,
+            "metrics": {name: metric.as_dict() for name, metric in self.metrics},
+            "robustness_evidence_hash": self.robustness_evidence_hash,
+        }
+
+    def validate(self) -> None:
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise ContractError("gate evaluation evidence schema differs")
+        require_sha256(self.evaluation_permit_id, "gate_evidence.evaluation_permit_id")
+        require_sha256(self.robustness_evidence_hash, "gate_evidence.robustness_evidence_hash")
+        require_sha256(self.evidence_id, "gate_evidence.evidence_id")
+        names = tuple(name for name, _ in self.metrics)
+        if not names or names != tuple(sorted(set(names))) or set(names) - set(REQUIRED_SLEEVES):
+            raise ContractError("gate evaluation evidence sleeve census is invalid")
+        for name, metric in self.metrics:
+            if type(name) is not str or type(metric) is not SleeveMetric:
+                raise ContractError("gate evaluation evidence metrics are invalid")
+            metric.validate()
+            if metric.robustness_evidence_hash != self.robustness_evidence_hash:
+                raise ContractError("gate evaluation evidence robustness binding differs")
+        if self.evidence_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
+            raise ContractError("gate evaluation evidence ID differs from its content")
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        evaluation_permit_id: str,
+        metrics: Mapping[str, SleeveMetric],
+    ) -> "GateEvaluationEvidence":
+        if not isinstance(metrics, Mapping) or not metrics:
+            raise ContractError("gate evaluation evidence requires sleeve metrics")
+        ordered = tuple(sorted(metrics.items()))
+        if any(type(metric) is not SleeveMetric for _, metric in ordered):
+            raise ContractError("gate evaluation evidence metrics are invalid")
+        hashes = {metric.robustness_evidence_hash for _, metric in ordered}
+        if len(hashes) != 1:
+            raise ContractError("gate evaluation evidence requires one robustness binding")
+        unsigned = {
+            "schema_version": 1,
+            "evaluation_permit_id": evaluation_permit_id,
+            "metrics": {name: metric.as_dict() for name, metric in ordered},
+            "robustness_evidence_hash": next(iter(hashes)),
+        }
+        evidence = cls(
+            schema_version=1,
+            evaluation_permit_id=evaluation_permit_id,
+            metrics=ordered,
+            robustness_evidence_hash=next(iter(hashes)),
+            evidence_id=sha256_bytes(canonical_json_bytes(unsigned)),
+        )
+        evidence.validate()
+        return evidence
 
 
 @dataclass(frozen=True)
@@ -446,8 +513,48 @@ def _build_gate_receipt_from_issued_permit(
     policy_hash = sha256_bytes(canonical_json_bytes(policy.as_dict()))
     if policy_hash != permit.primary_gate_id:
         raise ContractError("gate policy differs from the predeclared trial policy")
-    require_trusted_clock(clock)
-    raise ContractError(GATE_RESULT_CONTRACT_UNAVAILABLE)
+    trusted_clock = require_trusted_clock(clock)
+    if type(evidence) is not GateEvaluationEvidence:
+        raise ContractError("gate result requires exact post-permit evaluation evidence")
+    evidence.validate()
+    if evidence.evaluation_permit_id != permit.permit_id:
+        raise ContractError("gate evaluation evidence belongs to another permit")
+    metrics = dict(evidence.metrics)
+    state = policy.aggregate(metrics)
+    unsigned = {
+        "schema_version": 3,
+        "trial_registry_binding_id": permit.trial_registry_binding_id,
+        "trial_id": permit.trial_id,
+        "evaluation_permit_id": permit.permit_id,
+        "permit_payload_hash": sha256_bytes(canonical_json_bytes(permit.as_dict())),
+        "registration_hash": permit.registration_hash,
+        "evaluation_scope": permit.evaluation_scope,
+        "evaluation_input_hash": permit.evaluation_input_hash,
+        "evaluator_code_hash": permit.evaluator_code_hash,
+        "evaluator_closure_hash": permit.evaluator_closure_hash,
+        "census_anchor_id": permit.census_anchor_id,
+        "trial_family_anchor_id": permit.trial_family_anchor_id,
+        "governance_contract_hash": permit.governance_contract_hash,
+        "release_bindings_hash": permit.release_bindings_hash,
+        "holdout_receipt_id": permit.holdout_receipt_id,
+        "authorization_receipt_id": permit.authorization_receipt_id,
+        "permit_issued_at": permit.issued_at,
+        "primary_gate_id": permit.primary_gate_id,
+        "policy_hash": policy_hash,
+        "robustness_policy_hash": permit.robustness_policy_id,
+        "robustness_evidence_hash": evidence.robustness_evidence_hash,
+        "metrics_hash": evidence.evidence_id,
+        "state": state.value,
+        "evaluated_at": iso_z(trusted_clock.now()),
+        "time_authority": trusted_clock.mode,
+        "synthetic_clock_permit_id": trusted_clock.synthetic_permit_id,
+    }
+    receipt = GateReceipt(
+        **unsigned,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    receipt.validate()
+    return receipt
 
 
 def build_gate_receipt(**_: object) -> GateReceipt:

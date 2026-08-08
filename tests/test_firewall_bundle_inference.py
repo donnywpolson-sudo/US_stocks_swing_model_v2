@@ -18,6 +18,7 @@ from us_stocks_swing_model_v2.bundle import (
     load_bundle,
     prepare_bundle_candidate,
     seal_bundle,
+    verify_production_bundle_readiness,
 )
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
 from us_stocks_swing_model_v2.clock import TrustedClock
@@ -33,7 +34,7 @@ from us_stocks_swing_model_v2.eligibility import (
     EligibilityCensus,
 )
 from us_stocks_swing_model_v2.gates import (
-    GATE_RESULT_CONTRACT_UNAVAILABLE,
+    GateEvaluationEvidence,
     GateReceipt,
     GateState,
     IndependentGatePolicy,
@@ -58,6 +59,7 @@ from us_stocks_swing_model_v2.ledger import (
     PredictionLedger,
 )
 from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, build_manifest, verify_release
+from us_stocks_swing_model_v2.s3_object_lock_trial_registry import ExternalTrialRegistration
 from us_stocks_swing_model_v2.schemas import (
     FeatureRow,
     OutcomeRow,
@@ -68,6 +70,8 @@ from us_stocks_swing_model_v2.schemas import (
 )
 from us_stocks_swing_model_v2.trials import (
     EvaluationExecutionEvidence,
+    GovernedHoldoutAccessReceipt,
+    GovernedHoldoutAccessStore,
     TrialRegistry,
     TrialSpec,
     build_holdout_receipt,
@@ -262,6 +266,7 @@ def _bundle(
     *,
     model_overrides: dict[str, object] | None = None,
     production_sealing: bool = False,
+    final_holdout_gate: bool = False,
     artifact_paths: tuple[str, ...] = ("model.json",),
 ) -> Path:
     root = tmp_path / "bundle"
@@ -353,18 +358,44 @@ def _bundle(
         repository_root=REPO,
         gate_policy=_gate_policy(),
     )
-    permit, _, _ = _outer_permit(registry, spec, trial_id)
+    permit, initial_holdout, _ = _outer_permit(registry, spec, trial_id)
     gate = _seed_test_only_synthetic_gate_receipt_for_downstream_mechanics(
         registry,
         permit,
         state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
         evaluated_at=datetime(2026, 7, 15, 2, tzinfo=timezone.utc),
     )
+    if final_holdout_gate:
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 2, 15, tzinfo=timezone.utc))
+        ).record_evaluation(
+            permit,
+            _evaluation_result(permit, initial_holdout, gate),
+            gate_receipt=gate,
+        )
+        permit, _, _ = _final_permit(
+            registry,
+            spec,
+            trial_id,
+            initial_holdout=initial_holdout,
+        )
+        gate = _seed_test_only_synthetic_gate_receipt_for_downstream_mechanics(
+            registry,
+            permit,
+            state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
+            evaluated_at=datetime(2026, 7, 15, 4, tzinfo=timezone.utc),
+        )
     if production_sealing:
         sealing_clock = TrustedClock.production()
         sealing_observed_at = sealing_clock.now()
     else:
-        sealing_observed_at = datetime(2026, 7, 15, 3, tzinfo=timezone.utc)
+        sealing_observed_at = datetime(
+            2026,
+            7,
+            15,
+            5 if final_holdout_gate else 3,
+            tzinfo=timezone.utc,
+        )
         sealing_clock = _clock(sealing_observed_at)
     candidate = prepare_bundle_candidate(
         root,
@@ -436,6 +467,261 @@ def test_bundle_preparation_rejects_duplicate_artifact_declarations(
         _bundle(
             tmp_path,
             artifact_paths=("model.json", "model.json"),
+        )
+
+
+def test_bundle_readiness_verifier_binds_external_gate_holdout_and_releases(
+    tmp_path: Path,
+) -> None:
+    bundle_path = _bundle(tmp_path, final_holdout_gate=True)
+    metadata = load_bundle(bundle_path)
+    assert metadata.gate_receipt.evaluation_scope == "FINAL_HOLDOUT"
+    candidate = PreparedBundleCandidate(
+        bundle_dir=bundle_path,
+        candidate_json=canonical_json_bytes(metadata.candidate_dict()),
+        candidate_id=metadata.candidate_id,
+    )
+    registry_envelope = json.loads(
+        (tmp_path / "governance/trials.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    registered_payload = registry_envelope["payload"]
+    registration_hash = sha256_bytes(canonical_json_bytes(registered_payload))
+    assert registration_hash == metadata.registration_hash
+    external_fields = {
+        "schema_version": 2,
+        "backend": "AWS_S3_OBJECT_LOCK_COMPLIANCE",
+        "policy_id": "a" * 64,
+        "trial_id": metadata.trial_id,
+        "trial_registry_binding_id": metadata.trial_registry_binding_id,
+        "registration_hash": registration_hash,
+        "registration_authorization_record_id": "b" * 64,
+        "bucket": "synthetic-trial-registry",
+        "region": "us-west-2",
+        "key": f"trials/{metadata.trial_id}.json",
+        "s3_version_id": "synthetic-version",
+        "object_sha256": registration_hash,
+        "object_created_at": registered_payload["registered_at"],
+        "object_lock_mode": "COMPLIANCE",
+        "retained_until": "2036-07-15T00:00:00Z",
+        "registered_payload": registered_payload,
+    }
+    external_anchor_payload = {
+        key: value
+        for key, value in external_fields.items()
+        if key not in {"registered_payload", "s3_version_id"}
+    }
+    external_anchor_payload["version_id"] = external_fields["s3_version_id"]
+    external = ExternalTrialRegistration(
+        **external_fields,
+        external_anchor_receipt_id=sha256_bytes(
+            canonical_json_bytes(external_anchor_payload)
+        ),
+    )
+    external.validate()
+
+    initial_holdout = build_holdout_receipt(
+        trial_id=metadata.trial_id,
+        state="LOCKED",
+        clock=_clock(datetime(2026, 7, 15, 0, 15, tzinfo=timezone.utc)),
+    )
+    unlocked_holdout = build_holdout_receipt(
+        trial_id=metadata.trial_id,
+        state="UNLOCKED_ONCE",
+        previous=initial_holdout,
+        clock=_clock(datetime(2026, 7, 15, 2, 30, tzinfo=timezone.utc)),
+    )
+    assert unlocked_holdout.receipt_id == metadata.gate_receipt.holdout_receipt_id
+    closed_holdout = build_holdout_receipt(
+        trial_id=metadata.trial_id,
+        state="CLOSED",
+        previous=unlocked_holdout,
+        clock=_clock(datetime(2026, 7, 15, 4, 15, tzinfo=timezone.utc)),
+    )
+    governed_store = GovernedHoldoutAccessStore(
+        tmp_path / "governance/governed-holdout.jsonl",
+        governance_root=tmp_path / "governance",
+        clock=_clock(datetime(2026, 7, 15, 0, 30, tzinfo=timezone.utc)),
+    )
+    locked = governed_store.initialize(
+        trial_registry_binding_id=metadata.trial_registry_binding_id,
+        holdout_receipt=initial_holdout,
+    )
+    pre_unlock_head = "c" * 64
+    unlock_bindings = {
+        "trial_registry_binding_id": metadata.trial_registry_binding_id,
+        "locked_governed_receipt_id": locked.receipt_id,
+        "locked_holdout_state_receipt_id": locked.holdout_state_receipt_id,
+        "unlocked_holdout_state_receipt_id": unlocked_holdout.receipt_id,
+        "pre_unlock_trial_ledger_head": pre_unlock_head,
+    }
+    unlock_authorization = create_local_integrity_record(
+        scope="AUTHORIZE_FINAL_HOLDOUT_ACCESS",
+        subject_id=metadata.trial_id,
+        bindings=unlock_bindings,
+        clock=_clock(datetime(2026, 7, 15, 2, 35, tzinfo=timezone.utc)),
+    )
+    unlocked = governed_store.with_clock(
+        _clock(datetime(2026, 7, 15, 2, 40, tzinfo=timezone.utc))
+    ).unlock_once(
+        locked_receipt=locked,
+        unlocked_holdout_receipt=unlocked_holdout,
+        pre_unlock_trial_ledger_head=pre_unlock_head,
+        authorization=unlock_authorization,
+    )
+    close_bindings = {
+        "trial_registry_binding_id": metadata.trial_registry_binding_id,
+        "unlocked_governed_receipt_id": unlocked.receipt_id,
+        "unlocked_holdout_state_receipt_id": unlocked.holdout_state_receipt_id,
+        "closed_holdout_state_receipt_id": closed_holdout.receipt_id,
+        "pre_unlock_trial_ledger_head": pre_unlock_head,
+    }
+    close_authorization = create_local_integrity_record(
+        scope="CLOSE_FINAL_HOLDOUT_ACCESS",
+        subject_id=metadata.trial_id,
+        bindings=close_bindings,
+        clock=_clock(datetime(2026, 7, 15, 4, 20, tzinfo=timezone.utc)),
+    )
+    closed = governed_store.with_clock(
+        _clock(datetime(2026, 7, 15, 4, 25, tzinfo=timezone.utc))
+    ).close(
+        unlocked_receipt=unlocked,
+        closed_holdout_receipt=closed_holdout,
+        authorization=close_authorization,
+    )
+    holdout_chain = (locked, unlocked, closed)
+    readiness_clock = _clock(datetime(2026, 7, 15, 6, tzinfo=timezone.utc))
+    accepted_root = tmp_path / "accepted"
+    release_directories = tuple(
+        accepted_root / binding.dataset / binding.release_id
+        for binding in metadata.release_bindings
+    )
+    readiness_bindings = {
+        "candidate_id": candidate.candidate_id,
+        "trial_registry_binding_id": metadata.trial_registry_binding_id,
+        "trial_id": metadata.trial_id,
+        "registration_hash": metadata.registration_hash,
+        "external_anchor_receipt_id": external.external_anchor_receipt_id,
+        "gate_receipt_id": metadata.gate_receipt.receipt_id,
+        "closed_holdout_receipt_id": closed.receipt_id,
+        "eligibility_census_contract_id": ELIGIBILITY_CENSUS_CONTRACT_ID,
+        "release_bindings_hash": release_bindings_hash(metadata.release_bindings),
+    }
+    authorization = create_local_integrity_record(
+        scope="VERIFY_PRODUCTION_BUNDLE_READINESS",
+        subject_id=candidate.candidate_id,
+        bindings=readiness_bindings,
+        clock=readiness_clock,
+    )
+    receipt = verify_production_bundle_readiness(
+        candidate,
+        external_registration=external,
+        holdout_access_chain=holdout_chain,
+        unlock_authorization=unlock_authorization,
+        close_authorization=close_authorization,
+        eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
+        verified_release_directories=release_directories,
+        accepted_release_root=accepted_root,
+        authorization=authorization,
+        clock=readiness_clock,
+    )
+    assert receipt.evidence_state == "SYNTHETIC_MECHANICS_ONLY_NOT_TRUST_ELIGIBLE"
+    assert receipt.trust_eligible is False
+    outer_bundle_path = _bundle(tmp_path / "outer-only")
+    outer_metadata = load_bundle(outer_bundle_path)
+    outer_candidate = PreparedBundleCandidate(
+        bundle_dir=outer_bundle_path,
+        candidate_json=canonical_json_bytes(outer_metadata.candidate_dict()),
+        candidate_id=outer_metadata.candidate_id,
+    )
+    with pytest.raises(ContractError, match="PASS final-holdout"):
+        verify_production_bundle_readiness(
+            outer_candidate,
+            external_registration=external,
+            holdout_access_chain=holdout_chain,
+            unlock_authorization=unlock_authorization,
+            close_authorization=close_authorization,
+            eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
+            verified_release_directories=release_directories,
+            accepted_release_root=accepted_root,
+            authorization=authorization,
+            clock=readiness_clock,
+        )
+    with pytest.raises(ContractError, match="verified-ready bundle receipt"):
+        EligibilityCensus.production_from_rows(
+            metadata,
+            (_row(bundle_path, "ABC", SecurityType.STOCK, 0.25),),
+            readiness_receipt=receipt,
+        )
+    with pytest.raises(ContractError, match="eligibility contract differs"):
+        verify_production_bundle_readiness(
+            candidate,
+            external_registration=external,
+            holdout_access_chain=holdout_chain,
+            unlock_authorization=unlock_authorization,
+            close_authorization=close_authorization,
+            eligibility_census_contract_id="e" * 64,
+            verified_release_directories=release_directories,
+            accepted_release_root=accepted_root,
+            authorization=authorization,
+            clock=readiness_clock,
+        )
+    forged_external = replace(external, registration_hash="f" * 64)
+    with pytest.raises(EvaluationAuthorizationError, match="immutable object"):
+        verify_production_bundle_readiness(
+            candidate,
+            external_registration=forged_external,
+            holdout_access_chain=holdout_chain,
+            unlock_authorization=unlock_authorization,
+            close_authorization=close_authorization,
+            eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
+            verified_release_directories=release_directories,
+            accepted_release_root=accepted_root,
+            authorization=authorization,
+            clock=readiness_clock,
+        )
+    with pytest.raises(ContractError, match="exact governed holdout chain"):
+        verify_production_bundle_readiness(
+            candidate,
+            external_registration=external,
+            holdout_access_chain=(locked, closed),
+            unlock_authorization=unlock_authorization,
+            close_authorization=close_authorization,
+            eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
+            verified_release_directories=release_directories,
+            accepted_release_root=accepted_root,
+            authorization=authorization,
+            clock=readiness_clock,
+        )
+    forged_closed_unsigned = {
+        **closed.unsigned_dict(),
+        "authorization_record_id": "f" * 64,
+    }
+    forged_closed = GovernedHoldoutAccessReceipt(
+        **forged_closed_unsigned,
+        receipt_id=sha256_bytes(canonical_json_bytes(forged_closed_unsigned)),
+    )
+    forged_bindings = {
+        **readiness_bindings,
+        "closed_holdout_receipt_id": forged_closed.receipt_id,
+    }
+    forged_readiness_authorization = create_local_integrity_record(
+        scope="VERIFY_PRODUCTION_BUNDLE_READINESS",
+        subject_id=candidate.candidate_id,
+        bindings=forged_bindings,
+        clock=readiness_clock,
+    )
+    with pytest.raises(ContractError, match="authorization receipt differs"):
+        verify_production_bundle_readiness(
+            candidate,
+            external_registration=external,
+            holdout_access_chain=(locked, unlocked, forged_closed),
+            unlock_authorization=unlock_authorization,
+            close_authorization=close_authorization,
+            eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
+            verified_release_directories=release_directories,
+            accepted_release_root=accepted_root,
+            authorization=forged_readiness_authorization,
+            clock=readiness_clock,
         )
 
 
@@ -513,6 +799,30 @@ def _census(engine: FitFreeInferenceEngine, rows: list[FeatureRow] | tuple[Featu
             scope="SYNTHETIC_ELIGIBILITY_CENSUS",
         ),
     )
+
+
+def test_production_eligibility_materializer_requires_verified_ready_bundle(
+    tmp_path: Path,
+) -> None:
+    bundle_path = _bundle(tmp_path)
+    metadata = _load_bundle(bundle_path)
+    row = _row(bundle_path, "ABC", SecurityType.STOCK, 0.25)
+    synthetic = EligibilityCensus.synthetic_from_rows(
+        metadata,
+        (row,),
+        permit=SyntheticOnlyPermit.create(
+            fixture_id="production-eligibility-blocker",
+            scope="SYNTHETIC_ELIGIBILITY_CENSUS",
+        ),
+    )
+    assert synthetic.readiness_receipt_id == metadata.readiness_receipt_id
+    assert synthetic.external_anchor_receipt_id == metadata.external_anchor_receipt_id
+    with pytest.raises(ContractError, match="exact readiness receipt"):
+        EligibilityCensus.production_from_rows(
+            metadata,
+            (row,),
+            readiness_receipt=object(),  # type: ignore[arg-type]
+        )
 
 
 def _predict(
@@ -905,7 +1215,7 @@ def test_bundle_release_slots_cutoffs_and_frozen_gate_are_binding(tmp_path: Path
         replace(metadata, robustness_evidence_hash="0" * 64).validate()
 
     assert metadata.trust_eligible is False
-    with pytest.raises(ContractError, match="not implemented"):
+    with pytest.raises(ContractError, match="schema-v3 bundles cannot embed"):
         replace(
             metadata,
             production_readiness_state="VERIFIED_READY",
@@ -1995,7 +2305,7 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
             policy=_gate_policy(minimum_sessions=21),
             evidence={"state": GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value},
         )
-    with pytest.raises(ContractError, match=GATE_RESULT_CONTRACT_UNAVAILABLE):
+    with pytest.raises(ContractError, match="exact post-permit evaluation evidence"):
         registry.with_clock(
             _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
         ).build_gate_receipt(
@@ -2004,11 +2314,40 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
             evidence={"state": GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value},
         )
     assert registry._gate_receipts.read_verified() == []
-    inconclusive_gate = _gate_for_state(
-        registry,
-        permit,
-        state=GateState.INCONCLUSIVE_DATA_OR_POWER,
+    wrong_permit_evidence = GateEvaluationEvidence.create(
+        evaluation_permit_id="f" * 64,
+        metrics={"stock_long": _sleeve_metric(sessions=10)},
     )
+    with pytest.raises(ContractError, match="another permit"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
+        ).build_gate_receipt(
+            permit,
+            policy=_gate_policy(),
+            evidence=wrong_permit_evidence,
+        )
+    inconclusive_gate = registry.with_clock(
+        _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
+    ).build_gate_receipt(
+        permit,
+        policy=_gate_policy(),
+        evidence=GateEvaluationEvidence.create(
+            evaluation_permit_id=permit.permit_id,
+            metrics={"stock_long": _sleeve_metric(sessions=10)},
+        ),
+    )
+    assert inconclusive_gate.state == GateState.INCONCLUSIVE_DATA_OR_POWER.value
+    with pytest.raises(IntegrityError, match="duplicate"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
+        ).build_gate_receipt(
+            permit,
+            policy=_gate_policy(),
+            evidence=GateEvaluationEvidence.create(
+                evaluation_permit_id=permit.permit_id,
+                metrics={"stock_long": _sleeve_metric(sessions=10)},
+            ),
+        )
     forged_unsigned = {**permit.unsigned_dict(), "evaluator_code_hash": "0" * 64}
     forged_permit = type(permit)(
         **forged_unsigned,
@@ -2402,6 +2741,121 @@ def test_definite_control_failures_never_become_inconclusive(
     }
     assert policy.evaluate(metrics)["stock_long"] is expected
     assert policy.aggregate(metrics) is expected
+
+
+def test_governed_holdout_store_is_one_way_head_bound_and_replay_safe(
+    tmp_path: Path,
+) -> None:
+    governance = tmp_path / "governance"
+    governance.mkdir()
+    trial_id = "1" * 64
+    registry_binding_id = "2" * 64
+    pre_unlock_head = "3" * 64
+    locked_clock = _clock(datetime(2026, 7, 15, tzinfo=timezone.utc))
+    store = GovernedHoldoutAccessStore(
+        governance / "holdout_access.jsonl",
+        governance_root=governance,
+        clock=locked_clock,
+    )
+    locked_holdout = build_holdout_receipt(
+        trial_id=trial_id,
+        state="LOCKED",
+        clock=locked_clock,
+    )
+    locked = store.initialize(
+        trial_registry_binding_id=registry_binding_id,
+        holdout_receipt=locked_holdout,
+    )
+    assert locked.state == "LOCKED"
+
+    unlock_clock = _clock(datetime(2026, 7, 15, 1, tzinfo=timezone.utc))
+    unlocked_holdout = build_holdout_receipt(
+        trial_id=trial_id,
+        state="UNLOCKED_ONCE",
+        previous=locked_holdout,
+        clock=unlock_clock,
+    )
+    unlock_bindings = {
+        "trial_registry_binding_id": registry_binding_id,
+        "locked_governed_receipt_id": locked.receipt_id,
+        "locked_holdout_state_receipt_id": locked_holdout.receipt_id,
+        "unlocked_holdout_state_receipt_id": unlocked_holdout.receipt_id,
+        "pre_unlock_trial_ledger_head": pre_unlock_head,
+    }
+    unlock_record = create_local_integrity_record(
+        scope="AUTHORIZE_FINAL_HOLDOUT_ACCESS",
+        subject_id=trial_id,
+        bindings=unlock_bindings,
+        clock=unlock_clock,
+    )
+    unlocked_store = store.with_clock(unlock_clock)
+    unlocked = unlocked_store.unlock_once(
+        locked_receipt=locked,
+        unlocked_holdout_receipt=unlocked_holdout,
+        pre_unlock_trial_ledger_head=pre_unlock_head,
+        authorization=unlock_record,
+    )
+    assert unlocked.state == "UNLOCKED_ONCE"
+    assert unlocked.pre_unlock_trial_ledger_head == pre_unlock_head
+    with pytest.raises(EvaluationAuthorizationError, match="stale or replayed"):
+        unlocked_store.unlock_once(
+            locked_receipt=locked,
+            unlocked_holdout_receipt=unlocked_holdout,
+            pre_unlock_trial_ledger_head=pre_unlock_head,
+            authorization=unlock_record,
+        )
+
+    close_clock = _clock(datetime(2026, 7, 15, 2, tzinfo=timezone.utc))
+    closed_holdout = build_holdout_receipt(
+        trial_id=trial_id,
+        state="CLOSED",
+        previous=unlocked_holdout,
+        clock=close_clock,
+    )
+    wrong_close = create_local_integrity_record(
+        scope="CLOSE_FINAL_HOLDOUT_ACCESS",
+        subject_id=trial_id,
+        bindings={
+            "trial_registry_binding_id": registry_binding_id,
+            "unlocked_governed_receipt_id": unlocked.receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_holdout.receipt_id,
+            "closed_holdout_state_receipt_id": closed_holdout.receipt_id,
+            "pre_unlock_trial_ledger_head": "4" * 64,
+        },
+        clock=close_clock,
+    )
+    closing_store = unlocked_store.with_clock(close_clock)
+    with pytest.raises(EvaluationAuthorizationError, match="bindings differ"):
+        closing_store.close(
+            unlocked_receipt=unlocked,
+            closed_holdout_receipt=closed_holdout,
+            authorization=wrong_close,
+        )
+    close_record = create_local_integrity_record(
+        scope="CLOSE_FINAL_HOLDOUT_ACCESS",
+        subject_id=trial_id,
+        bindings={
+            "trial_registry_binding_id": registry_binding_id,
+            "unlocked_governed_receipt_id": unlocked.receipt_id,
+            "unlocked_holdout_state_receipt_id": unlocked_holdout.receipt_id,
+            "closed_holdout_state_receipt_id": closed_holdout.receipt_id,
+            "pre_unlock_trial_ledger_head": pre_unlock_head,
+        },
+        clock=close_clock,
+    )
+    closed = closing_store.close(
+        unlocked_receipt=unlocked,
+        closed_holdout_receipt=closed_holdout,
+        authorization=close_record,
+    )
+    assert closed.state == "CLOSED"
+    assert closing_store.latest(trial_id).as_dict() == closed.as_dict()
+    with pytest.raises(EvaluationAuthorizationError, match="stale or replayed"):
+        closing_store.close(
+            unlocked_receipt=unlocked,
+            closed_holdout_receipt=closed_holdout,
+            authorization=close_record,
+        )
 
 
 @pytest.mark.parametrize("unlock_count", [False, True, 0.0, 1.0, "0", "1"])
