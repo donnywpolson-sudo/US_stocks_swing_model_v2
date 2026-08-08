@@ -316,18 +316,17 @@ def validate_trial_evidence_roles(spec: TrialSpec) -> None:
     for binding in spec.release_bindings:
         if binding.role == "qualification_evidence_only":
             raise ContractError("qualification evidence can never enter a trial")
+        if (
+            binding.role == "legacy_discovery_only"
+            or binding.quality_state == "LEGACY_CAVEATED"
+        ):
+            raise ContractError("legacy releases cannot enter trial registration")
         if spec.evidence_class == "PROSPECTIVE_FINAL":
             if binding.role not in pass_roles or binding.quality_state != "PASS":
                 raise ContractError(
                     "prospective final evidence requires PASS trust-eligible releases"
                 )
-        elif not (
-            (
-                binding.role == "legacy_discovery_only"
-                and binding.quality_state == "LEGACY_CAVEATED"
-            )
-            or (binding.role in pass_roles and binding.quality_state == "PASS")
-        ):
+        elif binding.role not in pass_roles or binding.quality_state != "PASS":
             raise ContractError(
                 "historical discovery release role/quality is not eligible"
             )

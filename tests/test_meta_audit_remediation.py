@@ -278,12 +278,11 @@ def test_provider_lineage_binds_raw_headers_request_and_pagination() -> None:
 
 def _prospective_protocol(
     *,
-    attempts_used: int = 0,
     current_session: int = 99,
+    early_stop_policy_id: str = "6" * 64,
 ) -> ProspectiveControlProtocol:
     return ProspectiveControlProtocol.create(
         maximum_attempts=2,
-        attempts_used=attempts_used,
         fixed_end_session=100,
         current_session=current_session,
         sealed_before_first_prediction=True,
@@ -291,19 +290,31 @@ def _prospective_protocol(
         missed_vintage_backfill_allowed=False,
         indirect_holdout_queries_allowed=False,
         failed_holdout_reuse_allowed=False,
-        early_stop_policy_id="6" * 64,
+        early_stop_policy_id=early_stop_policy_id,
         expected_vintage_ids=("v1", "v2"),
     )
 
 
 def test_optional_stop_fixed_end_and_missed_vintages_fail_closed() -> None:
-    assert require_next_attempt(_prospective_protocol(attempts_used=1)) == 2
+    initial = _prospective_protocol()
+    first_attempt = require_next_attempt(initial)
+    assert first_attempt.attempts_used == 1
+    assert first_attempt.previous_protocol_id == initial.protocol_id
+    assert first_attempt.protocol_id != initial.protocol_id
+    with pytest.raises(ContractError, match="already consumed"):
+        require_next_attempt(initial)
+    second_attempt = require_next_attempt(first_attempt)
+    assert second_attempt.attempts_used == 2
+    assert second_attempt.previous_protocol_id == first_attempt.protocol_id
     with pytest.raises(ContractError, match="attempt budget is exhausted"):
-        require_next_attempt(_prospective_protocol(attempts_used=2))
+        require_next_attempt(second_attempt)
     with pytest.raises(ContractError, match="remains blinded"):
-        authorize_aggregate_read(_prospective_protocol(current_session=99))
+        authorize_aggregate_read(initial)
 
-    complete = _prospective_protocol(current_session=100)
+    complete = _prospective_protocol(
+        current_session=100,
+        early_stop_policy_id="8" * 64,
+    )
     authorize_aggregate_read(complete)
     assert (
         verify_prospective_vintage_census(
@@ -333,26 +344,15 @@ def test_optional_stop_fixed_end_and_missed_vintages_fail_closed() -> None:
     with pytest.raises(ContractError, match="protocol ID differs"):
         replace(complete, expected_vintage_ids=("v1",)).validate()
     values = complete.unsigned_dict()
+    values.pop("attempts_used")
+    values.pop("previous_protocol_id")
     values["expected_vintage_ids"] = ()
     with pytest.raises(ContractError, match="cannot be empty"):
         ProspectiveControlProtocol.create(**values)
 
 
 def test_indirect_and_reused_holdout_access_is_rejected() -> None:
-    protocol = _prospective_protocol()
-    with pytest.raises(ContractError, match="indirect holdout"):
-        require_direct_final_holdout_query(
-            protocol,
-            query_kind="INDIRECT_AGGREGATE_QUERY",
-            holdout_unlocked=True,
-        )
-    with pytest.raises(ContractError, match="exact authorized unlock"):
-        require_direct_final_holdout_query(
-            protocol,
-            query_kind="DIRECT_REGISTERED_FINAL_HOLDOUT",
-            holdout_unlocked=False,
-        )
-
+    protocol = _prospective_protocol(early_stop_policy_id="9" * 64)
     permit = SyntheticOnlyPermit.create(
         fixture_id="meta-audit-holdout-reuse",
         scope="TRUSTED_CLOCK_FIXED_TIME",
@@ -362,12 +362,42 @@ def test_indirect_and_reused_holdout_access_is_rejected() -> None:
         permit=permit,
     )
     locked = build_holdout_receipt(trial_id="7" * 64, state="LOCKED", clock=clock)
+    with pytest.raises(ContractError, match="indirect holdout"):
+        require_direct_final_holdout_query(
+            protocol,
+            query_kind="INDIRECT_AGGREGATE_QUERY",
+            holdout_receipt=locked,
+        )
+    with pytest.raises(ContractError, match="exact authorized unlock"):
+        require_direct_final_holdout_query(
+            protocol,
+            query_kind="DIRECT_REGISTERED_FINAL_HOLDOUT",
+            holdout_receipt=False,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ContractError, match="exact authorized unlock"):
+        require_direct_final_holdout_query(
+            protocol,
+            query_kind="DIRECT_REGISTERED_FINAL_HOLDOUT",
+            holdout_receipt=locked,
+        )
     unlocked = build_holdout_receipt(
         trial_id="7" * 64,
         state="UNLOCKED_ONCE",
         clock=clock,
         previous=locked,
     )
+    authorization_id = require_direct_final_holdout_query(
+        protocol,
+        query_kind="DIRECT_REGISTERED_FINAL_HOLDOUT",
+        holdout_receipt=unlocked,
+    )
+    assert len(authorization_id) == 64
+    with pytest.raises(ContractError, match="already consumed"):
+        require_direct_final_holdout_query(
+            protocol,
+            query_kind="DIRECT_REGISTERED_FINAL_HOLDOUT",
+            holdout_receipt=unlocked,
+        )
     with pytest.raises(EvaluationAuthorizationError, match="unlocked only once"):
         build_holdout_receipt(
             trial_id="7" * 64,

@@ -259,6 +259,7 @@ _ISSUED_REQUEST_ATTEMPTS: WeakKeyDictionary[
 _ISSUED_NETWORK_RESPONSES: WeakKeyDictionary[
     NetworkResponseEvidence, dict[str, object]
 ] = WeakKeyDictionary()
+_ISSUED_PROCESS_INVOCATION_BINDINGS: set[str] = set()
 _ISSUED_SESSIONS_LOCK = threading.Lock()
 _COMMIT_RESULT = TypeVar("_COMMIT_RESULT")
 
@@ -297,7 +298,21 @@ def start_local_network_execution(
         sha256_bytes(canonical_json_bytes(unsigned)),
     )
     object.__setattr__(session, "started_at", started_at)
+    invocation_binding = sha256_bytes(
+        canonical_json_bytes(
+            {
+                "network_registry_path": registry.registry_path,
+                "network_registry_id": registry.registry_id,
+            }
+        )
+    )
     with _ISSUED_SESSIONS_LOCK:
+        if invocation_binding in _ISSUED_PROCESS_INVOCATION_BINDINGS:
+            raise EvaluationAuthorizationError(
+                "local network session was already issued in this process; "
+                "retry requires a new local invocation"
+            )
+        _ISSUED_PROCESS_INVOCATION_BINDINGS.add(invocation_binding)
         _ISSUED_LOCAL_SESSIONS[session] = {
             "session_id": session.session_id,
             "registry": registry,

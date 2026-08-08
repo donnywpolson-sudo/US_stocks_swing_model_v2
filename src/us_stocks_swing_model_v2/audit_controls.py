@@ -7,9 +7,10 @@ real audit receipt under a separate authorization.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 import re
+import threading
 from typing import Mapping
 
 from .common import (
@@ -21,6 +22,7 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError
+from .trials import HoldoutStateReceipt
 
 
 AUDIT_SURFACES = (
@@ -706,6 +708,12 @@ class ProviderLineageEvidence:
         return result
 
 
+_PROSPECTIVE_CONTROL_LOCK = threading.Lock()
+_ISSUED_PROSPECTIVE_PROTOCOL_IDS: set[str] = set()
+_CONSUMED_PROSPECTIVE_PROTOCOL_IDS: set[str] = set()
+_CONSUMED_FINAL_HOLDOUT_TRIAL_IDS: set[str] = set()
+
+
 @dataclass(frozen=True)
 class ProspectiveControlProtocol:
     maximum_attempts: int
@@ -719,6 +727,7 @@ class ProspectiveControlProtocol:
     failed_holdout_reuse_allowed: bool
     early_stop_policy_id: str
     expected_vintage_ids: tuple[str, ...]
+    previous_protocol_id: str | None
     protocol_id: str
 
     def unsigned_dict(self) -> dict[str, object]:
@@ -734,6 +743,7 @@ class ProspectiveControlProtocol:
             "failed_holdout_reuse_allowed": self.failed_holdout_reuse_allowed,
             "early_stop_policy_id": self.early_stop_policy_id,
             "expected_vintage_ids": list(self.expected_vintage_ids),
+            "previous_protocol_id": self.previous_protocol_id,
         }
 
     def validate(self) -> None:
@@ -769,39 +779,111 @@ class ProspectiveControlProtocol:
         )
         if not expected:
             raise ContractError("prospective expected vintage census cannot be empty")
+        if self.attempts_used == 0:
+            if self.previous_protocol_id is not None:
+                raise ContractError("initial prospective protocol cannot name a predecessor")
+        else:
+            require_sha256(
+                self.previous_protocol_id,
+                "prospective.previous_protocol_id",
+            )
         require_sha256(self.protocol_id, "prospective.protocol_id")
         if self.protocol_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
             raise ContractError("prospective protocol ID differs from its content")
 
     @classmethod
     def create(cls, **values: object) -> "ProspectiveControlProtocol":
-        unsigned = dict(values)
+        if "protocol_id" in values:
+            raise ContractError("prospective protocol ID is repository-issued")
+        attempts_used = values.pop("attempts_used", 0)
+        previous_protocol_id = values.pop("previous_protocol_id", None)
+        if type(attempts_used) is not int or attempts_used != 0:
+            raise ContractError("initial prospective protocol must have zero attempts used")
+        if previous_protocol_id is not None:
+            raise ContractError("initial prospective protocol cannot name a predecessor")
+        unsigned = {
+            **values,
+            "attempts_used": 0,
+            "previous_protocol_id": None,
+        }
         result = cls(
             **unsigned,
             protocol_id=sha256_bytes(canonical_json_bytes(unsigned)),
         )
         result.validate()
+        with _PROSPECTIVE_CONTROL_LOCK:
+            if result.protocol_id in _ISSUED_PROSPECTIVE_PROTOCOL_IDS:
+                raise ContractError(
+                    "prospective protocol was already issued in this process"
+                )
+            _ISSUED_PROSPECTIVE_PROTOCOL_IDS.add(result.protocol_id)
         return result
 
 
-def require_next_attempt(protocol: ProspectiveControlProtocol) -> int:
+def require_next_attempt(
+    protocol: ProspectiveControlProtocol,
+) -> ProspectiveControlProtocol:
     protocol.validate()
-    if protocol.attempts_used >= protocol.maximum_attempts:
-        raise ContractError("optional-stop attempt budget is exhausted")
-    return protocol.attempts_used + 1
+    with _PROSPECTIVE_CONTROL_LOCK:
+        if protocol.protocol_id not in _ISSUED_PROSPECTIVE_PROTOCOL_IDS:
+            raise ContractError("prospective protocol was not issued in this process")
+        if protocol.protocol_id in _CONSUMED_PROSPECTIVE_PROTOCOL_IDS:
+            raise ContractError("prospective attempt transition was already consumed")
+        if protocol.attempts_used >= protocol.maximum_attempts:
+            raise ContractError("optional-stop attempt budget is exhausted")
+        unsigned = {
+            **protocol.unsigned_dict(),
+            "attempts_used": protocol.attempts_used + 1,
+            "previous_protocol_id": protocol.protocol_id,
+        }
+        transitioned = replace(
+            protocol,
+            attempts_used=protocol.attempts_used + 1,
+            previous_protocol_id=protocol.protocol_id,
+            protocol_id=sha256_bytes(canonical_json_bytes(unsigned)),
+        )
+        transitioned.validate()
+        if transitioned.protocol_id in _ISSUED_PROSPECTIVE_PROTOCOL_IDS:
+            raise ContractError("prospective attempt transition was already issued")
+        _CONSUMED_PROSPECTIVE_PROTOCOL_IDS.add(protocol.protocol_id)
+        _ISSUED_PROSPECTIVE_PROTOCOL_IDS.add(transitioned.protocol_id)
+        return transitioned
 
 
 def require_direct_final_holdout_query(
     protocol: ProspectiveControlProtocol,
     *,
     query_kind: str,
-    holdout_unlocked: bool,
-) -> None:
+    holdout_receipt: HoldoutStateReceipt,
+) -> str:
     protocol.validate()
     if query_kind != "DIRECT_REGISTERED_FINAL_HOLDOUT":
         raise ContractError("indirect holdout queries are prohibited")
-    if holdout_unlocked is not True:
-        raise ContractError("final holdout query requires the exact authorized unlock")
+    if type(holdout_receipt) is not HoldoutStateReceipt:
+        raise ContractError(
+            "final holdout query requires the exact authorized unlock receipt"
+        )
+    holdout_receipt.validate()
+    if holdout_receipt.state != "UNLOCKED_ONCE" or holdout_receipt.unlock_count != 1:
+        raise ContractError(
+            "final holdout query requires the exact authorized unlock receipt"
+        )
+    with _PROSPECTIVE_CONTROL_LOCK:
+        if protocol.protocol_id not in _ISSUED_PROSPECTIVE_PROTOCOL_IDS:
+            raise ContractError("prospective protocol was not issued in this process")
+        if protocol.protocol_id in _CONSUMED_PROSPECTIVE_PROTOCOL_IDS:
+            raise ContractError("prospective protocol attempt state was already consumed")
+        if holdout_receipt.trial_id in _CONSUMED_FINAL_HOLDOUT_TRIAL_IDS:
+            raise ContractError("final holdout query was already consumed for this trial")
+        authorization = {
+            "schema_version": 1,
+            "query_kind": query_kind,
+            "protocol_id": protocol.protocol_id,
+            "trial_id": holdout_receipt.trial_id,
+            "holdout_receipt_id": holdout_receipt.receipt_id,
+        }
+        _CONSUMED_FINAL_HOLDOUT_TRIAL_IDS.add(holdout_receipt.trial_id)
+        return sha256_bytes(canonical_json_bytes(authorization))
 
 
 def authorize_aggregate_read(protocol: ProspectiveControlProtocol) -> None:

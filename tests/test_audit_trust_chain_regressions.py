@@ -174,23 +174,16 @@ def test_post_preflight_failure_spends_attempt_and_requires_new_session(
             clock=clock,
         )
 
-    retry_session = start_local_network_execution(
-        plan,
-        registry=registry,
-        clock=clock,
-    )
-    retry_attempt = assert_local_network_request(
-        retry_session,
-        source="fixture",
-        url=plan.initial_url,
-        timeout_seconds=30,
-        max_response_bytes=1024,
-        page_index=0,
-        expected_page_token=None,
-        clock=clock,
-    )
-    assert retry_attempt.attempt_id != failed_attempt.attempt_id
-    assert retry_attempt.session_id != failed_attempt.session_id
+    assert type(failed_attempt) is NetworkRequestAttempt
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="retry requires a new local invocation",
+    ):
+        start_local_network_execution(
+            _plan(registry),
+            registry=registry,
+            clock=clock,
+        )
 
 
 def test_network_plan_rejects_duplicate_query_keys_and_registry_drift(
@@ -283,9 +276,28 @@ def test_network_response_landing_is_atomic_single_use_and_locally_verified(
             max_bytes=1024,
         )
 
-    replacement_attempt = _attempt(registry, clock=clock)
-    replacement_response = _bind_network_response(
-        replacement_attempt,
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="retry requires a new local invocation",
+    ):
+        _attempt(registry, clock=clock)
+
+
+def test_successful_network_response_landing_is_single_use_and_verified(
+    tmp_path: Path,
+) -> None:
+    registry = _registry(tmp_path)
+    store = AsReceivedSnapshotStore(
+        tmp_path / "snapshots",
+        allowed_root=tmp_path,
+        acquisition_registry=registry,
+    )
+    clock = TrustedClock.production()
+    attempt = _attempt(registry, clock=clock)
+    raw = b"network fixture"
+    headers = {"content-type": "application/octet-stream"}
+    response = _bind_network_response(
+        attempt,
         requested_url="https://example.invalid/data",
         response_url="https://example.invalid/data",
         http_status=200,
@@ -293,7 +305,7 @@ def test_network_response_landing_is_atomic_single_use_and_locally_verified(
         headers=headers,
     )
     snapshot = store._land_network_response(
-        transport_evidence=replacement_response,
+        transport_evidence=response,
         source="fixture",
         requested_url="https://example.invalid/data",
         response_url="https://example.invalid/data",
@@ -307,7 +319,7 @@ def test_network_response_landing_is_atomic_single_use_and_locally_verified(
     assert snapshot.read_verified_bytes() == raw
     with pytest.raises(EvaluationAuthorizationError, match="replayed"):
         store._land_network_response(
-            transport_evidence=replacement_response,
+            transport_evidence=response,
             source="fixture",
             requested_url="https://example.invalid/data",
             response_url="https://example.invalid/data",

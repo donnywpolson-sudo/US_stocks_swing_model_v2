@@ -2,12 +2,24 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+import json
 from pathlib import Path
 
 import pytest
 
-from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
+from us_stocks_swing_model_v2.clock import TrustedClock
+from us_stocks_swing_model_v2.common import (
+    canonical_json_bytes,
+    iso_z,
+    parse_utc_z,
+    sha256_bytes,
+)
 from us_stocks_swing_model_v2.errors import ContractError, EvaluationAuthorizationError
+from us_stocks_swing_model_v2.governance import (
+    LocalIntegrityRecord,
+    create_local_integrity_record,
+    release_bindings_hash,
+)
 from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     S3ObjectLockRegistryPolicy,
     S3ObjectLockTrialRegistryLocation,
@@ -36,9 +48,15 @@ class _Client(_Reader):
 
     def put_object(self, **kwargs: object) -> dict[str, object]:
         self.puts.append(kwargs)
+        payload = json.loads(bytes(kwargs["Body"]).decode("utf-8"))
         self.response["VersionId"] = "3HL4kqtJlcpXrof3fjVBH40Nr8X8gXbo"
         self.response["ObjectLockMode"] = kwargs["ObjectLockMode"]
         self.response["ObjectLockRetainUntilDate"] = kwargs["ObjectLockRetainUntilDate"]
+        self.response["LastModified"] = parse_utc_z(
+            payload["registered_at"],
+            "registered_at",
+        )
+        self.response["Metadata"] = dict(kwargs["Metadata"])
         self.response["Body"] = BytesIO(kwargs["Body"])
         return {"VersionId": self.response["VersionId"]}
 
@@ -60,14 +78,15 @@ def _payload(
     *,
     binding_id: str,
     evidence_class: str = "REGISTERED_HISTORICAL_DISCOVERY",
-    role: str = "legacy_discovery_only",
-    quality_state: str = "LEGACY_CAVEATED",
+    role: str = "active_historical",
+    quality_state: str = "PASS",
+    registered_at: str | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "hypothesis_id": "fixed_discovery_hypothesis",
         "evidence_class": evidence_class,
         "data_release_ids": ["a" * 64],
-        "release_bindings": [{"release_id": "a" * 64, "project": "US_stocks_swing_model_v2", "dataset": "alpaca_discovery_proxy_features", "source_epoch": "legacy_alpaca", "role": role, "quality_state": quality_state, "created_at": "2026-07-30T00:00:00Z", "event_start": "2016-01-04T00:00:00Z", "event_end": "2026-07-10T00:00:00Z"}],
+        "release_bindings": [{"release_id": "a" * 64, "project": "US_stocks_swing_model_v2", "dataset": "eligible_features", "source_epoch": "accepted_causal_v1", "role": role, "quality_state": quality_state, "created_at": "2026-07-30T00:00:00Z", "event_start": "2016-01-04T00:00:00Z", "event_end": "2026-07-10T00:00:00Z"}],
         "feature_schema_id": "c" * 64,
         "outcome_schema_id": "d" * 64,
         "split_plan_id": "e" * 64,
@@ -85,7 +104,7 @@ def _payload(
         "config_hash": "7" * 64,
         "environment_hash": "8" * 64,
         "trial_id": "0" * 64,
-        "registered_at": "2026-07-31T00:00:00Z",
+        "registered_at": registered_at or iso_z(datetime.now(timezone.utc)),
         "trial_registry_binding_id": binding_id,
     }
     payload["trial_id"] = TrialSpec.from_registered_payload(payload).trial_id
@@ -106,6 +125,49 @@ def _spec() -> TrialSpec:
     return TrialSpec.from_registered_payload(payload)
 
 
+def _action_record(
+    *,
+    policy: S3ObjectLockRegistryPolicy,
+    binding_id: str,
+    spec: TrialSpec,
+) -> LocalIntegrityRecord:
+    return create_local_integrity_record(
+        scope="AUTHORIZE_EXTERNAL_TRIAL_REGISTRATION",
+        subject_id=spec.trial_id,
+        bindings={
+            "policy_id": policy.policy_id,
+            "release_bindings_hash": release_bindings_hash(spec.release_bindings),
+            "trial_registry_binding_id": binding_id,
+        },
+        clock=TrustedClock.production(),
+    )
+
+
+def _response(
+    *,
+    target: S3ObjectLockTrialRegistryTarget,
+    payload: dict[str, object],
+    action_record: LocalIntegrityRecord,
+    retention_days: int = 3651,
+    last_modified: datetime | None = None,
+) -> dict[str, object]:
+    registered_at = parse_utc_z(str(payload["registered_at"]), "registered_at")
+    action_recorded_at = parse_utc_z(
+        action_record.recorded_at,
+        "action_record.recorded_at",
+    )
+    return {
+        "VersionId": target.version_id,
+        "ObjectLockMode": "COMPLIANCE",
+        "ObjectLockRetainUntilDate": registered_at + timedelta(days=retention_days),
+        "LastModified": last_modified or max(registered_at, action_recorded_at),
+        "Metadata": {
+            "registration-authorization-record-id": action_record.record_id,
+        },
+        "Body": BytesIO(canonical_json_bytes(payload)),
+    }
+
+
 def test_loads_only_a_versioned_compliance_retained_trial_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,8 +176,19 @@ def test_loads_only_a_versioned_compliance_retained_trial_record(
     target = _target()
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
-    reader = _Reader({"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651), "Body": BytesIO(canonical_json_bytes(payload))})
     spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=target.registry_binding_id(policy),
+        spec=spec,
+    )
+    reader = _Reader(
+        _response(
+            target=target,
+            payload=payload,
+            action_record=action_record,
+        )
+    )
     monkeypatch.setattr(
         "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
         lambda *_args, **_kwargs: spec.release_bindings,
@@ -124,48 +197,98 @@ def test_loads_only_a_versioned_compliance_retained_trial_record(
     record = load_s3_object_lock_trial_registration(
         reader=reader, policy=policy, target=target, trial_id=trial_id,
         verified_release_directories=(), accepted_release_root=repo_root,
+        action_record=action_record,
     )
 
     assert record.trial_id == trial_id
     assert len(record.external_anchor_receipt_id) == 64
+    assert record.registration_authorization_record_id == action_record.record_id
+    assert record.object_created_at == iso_z(
+        reader.response["LastModified"]  # type: ignore[arg-type]
+    )
     assert reader.calls == [{"Bucket": target.bucket, "Key": target.key_for(trial_id), "VersionId": target.version_id}]
 
 
 @pytest.mark.parametrize("field, value, message", [("ObjectLockMode", "GOVERNANCE", "Compliance"), ("VersionId", "other", "version")])
-def test_rejects_nonimmutable_or_wrong_version_evidence(field: str, value: object, message: str) -> None:
+def test_rejects_nonimmutable_or_wrong_version_evidence(
+    field: str,
+    value: object,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     policy = _policy(repo_root)
     target = _target()
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
-    response: dict[str, object] = {"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651), "Body": BytesIO(canonical_json_bytes(payload))}
+    spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=target.registry_binding_id(policy),
+        spec=spec,
+    )
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+    response = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+    )
     response[field] = value
     with pytest.raises(EvaluationAuthorizationError, match=message):
         load_s3_object_lock_trial_registration(
             reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
+            action_record=action_record,
         )
 
 
-def test_rejects_short_retention_and_local_backend_status() -> None:
+def test_rejects_short_retention_and_local_backend_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     selected = S3ObjectLockRegistryPolicy.load(repo_root / "config" / "trial_registry_s3_object_lock_policy.json", repository_root=repo_root)
     target = _target()
-    trial_id = "9" * 64
+    selected_spec = _spec()
+    trial_id = selected_spec.trial_id
+    selected_action = _action_record(
+        policy=selected,
+        binding_id=target.registry_binding_id(selected),
+        spec=selected_spec,
+    )
     with pytest.raises(EvaluationAuthorizationError, match="not configured"):
         load_s3_object_lock_trial_registration(
             reader=_Reader({}), policy=selected, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
+            action_record=selected_action,
         )
 
     policy = _policy(repo_root)
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
-    response = {"VersionId": target.version_id, "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=1), "Body": BytesIO(canonical_json_bytes(payload))}
+    spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=target.registry_binding_id(policy),
+        spec=spec,
+    )
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+    response = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+        retention_days=1,
+    )
     with pytest.raises(EvaluationAuthorizationError, match="shorter"):
         load_s3_object_lock_trial_registration(
             reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
+            action_record=action_record,
         )
 
 
@@ -174,6 +297,11 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
     policy = _policy(repo_root)
     location = S3ObjectLockTrialRegistryLocation(bucket="swing-model-trial-registry", region="us-west-2", prefix="trial-registry/v1")
     spec = _spec()
+    action_record = _action_record(
+        policy=policy,
+        binding_id=location.registry_binding_id(policy),
+        spec=spec,
+    )
     client = _Client({})
     monkeypatch.setattr(
         "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
@@ -187,12 +315,163 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
         spec=spec,
         verified_release_directories=(),
         accepted_release_root=tmp_path,
+        action_record=action_record,
     )
 
     assert record.trial_id == spec.trial_id
     assert len(client.puts) == 1
     assert client.puts[0]["ObjectLockMode"] == "COMPLIANCE"
+    assert client.puts[0]["Metadata"] == {
+        "registration-authorization-record-id": action_record.record_id,
+    }
+    assert record.registration_authorization_record_id == action_record.record_id
     assert client.calls == [{"Bucket": location.bucket, "Key": location.key_for(spec.trial_id), "VersionId": "3HL4kqtJlcpXrof3fjVBH40Nr8X8gXbo"}]
+    with pytest.raises(EvaluationAuthorizationError, match="already consumed"):
+        register_s3_object_lock_trial(
+            client=client,
+            policy=policy,
+            location=location,
+            spec=spec,
+            verified_release_directories=(),
+            accepted_release_root=tmp_path,
+            action_record=action_record,
+        )
+    assert len(client.puts) == 1
+
+
+def test_registration_requires_exact_action_record_before_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    policy = _policy(repo_root)
+    location = S3ObjectLockTrialRegistryLocation(
+        bucket="swing-model-trial-registry",
+        region="us-west-2",
+        prefix="trial-registry/v1",
+    )
+    spec = _spec()
+    wrong_action = create_local_integrity_record(
+        scope="AUTHORIZE_EXTERNAL_TRIAL_REGISTRATION",
+        subject_id=spec.trial_id,
+        bindings={
+            "policy_id": policy.policy_id,
+            "release_bindings_hash": release_bindings_hash(spec.release_bindings),
+            "trial_registry_binding_id": "0" * 64,
+        },
+        clock=TrustedClock.production(),
+    )
+    client = _Client({})
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+
+    with pytest.raises(EvaluationAuthorizationError, match="bindings differ"):
+        register_s3_object_lock_trial(
+            client=client,
+            policy=policy,
+            location=location,
+            spec=spec,
+            verified_release_directories=(),
+            accepted_release_root=tmp_path,
+            action_record=wrong_action,
+        )
+    assert client.puts == []
+
+
+def test_load_binds_action_metadata_and_authoritative_creation_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    policy = _policy(repo_root)
+    target = _target()
+    binding_id = target.registry_binding_id(policy)
+    payload = _payload(binding_id=binding_id)
+    spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=binding_id,
+        spec=spec,
+    )
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+
+    mismatched_metadata = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+    )
+    mismatched_metadata["Metadata"] = {
+        "registration-authorization-record-id": "f" * 64,
+    }
+    with pytest.raises(EvaluationAuthorizationError, match="action record"):
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(mismatched_metadata),
+            policy=policy,
+            target=target,
+            trial_id=spec.trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
+            action_record=action_record,
+        )
+
+    missing_creation = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+    )
+    missing_creation.pop("LastModified")
+    with pytest.raises(EvaluationAuthorizationError, match="creation time"):
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(missing_creation),
+            policy=policy,
+            target=target,
+            trial_id=spec.trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
+            action_record=action_record,
+        )
+
+    future_creation = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+        last_modified=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="creation time is in the future"):
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(future_creation),
+            policy=policy,
+            target=target,
+            trial_id=spec.trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
+            action_record=action_record,
+        )
+
+    backdated_payload = _payload(
+        binding_id=binding_id,
+        registered_at=iso_z(datetime.now(timezone.utc) - timedelta(days=1)),
+    )
+    backdated_response = _response(
+        target=target,
+        payload=backdated_payload,
+        action_record=action_record,
+        last_modified=datetime.now(timezone.utc),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="authoritative object creation"):
+        load_s3_object_lock_trial_registration(
+            reader=_Reader(backdated_response),
+            policy=policy,
+            target=target,
+            trial_id=spec.trial_id,
+            verified_release_directories=(),
+            accepted_release_root=repo_root,
+            action_record=action_record,
+        )
 
 
 @pytest.mark.parametrize(
@@ -205,10 +484,16 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
             "qualification evidence",
         ),
         (
+            "REGISTERED_HISTORICAL_DISCOVERY",
+            "legacy_discovery_only",
+            "LEGACY_CAVEATED",
+            "legacy releases",
+        ),
+        (
             "PROSPECTIVE_FINAL",
             "legacy_discovery_only",
             "LEGACY_CAVEATED",
-            "PASS trust-eligible",
+            "legacy releases",
         ),
     ],
 )
@@ -234,6 +519,11 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
         quality_state=quality_state,
     )
     spec = TrialSpec.from_registered_payload(spec_payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=location.registry_binding_id(policy),
+        spec=spec,
+    )
     client = _Client({})
     monkeypatch.setattr(
         "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
@@ -247,6 +537,7 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
             spec=spec,
             verified_release_directories=(),
             accepted_release_root=tmp_path,
+            action_record=action_record,
         )
     assert client.puts == []
 
@@ -258,12 +549,11 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
         quality_state=quality_state,
     )
     trial_id = str(retained_payload["trial_id"])
-    response = {
-        "VersionId": target.version_id,
-        "ObjectLockMode": "COMPLIANCE",
-        "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651),
-        "Body": BytesIO(canonical_json_bytes(retained_payload)),
-    }
+    response = _response(
+        target=target,
+        payload=retained_payload,
+        action_record=action_record,
+    )
     with pytest.raises(EvaluationAuthorizationError, match="payload is invalid"):
         load_s3_object_lock_trial_registration(
             reader=_Reader(response),
@@ -272,6 +562,7 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
             trial_id=trial_id,
             verified_release_directories=(),
             accepted_release_root=repo_root,
+            action_record=action_record,
         )
 
 
@@ -281,12 +572,17 @@ def test_loaded_registration_rejects_unverified_release_bindings() -> None:
     target = _target()
     payload = _payload(binding_id=target.registry_binding_id(policy))
     trial_id = str(payload["trial_id"])
-    response = {
-        "VersionId": target.version_id,
-        "ObjectLockMode": "COMPLIANCE",
-        "ObjectLockRetainUntilDate": datetime.now(timezone.utc) + timedelta(days=3651),
-        "Body": BytesIO(canonical_json_bytes(payload)),
-    }
+    spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=target.registry_binding_id(policy),
+        spec=spec,
+    )
+    response = _response(
+        target=target,
+        payload=payload,
+        action_record=action_record,
+    )
     with pytest.raises(EvaluationAuthorizationError, match="accepted-release verification"):
         load_s3_object_lock_trial_registration(
             reader=_Reader(response),
@@ -295,6 +591,7 @@ def test_loaded_registration_rejects_unverified_release_bindings() -> None:
             trial_id=trial_id,
             verified_release_directories=(),
             accepted_release_root=repo_root,
+            action_record=action_record,
         )
 
 

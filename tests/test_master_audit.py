@@ -51,6 +51,21 @@ def test_checked_in_master_audit_policy_is_current_and_no_write() -> None:
     assert policy["targets"]["HISTORICAL_RESEARCH_READY"][
         "requires_completed_target"
     ] == "REBUILD_COMPLETE"
+    historical_paths = set(
+        policy["targets"]["HISTORICAL_RESEARCH_READY"]["review_paths"]
+    )
+    assert {
+        "src/us_stocks_swing_model_v2/gates.py",
+        "src/us_stocks_swing_model_v2/research/contracts.py",
+        "src/us_stocks_swing_model_v2/research/economics.py",
+        "src/us_stocks_swing_model_v2/research/multiple_testing.py",
+        "src/us_stocks_swing_model_v2/research/power.py",
+        "src/us_stocks_swing_model_v2/research/sleeves.py",
+        "tests/test_firewall_bundle_inference.py",
+        "tests/test_meta_audit_remediation.py",
+        "tests/test_research_dsr_cscv_power.py",
+        "tests/test_research_hac_bootstrap_rw.py",
+    } <= historical_paths
     assert "august_raw_capture" in policy["prohibitions"]
 
 
