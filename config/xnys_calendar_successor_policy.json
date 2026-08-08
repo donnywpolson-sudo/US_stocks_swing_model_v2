@@ -12,6 +12,27 @@
     "accepted_root": "data/vault/accepted",
     "work_root": "data/w/xnys_calendar_successor"
   },
+  "recovery": {
+    "schema_version": 1,
+    "spent_plan_id": "3efad51aeea48654ddf7de1c8ea008f21b14443fb17e41a04195b411d8e396d1",
+    "failure_state": "SPENT_PREWRITE_NONEMPTY_LEGACY_STAGING_ROOT",
+    "preserved_staging_root": "data/w/xnys_calendar_successor",
+    "preserved_files": [
+      {
+        "path": "provenance.json",
+        "size": 481,
+        "sha256": "c3f07fead5aa4e36d308082d2bbc0e1b8874532db99cf61468a01365fea68826"
+      },
+      {
+        "path": "sessions.parquet",
+        "size": 101990,
+        "sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69"
+      }
+    ],
+    "new_staging_partition": "environment_sha256",
+    "cleanup_allowed": false,
+    "retry_authorized": false
+  },
   "execution": {
     "owner_confirmation_token": "XNYS_CALENDAR_SUCCESSOR_PUBLICATION_APPROVED",
     "owner_confirmation_value": "YES",

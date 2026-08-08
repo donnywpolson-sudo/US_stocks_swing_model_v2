@@ -8,12 +8,14 @@ from types import SimpleNamespace
 import pytest
 
 from us_stocks_swing_model_v2.capabilities import SyntheticOnlyPermit
+from us_stocks_swing_model_v2 import calendar_successor as successor
 from us_stocks_swing_model_v2.calendar_successor import (
     CONFIRMATION_VALUE,
     build_calendar_successor_plan,
     publish_calendar_successor,
 )
 from us_stocks_swing_model_v2.clock import TrustedClock
+from us_stocks_swing_model_v2.common import sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError
 from us_stocks_swing_model_v2 import prospective_sip_smoke as smoke
 
@@ -175,9 +177,29 @@ def test_calendar_successor_plan_requires_clean_closure_and_production_clock(mon
         "us_stocks_swing_model_v2.calendar_successor._clean_repository",
         lambda root: {"commit": "a" * 40, "tree": "b" * 40},
     )
+    monkeypatch.setattr(
+        successor,
+        "_verify_spent_attempt_evidence",
+        lambda root, recovery: {
+            "schema_version": 1,
+            "spent_plan_id": recovery["spent_plan_id"],
+            "failure_state": recovery["failure_state"],
+            "preserved_staging_root": str(REPO / "data/w/xnys_calendar_successor"),
+            "preserved_files": recovery["preserved_files"],
+            "preservation_state": "VERIFIED_UNCHANGED",
+            "cleanup_allowed": False,
+            "retry_authorized": False,
+            "recovery_binding_id": "c" * 64,
+        },
+    )
     plan = build_calendar_successor_plan(repository_root=REPO)
     assert plan["calendar"]["start"] == "2000-01-01"
     assert plan["calendar"]["end"] == "2035-12-31"
+    assert Path(plan["outputs"]["work_root"]).parent == REPO / "data/w/xnys_calendar_successor"
+    assert Path(plan["outputs"]["work_root"]).name == plan["environment_sha256"]
+    assert plan["recovery"]["preservation_state"] == "VERIFIED_UNCHANGED"
+    assert plan["authorities"]["cleanup"] is False
+    assert plan["authorities"]["spent_plan_retry"] is False
     with pytest.raises(ContractError, match="production system UTC"):
         publish_calendar_successor(
             approved_plan_id=plan["calendar_successor_plan_id"],
@@ -185,3 +207,102 @@ def test_calendar_successor_plan_requires_clean_closure_and_production_clock(mon
             clock=_clock(datetime(2026, 8, 3, 20, 20, tzinfo=timezone.utc)),
             repository_root=REPO,
         )
+
+
+def _recovery_fixture(root: Path) -> tuple[Path, dict[str, object]]:
+    stage = root / "data/w/xnys_calendar_successor"
+    stage.mkdir(parents=True)
+    payloads = {
+        "provenance.json": b"synthetic provenance\n",
+        "sessions.parquet": b"synthetic sessions\n",
+    }
+    for name, payload in payloads.items():
+        (stage / name).write_bytes(payload)
+    recovery = {
+        "schema_version": 1,
+        "spent_plan_id": "a" * 64,
+        "failure_state": successor.SPENT_FAILURE_STATE,
+        "preserved_staging_root": "data/w/xnys_calendar_successor",
+        "preserved_files": [
+            {
+                "path": name,
+                "size": len(payloads[name]),
+                "sha256": sha256_bytes(payloads[name]),
+            }
+            for name in successor.PRESERVED_STAGING_FILES
+        ],
+        "new_staging_partition": "environment_sha256",
+        "cleanup_allowed": False,
+        "retry_authorized": False,
+    }
+    return stage, recovery
+
+
+def test_calendar_successor_recovery_verifies_preserved_files_without_mutation(
+    tmp_path: Path,
+) -> None:
+    stage, recovery = _recovery_fixture(tmp_path)
+    before = {item.name: item.read_bytes() for item in stage.iterdir()}
+    evidence = successor._verify_spent_attempt_evidence(tmp_path, recovery)
+    after = {item.name: item.read_bytes() for item in stage.iterdir()}
+    assert evidence["preservation_state"] == "VERIFIED_UNCHANGED"
+    assert evidence["cleanup_allowed"] is False
+    assert evidence["retry_authorized"] is False
+    assert before == after
+
+
+@pytest.mark.parametrize("case", ["substitute", "missing", "extra"])
+def test_calendar_successor_recovery_rejects_preserved_evidence_drift(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    stage, recovery = _recovery_fixture(tmp_path)
+    if case == "substitute":
+        (stage / "provenance.json").write_bytes(b"altered\n")
+        match = "preserved file differs"
+    elif case == "missing":
+        (stage / "sessions.parquet").unlink()
+        match = "staging census differs"
+    else:
+        (stage / "unexpected.txt").write_text("unexpected\n", encoding="utf-8")
+        match = "staging census differs"
+    with pytest.raises(IntegrityError, match=match):
+        successor._verify_spent_attempt_evidence(tmp_path, recovery)
+
+
+def test_calendar_successor_publication_routes_only_to_environment_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preserved_root = REPO / "data/w/xnys_calendar_successor"
+    environment_hash = "e" * 64
+    recovery_evidence = {
+        "schema_version": 1,
+        "spent_plan_id": "a" * 64,
+        "failure_state": successor.SPENT_FAILURE_STATE,
+        "preserved_staging_root": str(preserved_root),
+        "preserved_files": [],
+        "preservation_state": "VERIFIED_UNCHANGED",
+        "cleanup_allowed": False,
+        "retry_authorized": False,
+        "recovery_binding_id": "c" * 64,
+    }
+    monkeypatch.setattr(successor, "_clean_repository", lambda root: {"commit": "a" * 40, "tree": "b" * 40})
+    monkeypatch.setattr(successor, "calendar_environment_hash", lambda: environment_hash)
+    monkeypatch.setattr(successor, "_verify_spent_attempt_evidence", lambda root, recovery: recovery_evidence)
+    observed: dict[str, object] = {}
+
+    def publish(**kwargs: object) -> Path:
+        observed.update(kwargs)
+        return REPO / "data/vault/accepted/xnys_sessions/synthetic"
+
+    monkeypatch.setattr(successor, "publish_xnys_calendar_release", publish)
+    plan = successor.build_calendar_successor_plan(repository_root=REPO)
+    result = successor.publish_calendar_successor(
+        approved_plan_id=plan["calendar_successor_plan_id"],
+        owner_confirmation=CONFIRMATION_VALUE,
+        clock=TrustedClock.production(),
+        repository_root=REPO,
+    )
+    assert observed["staging_root"] == preserved_root / environment_hash
+    assert observed["staging_root"] != preserved_root
+    assert result.name == "synthetic"
