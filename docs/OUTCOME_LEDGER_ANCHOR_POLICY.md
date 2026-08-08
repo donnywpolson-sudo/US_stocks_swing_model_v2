@@ -53,8 +53,20 @@ The implemented precommit-journal recovery is synthetic mechanics only and
 does not repair or authorize an unanchored outcome tail. Recovery of an
 already-committed unanchored tail requires explicit owner review of the ledger
 bytes, the last retained anchor, the interrupted operation, and the intended
-new record. Until a separately implemented outcome-anchor recovery operation
-exists, restoration to the exact previously anchored ledger bytes is the only
-supported recovery for that second window. All failed and restored evidence
-must be retained according to the applicable incident and release-lifecycle
+new record.
+
+`OutcomeLedger.build_unanchored_tail_recovery_plan` now emits the exact
+content-addressed, no-write review contract for one committed tail record.
+`OutcomeLedger.recover_unanchored_tail` accepts only the matching schema-v2
+owner-operated local integrity record. It creates a schema-v2 anchor containing
+that exact recovery record, revalidates the prior anchor and prediction, and
+never changes or removes ledger bytes. Missing, substituted, stale, replayed,
+malformed, already-anchored, multi-record, or partially written recovery
+evidence fails closed. A retained `.pending-*` anchor directory is interruption
+evidence and requires separate disposition; recovery never deletes it.
+
+This recovery operation restores only the missing local anchor. It does not
+authorize outcome creation or access, research, training, evaluation,
+publication, source activation, promotion, or live use. All failed and restored
+evidence remains subject to the applicable incident and release-lifecycle
 policy.

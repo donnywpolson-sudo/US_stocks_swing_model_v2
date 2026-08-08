@@ -578,6 +578,116 @@ def _outcome_append_permit(fixture_id: str) -> SyntheticOnlyPermit:
     )
 
 
+def _matured_outcome(prediction: UnderlyingPrediction, *, value: float = 0.01) -> OutcomeRow:
+    return OutcomeRow.create(
+        prediction_id=prediction.prediction_id,
+        eligibility_census_id=prediction.eligibility_census_id,
+        revision_number=1,
+        prior_revision_id=None,
+        asset_id=prediction.asset_id,
+        decision_session=prediction.decision_session,
+        entry_session=prediction.decision_session + timedelta(days=1),
+        exit_session=prediction.decision_session + timedelta(days=7),
+        status=OutcomeStatus.MATURED,
+        split_normalized_price_return=value,
+        reason=None,
+        calendar_release_id=prediction.calendar_release_id,
+        bar_release_id="f" * 64,
+        action_release_id=prediction.action_release_id,
+        source_epoch=prediction.source_epoch,
+        action_view_as_of=NOW + timedelta(days=7),
+    )
+
+
+def _interrupted_outcome_anchor_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    with_prior_anchor: bool = False,
+) -> tuple[OutcomeLedger, OutcomeRow, Path, TrustedClock, Path, Path | None]:
+    bundle_path = _bundle(tmp_path / "bundle")
+    inference = _engine(bundle_path, clock=_clock(NOW + timedelta(minutes=1)))
+    prediction = _predict(
+        inference,
+        [_row(bundle_path, "ABC", SecurityType.STOCK, 1.0)],
+    )[0]
+    prediction_ledger = PredictionLedger(
+        tmp_path / "ledger" / "predictions.jsonl",
+        tmp_path / "prediction-anchors",
+        clock=_clock(NOW + timedelta(minutes=2)),
+    )
+    prediction_anchor = Path(
+        prediction_ledger.append_synthetic(
+            prediction,
+            synthetic_permit=_prediction_append_permit(
+                "outcome-anchor-recovery-prediction"
+            ),
+        )["anchor_path"]
+    )
+    recovery_clock = _clock(NOW + timedelta(days=8))
+    outcome_anchor_root = tmp_path / "outcome-anchors"
+    outcome_ledger = OutcomeLedger(
+        tmp_path / "ledger" / "outcomes.jsonl",
+        prediction_ledger,
+        anchor_root=outcome_anchor_root,
+        clock=recovery_clock,
+    )
+    intended = _matured_outcome(prediction)
+    previous_anchor: Path | None = None
+    if with_prior_anchor:
+        previous_anchor = Path(
+            outcome_ledger.append_synthetic(
+                intended,
+                prediction_anchor=prediction_anchor,
+                synthetic_permit=_outcome_append_permit(
+                    "outcome-anchor-recovery-prior-outcome"
+                ),
+            )["anchor_path"]
+        )
+        intended = OutcomeRow.create(
+            prediction_id=intended.prediction_id,
+            eligibility_census_id=intended.eligibility_census_id,
+            revision_number=2,
+            prior_revision_id=intended.revision_id,
+            asset_id=intended.asset_id,
+            decision_session=intended.decision_session,
+            entry_session=intended.entry_session,
+            exit_session=intended.exit_session,
+            status=intended.status,
+            split_normalized_price_return=0.02,
+            reason=intended.reason,
+            calendar_release_id=intended.calendar_release_id,
+            bar_release_id=intended.bar_release_id,
+            action_release_id=intended.action_release_id,
+            source_epoch=intended.source_epoch,
+            action_view_as_of=intended.action_view_as_of + timedelta(hours=1),
+        )
+    original_create = outcome_ledger._anchors.create
+
+    def interrupt_after_commit(*_args: object, **_kwargs: object) -> Path:
+        raise RuntimeError("simulated interruption before outcome anchor publication")
+
+    monkeypatch.setattr(outcome_ledger._anchors, "create", interrupt_after_commit)
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        outcome_ledger.append_synthetic(
+            intended,
+            prediction_anchor=prediction_anchor,
+            synthetic_permit=_outcome_append_permit(
+                "outcome-anchor-recovery-interrupted-append"
+            ),
+            previous_anchor=previous_anchor,
+        )
+    monkeypatch.setattr(outcome_ledger._anchors, "create", original_create)
+    return (
+        outcome_ledger,
+        intended,
+        prediction_anchor,
+        recovery_clock,
+        outcome_anchor_root,
+        previous_anchor,
+    )
+
+
 def test_fit_free_underlying_only_inference_ranks_and_abstains(tmp_path: Path) -> None:
     bundle_path = _bundle(tmp_path)
     engine = _engine(bundle_path, clock=_clock(NOW + timedelta(minutes=1)))
@@ -1158,6 +1268,248 @@ def test_prediction_and_outcome_ledgers_exactly_cover_the_eligibility_census(
             outcome_anchor=outcome_anchor,
         )
     ) == 2
+
+
+def test_outcome_anchor_recovery_requires_exact_review_and_preserves_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        ledger,
+        intended,
+        prediction_anchor,
+        recovery_clock,
+        anchor_root,
+        _,
+    ) = _interrupted_outcome_anchor_fixture(tmp_path, monkeypatch)
+    ledger_path = tmp_path / "ledger" / "outcomes.jsonl"
+    committed = ledger_path.read_bytes()
+    plan = ledger.build_unanchored_tail_recovery_plan(
+        intended,
+        prediction_anchor=prediction_anchor,
+    )
+    assert plan["mode"] == "OUTCOME_ANCHOR_RECOVERY_PLAN_ONLY_NO_WRITES"
+    assert plan["execution_authorized"] is False
+    assert plan["outcome_access_authorized"] is False
+    assert not anchor_root.exists()
+
+    authorization = create_local_integrity_record(
+        scope=str(plan["scope"]),
+        subject_id=str(plan["subject_id"]),
+        bindings=plan["bindings"],
+        clock=recovery_clock,
+    )
+    result = ledger.recover_unanchored_tail(
+        intended,
+        prediction_anchor=prediction_anchor,
+        recovery_authorization=authorization,
+    )
+    anchor = Path(str(result["anchor_path"]))
+
+    assert ledger_path.read_bytes() == committed
+    assert result["recovery_plan_id"] == plan["recovery_plan_id"]
+    assert result["recovery_record_id"] == authorization.record_id
+    assert json.loads((anchor / "receipt.json").read_text(encoding="utf-8"))[
+        "schema_version"
+    ] == 2
+    assert json.loads((anchor / "recovery.json").read_text(encoding="utf-8"))[
+        "record_id"
+    ] == authorization.record_id
+    assert len(ledger.verify(anchor)) == 1
+    with pytest.raises(IntegrityError, match="already anchored"):
+        ledger.build_unanchored_tail_recovery_plan(
+            intended,
+            prediction_anchor=prediction_anchor,
+        )
+
+
+def test_outcome_anchor_recovery_rejects_substitution_stale_anchor_and_forgery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        ledger,
+        intended,
+        prediction_anchor,
+        recovery_clock,
+        anchor_root,
+        _,
+    ) = _interrupted_outcome_anchor_fixture(tmp_path, monkeypatch)
+    substitute = _matured_outcome(
+        UnderlyingPrediction.from_dict(
+            next(iter(ledger._predictions.verify(prediction_anchor)))["payload"]
+        ),
+        value=0.02,
+    )
+    with pytest.raises(IntegrityError, match="intended record differs"):
+        ledger.build_unanchored_tail_recovery_plan(
+            substitute,
+            prediction_anchor=prediction_anchor,
+        )
+    with pytest.raises(IntegrityError, match="cannot claim a predecessor"):
+        ledger.build_unanchored_tail_recovery_plan(
+            intended,
+            prediction_anchor=prediction_anchor,
+            previous_anchor=prediction_anchor,
+        )
+
+    plan = ledger.build_unanchored_tail_recovery_plan(
+        intended,
+        prediction_anchor=prediction_anchor,
+    )
+    with pytest.raises(ContractError, match="exact local integrity record"):
+        ledger.recover_unanchored_tail(
+            intended,
+            prediction_anchor=prediction_anchor,
+            recovery_authorization=None,  # type: ignore[arg-type]
+        )
+    forged_bindings = dict(plan["bindings"])
+    forged_bindings["head_hash"] = "0" * 64
+    forged = create_local_integrity_record(
+        scope=str(plan["scope"]),
+        subject_id=str(plan["subject_id"]),
+        bindings=forged_bindings,
+        clock=recovery_clock,
+    )
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="bindings differ",
+    ):
+        ledger.recover_unanchored_tail(
+            intended,
+            prediction_anchor=prediction_anchor,
+            recovery_authorization=forged,
+        )
+    assert not anchor_root.exists()
+
+
+def test_outcome_anchor_recovery_requires_the_exact_prior_outcome_anchor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        ledger,
+        intended,
+        prediction_anchor,
+        recovery_clock,
+        _,
+        previous_anchor,
+    ) = _interrupted_outcome_anchor_fixture(
+        tmp_path,
+        monkeypatch,
+        with_prior_anchor=True,
+    )
+    assert previous_anchor is not None
+    with pytest.raises(IntegrityError, match="approved root"):
+        ledger.build_unanchored_tail_recovery_plan(
+            intended,
+            prediction_anchor=prediction_anchor,
+            previous_anchor=prediction_anchor,
+        )
+
+    plan = ledger.build_unanchored_tail_recovery_plan(
+        intended,
+        prediction_anchor=prediction_anchor,
+        previous_anchor=previous_anchor,
+    )
+    authorization = create_local_integrity_record(
+        scope=str(plan["scope"]),
+        subject_id=str(plan["subject_id"]),
+        bindings=plan["bindings"],
+        clock=recovery_clock,
+    )
+    result = ledger.recover_unanchored_tail(
+        intended,
+        prediction_anchor=prediction_anchor,
+        previous_anchor=previous_anchor,
+        recovery_authorization=authorization,
+    )
+    recovered_anchor = Path(str(result["anchor_path"]))
+    receipt = json.loads(
+        (recovered_anchor / "receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt["previous_anchor_id"] == previous_anchor.name
+    assert len(ledger.verify(recovered_anchor)) == 2
+
+
+def test_outcome_anchor_recovery_tamper_and_interruption_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        ledger,
+        intended,
+        prediction_anchor,
+        recovery_clock,
+        anchor_root,
+        _,
+    ) = _interrupted_outcome_anchor_fixture(tmp_path, monkeypatch)
+    ledger_path = tmp_path / "ledger" / "outcomes.jsonl"
+    committed = ledger_path.read_bytes()
+    plan = ledger.build_unanchored_tail_recovery_plan(
+        intended,
+        prediction_anchor=prediction_anchor,
+    )
+    authorization = create_local_integrity_record(
+        scope=str(plan["scope"]),
+        subject_id=str(plan["subject_id"]),
+        bindings=plan["bindings"],
+        clock=recovery_clock,
+    )
+    original_load = ledger._anchors.load
+
+    def interrupt_pending_load(
+        directory: Path,
+        *,
+        allow_pending: bool = False,
+    ):
+        if allow_pending:
+            raise RuntimeError("simulated interrupted recovery publication")
+        return original_load(directory, allow_pending=allow_pending)
+
+    monkeypatch.setattr(ledger._anchors, "load", interrupt_pending_load)
+    with pytest.raises(RuntimeError, match="interrupted recovery"):
+        ledger.recover_unanchored_tail(
+            intended,
+            prediction_anchor=prediction_anchor,
+            recovery_authorization=authorization,
+        )
+    monkeypatch.setattr(ledger._anchors, "load", original_load)
+
+    pending = tuple(anchor_root.glob(".pending-*"))
+    assert len(pending) == 1
+    assert (pending[0] / "receipt.json").is_file()
+    assert (pending[0] / "recovery.json").is_file()
+    assert ledger_path.read_bytes() == committed
+    with pytest.raises(IntegrityError, match="partial ledger anchor evidence"):
+        ledger.build_unanchored_tail_recovery_plan(
+            intended,
+            prediction_anchor=prediction_anchor,
+        )
+
+    clean_root = tmp_path / "clean-retry"
+    clean_ledger, clean_intended, clean_prediction_anchor, clean_clock, _, _ = (
+        _interrupted_outcome_anchor_fixture(clean_root, monkeypatch)
+    )
+    clean_plan = clean_ledger.build_unanchored_tail_recovery_plan(
+        clean_intended,
+        prediction_anchor=clean_prediction_anchor,
+    )
+    clean_authorization = create_local_integrity_record(
+        scope=str(clean_plan["scope"]),
+        subject_id=str(clean_plan["subject_id"]),
+        bindings=clean_plan["bindings"],
+        clock=clean_clock,
+    )
+    clean_result = clean_ledger.recover_unanchored_tail(
+        clean_intended,
+        prediction_anchor=clean_prediction_anchor,
+        recovery_authorization=clean_authorization,
+    )
+    recovery_path = Path(str(clean_result["anchor_path"])) / "recovery.json"
+    recovery_path.write_bytes(recovery_path.read_bytes().replace(b'"record_id"', b'"record_ix"'))
+    with pytest.raises(IntegrityError, match="recovery evidence"):
+        clean_ledger.verify(Path(str(clean_result["anchor_path"])))
 
 
 def test_local_tamper_evident_anchor_rejects_tail_truncation_rewrite_and_extra_tree_entry(tmp_path: Path) -> None:

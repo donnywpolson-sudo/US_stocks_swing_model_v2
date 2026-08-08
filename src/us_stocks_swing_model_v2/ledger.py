@@ -18,12 +18,14 @@ from .common import (
     parse_utc_z,
     reject_link,
     require_aware_utc,
+    require_contained_path,
     require_sha256,
     sha256_bytes,
 )
-from .errors import ContractError, IntegrityError
+from .errors import ContractError, EvaluationAuthorizationError, IntegrityError
 from .eligibility import EligibilityCensus
 from .clock import TrustedClock, require_trusted_clock
+from .governance import LocalIntegrityRecord
 from .locking import ExclusiveFileLock
 from .schemas import OutcomeRow, OutcomeStatus, UnderlyingPrediction, assert_underlying_only_payload
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
@@ -33,6 +35,8 @@ from .outcomes import DailyBar, build_outcome, load_daily_bar_release
 
 
 LOCAL_ANCHOR_DURABILITY = "LOCAL_TAMPER_EVIDENT_NOT_EXTERNAL_WORM"
+OUTCOME_ANCHOR_RECOVERY_SCOPE = "AUTHORIZE_OUTCOME_ANCHOR_RECOVERY"
+OUTCOME_ANCHOR_RECOVERY_OPERATION = "ANCHOR_EXACT_COMMITTED_OUTCOME_TAIL"
 
 
 def _outcome_interval_bars(
@@ -754,10 +758,11 @@ class LedgerAnchorReceipt:
     anchored_at: str
     time_authority: str
     synthetic_clock_permit_id: str | None
+    recovery_record_id: str | None
     anchor_id: str
 
     def unsigned_dict(self) -> dict[str, object]:
-        return {
+        value = {
             "schema_version": self.schema_version,
             "ledger_identity": self.ledger_identity,
             "record_type": self.record_type,
@@ -770,6 +775,9 @@ class LedgerAnchorReceipt:
             "time_authority": self.time_authority,
             "synthetic_clock_permit_id": self.synthetic_clock_permit_id,
         }
+        if self.schema_version == 2:
+            value["recovery_record_id"] = self.recovery_record_id
+        return value
 
 
 class LedgerAnchorStore:
@@ -801,12 +809,165 @@ class LedgerAnchorStore:
     def observed_at(self) -> datetime:
         return require_aware_utc(self._clock.now(), "anchor.clock")
 
+    def _recovery_contract(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        previous_anchor_id: str | None,
+    ) -> tuple[str, dict[str, str]]:
+        if not history:
+            raise ContractError("cannot recover an empty ledger")
+        ledger_bytes = b"".join(canonical_json_bytes(row) for row in history)
+        tail = history[-1]
+        bindings = {
+            "operation": OUTCOME_ANCHOR_RECOVERY_OPERATION,
+            "ledger_identity": self.ledger_identity,
+            "record_type": self.ledger.record_type,
+            "record_count": str(len(history)),
+            "ledger_sha256": sha256_bytes(ledger_bytes),
+            "head_hash": str(tail["record_hash"]),
+            "previous_anchor_id": previous_anchor_id or "NONE",
+            "tail_payload_sha256": sha256_bytes(
+                canonical_json_bytes(tail["payload"])
+            ),
+            "tail_recorded_at": str(tail["recorded_at"]),
+        }
+        unsigned = {
+            "schema_version": 1,
+            "scope": OUTCOME_ANCHOR_RECOVERY_SCOPE,
+            "subject_id": self.ledger_identity,
+            "bindings": bindings,
+        }
+        return sha256_bytes(canonical_json_bytes(unsigned)), bindings
+
+    def _assert_no_current_or_partial_anchor(
+        self,
+        history: list[dict[str, Any]],
+    ) -> None:
+        if not self.root.exists():
+            return
+        reject_link(self.root)
+        if not self.root.is_dir():
+            raise IntegrityError("ledger anchor root is not a directory")
+        expected_ledger_sha256 = sha256_bytes(
+            b"".join(canonical_json_bytes(row) for row in history)
+        )
+        for candidate in self.root.iterdir():
+            reject_link(candidate)
+            if candidate.name.startswith(".pending-"):
+                raise IntegrityError(
+                    "partial ledger anchor evidence requires explicit disposition"
+                )
+            try:
+                require_sha256(candidate.name, "ledger anchor directory")
+            except ContractError as exc:
+                raise IntegrityError("unexpected ledger anchor root entry") from exc
+            receipt = self.load(candidate)
+            if (
+                receipt.ledger_identity == self.ledger_identity
+                and receipt.record_type == self.ledger.record_type
+                and receipt.record_count == len(history)
+                and receipt.head_hash == history[-1]["record_hash"]
+                and receipt.ledger_sha256 == expected_ledger_sha256
+            ):
+                raise IntegrityError("committed ledger tail is already anchored")
+
+    def recovery_review_contract(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        previous_anchor: Path | None,
+        prior_record_count: int,
+    ) -> dict[str, object]:
+        if prior_record_count != len(history) - 1:
+            raise IntegrityError(
+                "anchor recovery requires exactly one committed unanchored record"
+            )
+        prior_history = history[:prior_record_count]
+        previous_anchor_id: str | None = None
+        if prior_history:
+            if previous_anchor is None:
+                raise IntegrityError(
+                    "anchor recovery requires the exact retained prior receipt"
+                )
+            prior = self.verify(previous_anchor, prior_history)
+            previous_anchor_id = prior.anchor_id
+        elif previous_anchor is not None:
+            raise IntegrityError("first anchor recovery cannot claim a predecessor")
+        self._assert_no_current_or_partial_anchor(history)
+        plan_id, bindings = self._recovery_contract(
+            history,
+            previous_anchor_id=previous_anchor_id,
+        )
+        return {
+            "schema_version": 1,
+            "mode": "OUTCOME_ANCHOR_RECOVERY_PLAN_ONLY_NO_WRITES",
+            "scope": OUTCOME_ANCHOR_RECOVERY_SCOPE,
+            "recovery_plan_id": plan_id,
+            "subject_id": plan_id,
+            "bindings": bindings,
+            "execution_authorized": False,
+            "outcome_access_authorized": False,
+            "research_or_activation_authorized": False,
+        }
+
     def create(
         self,
         history: list[dict[str, Any]],
         *,
         previous_anchor: Path | None,
         prior_record_count: int | None = None,
+    ) -> Path:
+        return self._create(
+            history,
+            previous_anchor=previous_anchor,
+            prior_record_count=prior_record_count,
+            recovery_authorization=None,
+        )
+
+    def create_recovered(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        previous_anchor: Path | None,
+        prior_record_count: int,
+        recovery_authorization: LocalIntegrityRecord,
+    ) -> Path:
+        if type(recovery_authorization) is not LocalIntegrityRecord:
+            raise ContractError(
+                "anchor recovery requires an exact local integrity record"
+            )
+        recovery_lock = (
+            self.root.parent
+            / ".locks"
+            / f"{self.root.name}.outcome-anchor-recovery.lock"
+        )
+        with ExclusiveFileLock(recovery_lock, allowed_root=self.root.parent):
+            plan = self.recovery_review_contract(
+                history,
+                previous_anchor=previous_anchor,
+                prior_record_count=prior_record_count,
+            )
+            recovery_authorization.validate(
+                expected_scope=OUTCOME_ANCHOR_RECOVERY_SCOPE,
+                expected_subject_id=str(plan["subject_id"]),
+                required_bindings=plan["bindings"],
+                clock=self._clock,
+            )
+            return self._create(
+                history,
+                previous_anchor=previous_anchor,
+                prior_record_count=prior_record_count,
+                recovery_authorization=recovery_authorization,
+            )
+
+    def _create(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        previous_anchor: Path | None,
+        prior_record_count: int | None,
+        recovery_authorization: LocalIntegrityRecord | None,
     ) -> Path:
         anchored_at = self.observed_at()
         if not history:
@@ -834,7 +995,7 @@ class LedgerAnchorStore:
             previous_id = prior.anchor_id
         ledger_bytes = b"".join(canonical_json_bytes(row) for row in history)
         unsigned = {
-            "schema_version": 1,
+            "schema_version": 2 if recovery_authorization is not None else 1,
             "ledger_identity": self.ledger_identity,
             "record_type": self.ledger.record_type,
             "record_count": len(history),
@@ -846,12 +1007,16 @@ class LedgerAnchorStore:
             "time_authority": self._clock.mode,
             "synthetic_clock_permit_id": self._clock.synthetic_permit_id,
         }
+        if recovery_authorization is not None:
+            unsigned["recovery_record_id"] = recovery_authorization.record_id
         if parse_utc_z(unsigned["anchored_at"], "anchor.anchored_at") < parse_utc_z(
             history[-1]["recorded_at"], "ledger.recorded_at"
         ):
             raise IntegrityError("local anchor receipt cannot predate the ledger head")
+        receipt_fields = dict(unsigned)
+        receipt_fields.setdefault("recovery_record_id", None)
         receipt = LedgerAnchorReceipt(
-            **unsigned,
+            **receipt_fields,
             anchor_id=sha256_bytes(canonical_json_bytes(unsigned)),
         )
         final = self.root / receipt.anchor_id
@@ -864,34 +1029,85 @@ class LedgerAnchorStore:
         pending = self.root / f".pending-{receipt.anchor_id[:12]}-{uuid.uuid4().hex[:8]}"
         pending.mkdir()
         atomic_write(pending / "receipt.json", canonical_json_bytes({**receipt.unsigned_dict(), "anchor_id": receipt.anchor_id}))
+        if recovery_authorization is not None:
+            atomic_write(
+                pending / "recovery.json",
+                canonical_json_bytes(recovery_authorization.as_dict()),
+            )
         self.load(pending, allow_pending=True)
         os.replace(pending, final)
         self.load(final)
         return final
 
     def load(self, directory: Path, *, allow_pending: bool = False) -> LedgerAnchorReceipt:
-        path = Path(directory)
+        try:
+            path = require_contained_path(
+                Path(directory).absolute(),
+                self.root.absolute(),
+            )
+        except ContractError as exc:
+            raise IntegrityError(
+                "ledger anchor path differs from its approved root"
+            ) from exc
         reject_link(path)
         try:
-            assert_exact_tree(path, {"receipt.json"}, set())
             receipt_path = path / "receipt.json"
+            reject_link(receipt_path)
             if receipt_path.stat().st_nlink != 1:
                 raise ContractError("anchor receipt is hardlinked")
             payload = json.loads(receipt_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ContractError) as exc:
             raise IntegrityError("ledger anchor tree/receipt is invalid") from exc
-        if set(payload) != set(LedgerAnchorReceipt.__dataclass_fields__):
+        if type(payload) is not dict:
             raise IntegrityError("ledger anchor fields differ from the exact contract")
+        v1_fields = set(LedgerAnchorReceipt.__dataclass_fields__) - {
+            "recovery_record_id"
+        }
+        v2_fields = set(LedgerAnchorReceipt.__dataclass_fields__)
+        if payload.get("schema_version") == 1 and set(payload) == v1_fields:
+            expected_files = {"receipt.json"}
+            payload["recovery_record_id"] = None
+        elif payload.get("schema_version") == 2 and set(payload) == v2_fields:
+            expected_files = {"receipt.json", "recovery.json"}
+        else:
+            raise IntegrityError("ledger anchor fields differ from the exact contract")
+        try:
+            assert_exact_tree(path, expected_files, set())
+        except ContractError as exc:
+            raise IntegrityError("ledger anchor tree/receipt is invalid") from exc
         receipt = LedgerAnchorReceipt(**payload)
         parse_utc_z(receipt.anchored_at, "anchor.anchored_at")
         if (
             type(receipt.schema_version) is not int
-            or receipt.schema_version != 1
+            or receipt.schema_version not in {1, 2}
             or receipt.record_count < 1
             or receipt.durability != LOCAL_ANCHOR_DURABILITY
             or receipt.time_authority != self._clock.mode
         ):
             raise IntegrityError("ledger anchor schema/count is invalid")
+        if receipt.schema_version == 1:
+            if receipt.recovery_record_id is not None:
+                raise IntegrityError("ordinary ledger anchor carries recovery evidence")
+        else:
+            try:
+                require_sha256(
+                    receipt.recovery_record_id or "",
+                    "anchor.recovery_record_id",
+                )
+                recovery = LocalIntegrityRecord.from_dict(
+                    json.loads((path / "recovery.json").read_text(encoding="utf-8"))
+                )
+            except (
+                OSError,
+                json.JSONDecodeError,
+                ContractError,
+                EvaluationAuthorizationError,
+            ) as exc:
+                raise IntegrityError("ledger anchor recovery evidence is invalid") from exc
+            if recovery.record_id != receipt.recovery_record_id:
+                raise IntegrityError(
+                    "ledger anchor recovery record differs from its receipt"
+                )
         if receipt.time_authority == "PRODUCTION_SYSTEM_UTC":
             if receipt.synthetic_clock_permit_id is not None:
                 raise IntegrityError("production anchor carries synthetic time")
@@ -924,6 +1140,39 @@ class LedgerAnchorStore:
     def verify(self, directory: Path, history: list[dict[str, Any]]) -> LedgerAnchorReceipt:
         receipt = self.load(directory)
         self._verify_against(receipt, history)
+        if receipt.schema_version == 2:
+            recovery = LocalIntegrityRecord.from_dict(
+                json.loads((Path(directory) / "recovery.json").read_text(encoding="utf-8"))
+            )
+            plan_id, bindings = self._recovery_contract(
+                history,
+                previous_anchor_id=receipt.previous_anchor_id,
+            )
+            if plan_id != recovery.subject_id:
+                raise IntegrityError("ledger anchor recovery plan identity differs")
+            try:
+                recovery.validate(
+                    expected_scope=OUTCOME_ANCHOR_RECOVERY_SCOPE,
+                    expected_subject_id=plan_id,
+                    required_bindings=bindings,
+                    clock=self._clock,
+                )
+            except EvaluationAuthorizationError as exc:
+                raise IntegrityError(
+                    "ledger anchor recovery authorization differs"
+                ) from exc
+            prior_history = history[:-1]
+            if prior_history:
+                if receipt.previous_anchor_id is None:
+                    raise IntegrityError(
+                        "recovered ledger anchor lacks its prior receipt"
+                    )
+                prior_path = self.root / receipt.previous_anchor_id
+                self.verify(prior_path, prior_history)
+            elif receipt.previous_anchor_id is not None:
+                raise IntegrityError(
+                    "first recovered ledger anchor claims a predecessor"
+                )
         return receipt
 
     def _verify_against(self, receipt: LedgerAnchorReceipt, history: list[dict[str, Any]]) -> None:
@@ -1356,6 +1605,93 @@ class OutcomeLedger:
             prior_record_count=len(before),
         )
         return {"envelope": envelope, "anchor_path": str(anchor)}
+
+    def build_unanchored_tail_recovery_plan(
+        self,
+        intended_outcome: OutcomeRow,
+        *,
+        prediction_anchor: Path,
+        previous_anchor: Path | None = None,
+    ) -> dict[str, object]:
+        """Bind explicit review of one committed outcome whose anchor is absent."""
+
+        intended_outcome.validate()
+        history = self._ledger.read_verified()
+        if not history:
+            raise IntegrityError("outcome anchor recovery requires a committed tail")
+        tail = OutcomeRow.from_dict(history[-1]["payload"])
+        if tail != intended_outcome:
+            raise IntegrityError(
+                "outcome anchor recovery intended record differs from the committed tail"
+            )
+        predictions = {
+            row["payload"]["prediction_id"]: row["payload"]
+            for row in self._predictions.verify(prediction_anchor)
+        }
+        prediction = predictions.get(tail.prediction_id)
+        if prediction is None:
+            raise IntegrityError(
+                "outcome anchor recovery tail lacks its anchored prediction"
+            )
+        expected_identity = {
+            "asset_id": prediction["asset_id"],
+            "eligibility_census_id": prediction["eligibility_census_id"],
+            "decision_session": prediction["decision_session"],
+            "calendar_release_id": prediction["calendar_release_id"],
+            "action_release_id": prediction["action_release_id"],
+            "source_epoch": prediction["source_epoch"],
+        }
+        actual_identity = {
+            "asset_id": tail.asset_id,
+            "eligibility_census_id": tail.eligibility_census_id,
+            "decision_session": tail.decision_session.isoformat(),
+            "calendar_release_id": tail.calendar_release_id,
+            "action_release_id": tail.action_release_id,
+            "source_epoch": tail.source_epoch,
+        }
+        if actual_identity != expected_identity:
+            raise IntegrityError(
+                "outcome anchor recovery tail differs from its prediction identity"
+            )
+        return self._anchors.recovery_review_contract(
+            history,
+            previous_anchor=previous_anchor,
+            prior_record_count=len(history) - 1,
+        )
+
+    def recover_unanchored_tail(
+        self,
+        intended_outcome: OutcomeRow,
+        *,
+        prediction_anchor: Path,
+        recovery_authorization: LocalIntegrityRecord,
+        previous_anchor: Path | None = None,
+    ) -> dict[str, object]:
+        """Create only the missing anchor after exact owner-reviewed recovery."""
+
+        plan = self.build_unanchored_tail_recovery_plan(
+            intended_outcome,
+            prediction_anchor=prediction_anchor,
+            previous_anchor=previous_anchor,
+        )
+        history = self._ledger.read_verified()
+        anchor = self._anchors.create_recovered(
+            history,
+            previous_anchor=previous_anchor,
+            prior_record_count=len(history) - 1,
+            recovery_authorization=recovery_authorization,
+        )
+        self.verify(anchor)
+        return {
+            "schema_version": 1,
+            "mode": "RECOVERED_EXACT_COMMITTED_OUTCOME_TAIL",
+            "recovery_plan_id": plan["recovery_plan_id"],
+            "recovery_record_id": recovery_authorization.record_id,
+            "outcome_revision_id": intended_outcome.revision_id,
+            "anchor_path": str(anchor),
+            "outcome_access_authorized": False,
+            "research_or_activation_authorized": False,
+        }
 
     def verify(self, anchor_receipt: Path) -> list[dict[str, Any]]:
         history = self._ledger.read_verified()

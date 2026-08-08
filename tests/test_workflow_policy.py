@@ -142,6 +142,19 @@ def test_audit_status_vocabulary_stays_in_the_audit_workflow() -> None:
         assert status in audit
 
 
+def test_recovery_policy_retains_the_same_principal_security_boundary() -> None:
+    threat_model = _read("docs/FILESYSTEM_NAMESPACE_THREAT_MODEL.md")
+    recovery = _read("docs/OUTCOME_LEDGER_ANCHOR_POLICY.md")
+
+    assert "hostile process running as the same Windows account" in threat_model
+    assert "outside this\nassurance boundary" in threat_model
+    assert "operating-system sandbox" in threat_model
+    assert "build_unanchored_tail_recovery_plan" in recovery
+    assert "recover_unanchored_tail" in recovery
+    assert "never changes or removes ledger bytes" in recovery
+    assert "does not\nauthorize outcome creation or access" in recovery
+
+
 class _CredentialReadTrap(dict[str, str]):
     def get(self, key: str, default: str | None = None) -> str | None:
         if key in {"APCA_API_KEY_ID", "APCA_API_SECRET_KEY"}:
