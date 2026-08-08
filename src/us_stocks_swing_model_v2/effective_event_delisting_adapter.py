@@ -22,6 +22,24 @@ REQUIRED_CAPABILITIES = (
     "receipt_time_availability",
     "revision_and_late_arrival_history",
 )
+REQUIRED_LINEAGE = (
+    "provider_contract",
+    "raw_snapshot_census",
+    "source_epoch",
+    "receipt_time",
+    "revision_history",
+)
+FAILURE_STATES = (
+    UNSELECTED,
+    "PROVIDER_CONTRACT_UNVERIFIED",
+    "RAW_LINEAGE_INCOMPLETE",
+    "RECEIPT_TIME_UNAVAILABLE",
+    "EFFECTIVE_EVENT_CENSUS_INCOMPLETE",
+    "DELISTING_CENSUS_INCOMPLETE",
+    "REVISION_HISTORY_INCOMPLETE",
+    "ASSET_SESSION_SCOPE_MISMATCH",
+    "LATE_ARRIVAL_UNRESOLVED",
+)
 
 
 @dataclass(frozen=True)
@@ -62,17 +80,22 @@ def _load_policy(root: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError("effective-event/delisting adapter policy is unreadable") from exc
     expected = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": PROJECT,
         "mode": "EFFECTIVE_EVENT_DELISTING_ADAPTER_QUALIFICATION_ONLY",
         "status": UNSELECTED,
+        "selected_backend": None,
         "required_capabilities": list(REQUIRED_CAPABILITIES),
         "coverage_contract": {
+            "semantics": "EFFECTIVE_EVENT_COMPLETENESS",
+            "scope": "EXACT_ASSET_IDS_AND_SESSION_INTERVAL",
             "absence_requires_complete_census": True,
+            "required_lineage": list(REQUIRED_LINEAGE),
             "unresolved_rows_remain_in_denominator": True,
             "imputation_or_drop_allowed": False,
             "late_arrival_policy": "revise_outcome_or_abstain_never_backdate",
         },
+        "failure_states": list(FAILURE_STATES),
         "prohibitions": [
             "alpaca_process_date_evidence_as_complete_effective_event_coverage",
             "source_activation",
@@ -92,12 +115,14 @@ def build_effective_event_delisting_qualification_plan(*, repository_root: Path)
     root = Path(repository_root).resolve(strict=True)
     policy = _load_policy(root)
     unsigned = {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": policy["mode"],
         "policy_sha256": sha256_file(root / POLICY_PATH),
         "status": policy["status"],
+        "selected_backend": policy["selected_backend"],
         "required_capabilities": policy["required_capabilities"],
         "coverage_contract": policy["coverage_contract"],
+        "failure_states": policy["failure_states"],
         "provider_selection_required": True,
         "qualification_complete": False,
         "effective_event_coverage_usable": False,

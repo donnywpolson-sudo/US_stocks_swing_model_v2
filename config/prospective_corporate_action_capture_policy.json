@@ -1,27 +1,23 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "US_stocks_swing_model_v2",
-  "mode": "PROSPECTIVE_CORPORATE_ACTION_CAPTURE_PLAN_ONLY",
-  "source": "alpaca_corporate_actions",
-  "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
-  "request_contract": {
-    "sort": "asc",
-    "http_timeout_seconds": 30,
-    "host_timeout_seconds": 120,
-    "max_pages": 1000,
-    "max_response_bytes": 1048576,
-    "redirects_allowed": false
-  },
+  "mode": "PROSPECTIVE_EFFECTIVE_EVENT_DELISTING_CAPTURE_BLOCKED",
+  "status": "BACKEND_UNSELECTED",
+  "selected_backend": null,
+  "adapter_policy": "config/effective_event_delisting_adapter_policy.json",
   "coverage": {
     "semantics": "EFFECTIVE_EVENT_COMPLETENESS",
     "late_arrival_policy": "revise_outcome_or_abstain_never_backdate",
     "unresolved_rows_remain_in_denominator": true,
     "imputation_or_drop_allowed": false
   },
-  "publication": {
-    "dataset": "corporate_actions",
-    "role": "prospective_as_received",
-    "quality_state": "PASS",
-    "activation_authorized": false
-  }
+  "prohibitions": [
+    "alpaca_process_date_evidence_as_complete_effective_event_coverage",
+    "capture_planning",
+    "release_publication",
+    "source_activation",
+    "outcome_access",
+    "training",
+    "evaluation"
+  ]
 }

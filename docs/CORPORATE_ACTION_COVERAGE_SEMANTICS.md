@@ -81,3 +81,18 @@ source epoch. Identical reviewed evidence in two releases therefore has the
 same content ID but distinct operative IDs. Schema 1 remains readable as
 immutable historical action rows, but is explicitly not trust eligible,
 supplies no coverage, and therefore cannot mature an outcome.
+
+## Production backend selection
+
+The production effective-event and delisting adapter remains
+`BACKEND_UNSELECTED`. Its schema-v2 qualification contract requires one
+reviewed backend to bind the exact asset/session scope, complete effective-event
+and delisting censuses, raw as-received snapshot lineage, receipt-time
+availability, provider-contract identity, source epoch, revision history, and
+the fixed late-arrival policy. Missing or mismatched evidence has an explicit
+fail-closed state and leaves the affected denominator rows unresolved.
+
+While the backend is unselected, neither the legacy prospective capture planner
+nor its publication planner can emit an operative plan. Alpaca process-date raw
+evidence remains acquisition evidence only and cannot fill the production
+backend slot, prove absence, publish completeness, or unblock outcomes.

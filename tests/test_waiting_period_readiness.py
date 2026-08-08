@@ -104,6 +104,11 @@ def _context(
 def test_unconfigured_adapter_rejects_alpaca_and_cannot_clear_coverage() -> None:
     plan = build_effective_event_delisting_qualification_plan(repository_root=REPO)
     assert plan["provider_selection_required"] is True
+    assert plan["selected_backend"] is None
+    assert plan["coverage_contract"]["semantics"] == "EFFECTIVE_EVENT_COMPLETENESS"
+    assert plan["coverage_contract"]["scope"] == "EXACT_ASSET_IDS_AND_SESSION_INTERVAL"
+    assert plan["failure_states"][0] == "BACKEND_UNSELECTED"
+    assert "DELISTING_CENSUS_INCOMPLETE" in plan["failure_states"]
     assert plan["effective_event_coverage_usable"] is False
     assert plan["authorities"]["network_calls"] == 0
     assert all(value is False for key, value in plan["authorities"].items() if key != "network_calls")

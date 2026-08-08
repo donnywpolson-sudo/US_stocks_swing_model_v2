@@ -1,8 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "US_stocks_swing_model_v2",
   "mode": "EFFECTIVE_EVENT_DELISTING_ADAPTER_QUALIFICATION_ONLY",
   "status": "BACKEND_UNSELECTED",
+  "selected_backend": null,
   "required_capabilities": [
     "effective_event_census",
     "delisting_census",
@@ -12,11 +13,31 @@
     "revision_and_late_arrival_history"
   ],
   "coverage_contract": {
+    "semantics": "EFFECTIVE_EVENT_COMPLETENESS",
+    "scope": "EXACT_ASSET_IDS_AND_SESSION_INTERVAL",
     "absence_requires_complete_census": true,
+    "required_lineage": [
+      "provider_contract",
+      "raw_snapshot_census",
+      "source_epoch",
+      "receipt_time",
+      "revision_history"
+    ],
     "unresolved_rows_remain_in_denominator": true,
     "imputation_or_drop_allowed": false,
     "late_arrival_policy": "revise_outcome_or_abstain_never_backdate"
   },
+  "failure_states": [
+    "BACKEND_UNSELECTED",
+    "PROVIDER_CONTRACT_UNVERIFIED",
+    "RAW_LINEAGE_INCOMPLETE",
+    "RECEIPT_TIME_UNAVAILABLE",
+    "EFFECTIVE_EVENT_CENSUS_INCOMPLETE",
+    "DELISTING_CENSUS_INCOMPLETE",
+    "REVISION_HISTORY_INCOMPLETE",
+    "ASSET_SESSION_SCOPE_MISMATCH",
+    "LATE_ARRIVAL_UNRESOLVED"
+  ],
   "prohibitions": [
     "alpaca_process_date_evidence_as_complete_effective_event_coverage",
     "source_activation",
