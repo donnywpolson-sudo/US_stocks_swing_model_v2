@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "OWNER_CONTROLLED_GIT_TRIAL_REGISTRY",
+  "backend": "LOCAL_GIT_WITH_GITHUB_BACKUP",
+  "status": "CONFIGURED_LOCAL_GIT",
+  "registry_directory": "research_registry/trials",
+  "remote_name": "origin",
+  "remote_branch": "main",
+  "remote_url": "https://github.com/donnywpolson-sudo/US_stocks_swing_model_v2.git",
+  "requires_clean_commit_before_outcome_access": true,
+  "requires_remote_backup_before_outcome_access": true,
+  "owner_controlled": true,
+  "independent_immutability": false
+}

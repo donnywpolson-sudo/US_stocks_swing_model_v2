@@ -34,7 +34,7 @@ from .exchange_calendar import load_xnys_calendar_release
 from .outcomes import DailyBar, build_outcome, load_daily_bar_release
 
 
-LOCAL_ANCHOR_DURABILITY = "LOCAL_TAMPER_EVIDENT_NOT_EXTERNAL_WORM"
+LOCAL_ANCHOR_DURABILITY = "LOCAL_TAMPER_EVIDENT_NOT_INDEPENDENTLY_IMMUTABLE"
 OUTCOME_ANCHOR_RECOVERY_SCOPE = "AUTHORIZE_OUTCOME_ANCHOR_RECOVERY"
 OUTCOME_ANCHOR_RECOVERY_OPERATION = "ANCHOR_EXACT_COMMITTED_OUTCOME_TAIL"
 
@@ -784,7 +784,7 @@ class LedgerAnchorStore:
     """Local content-addressed receipts stored outside the mutable ledger tree.
 
     These receipts detect local mutation when retained, but they are not an
-    independent timestamp authority and are not external/WORM evidence.
+    independent timestamp authority and are not independently immutable evidence.
     """
 
     def __init__(

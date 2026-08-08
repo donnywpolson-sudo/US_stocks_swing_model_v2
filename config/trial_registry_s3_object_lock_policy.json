@@ -1,8 +1,0 @@
-{
-  "backend": "AWS_S3_OBJECT_LOCK_COMPLIANCE",
-  "minimum_retention_days": 3650,
-  "mode": "EXTERNAL_IMMUTABLE_TRIAL_REGISTRY",
-  "project": "US_stocks_swing_model_v2",
-  "schema_version": 1,
-  "status": "BACKEND_SELECTED_NOT_CONFIGURED"
-}

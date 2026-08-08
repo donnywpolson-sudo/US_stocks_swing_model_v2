@@ -6,7 +6,7 @@
   "specification_path": "MASTER_AUDIT.md",
   "tracked_corpus": {
     "expected_path_count": 254,
-    "expected_paths_sha256": "5d23a9fd9d6af45725df776d2cca8d3c376c59553f306e06daab031bbc077855"
+    "expected_paths_sha256": "c1ff43edc1867b639ffd94d280af49688d7347488f1ecff9c4cd423c97f73a70"
   },
   "group_limits": {
     "maximum_numbered_lines": 400,
@@ -72,8 +72,9 @@
         "config/alpaca_discovery_proxy_feature_wfa_contract.json",
         "config/alpaca_discovery_three_class_trial_contract.json",
         "config/alpaca_legacy_discovery_downstream_contract.json",
-        "config/trial_registry_s3_object_lock_policy.json",
+        "config/trial_registry_git_policy.json",
         "src/us_stocks_swing_model_v2/gates.py",
+        "src/us_stocks_swing_model_v2/git_trial_registry.py",
         "src/us_stocks_swing_model_v2/governance.py",
         "src/us_stocks_swing_model_v2/research/builder.py",
         "src/us_stocks_swing_model_v2/research/contracts.py",
@@ -86,16 +87,15 @@
         "src/us_stocks_swing_model_v2/research/robustness.py",
         "src/us_stocks_swing_model_v2/research/sleeves.py",
         "src/us_stocks_swing_model_v2/research/splits.py",
-        "src/us_stocks_swing_model_v2/s3_object_lock_trial_registry.py",
         "src/us_stocks_swing_model_v2/trials.py",
         "tests/test_firewall_bundle_inference.py",
+        "tests/test_git_trial_registry.py",
         "tests/test_meta_audit_remediation.py",
         "tests/test_research_contracts_splits.py",
         "tests/test_research_controls_sleeves_boundary.py",
         "tests/test_research_dsr_cscv_power.py",
         "tests/test_research_executor.py",
-        "tests/test_research_hac_bootstrap_rw.py",
-        "tests/test_s3_object_lock_trial_registry.py"
+        "tests/test_research_hac_bootstrap_rw.py"
       ],
       "accepted_releases": [
         "data/vault/accepted/alpaca_legacy_daily_bars/20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",

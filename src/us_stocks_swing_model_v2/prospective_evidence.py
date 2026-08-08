@@ -14,7 +14,7 @@ from typing import Any, Mapping
 from .common import canonical_json_bytes, require_sha256, sha256_bytes
 from .errors import ContractError
 from .releases import ReleaseManifest, verify_accepted_release
-from .s3_object_lock_trial_registry import S3ObjectLockRegistryPolicy
+from .git_trial_registry import GitTrialRegistryPolicy
 
 
 PROJECT = "US_stocks_swing_model_v2"
@@ -97,10 +97,12 @@ def load_prospective_evidence_policy(repository_root: Path) -> dict[str, Any]:
     registry = policy["external_registry"]
     if (
         type(registry) is not dict
-        or registry.get("policy_path") != "config/trial_registry_s3_object_lock_policy.json"
+        or registry.get("policy_path") != "config/trial_registry_git_policy.json"
         or registry.get("required_before_real_trial") is not True
-        or registry.get("minimum_retention_days") != 3650
-        or registry.get("configured_status") != "CONFIGURED"
+        or registry.get("configured_status") != "CONFIGURED_LOCAL_GIT"
+        or registry.get("requires_remote_backup") is not True
+        or registry.get("owner_controlled") is not True
+        or registry.get("independent_immutability") is not False
     ):
         raise ContractError("prospective evidence registry policy differs")
     if not isinstance(policy["prohibitions"], list) or set(policy["prohibitions"]) != {
@@ -170,7 +172,7 @@ def build_prospective_epoch_plan(
         manifests["bars"].upstream_release_ids
     ):
         raise ContractError("prospective bars release does not bind identity and calendar releases")
-    registry_policy = S3ObjectLockRegistryPolicy.load(
+    registry_policy = GitTrialRegistryPolicy.load(
         root / policy["external_registry"]["policy_path"], repository_root=root
     )
     unsigned = {
@@ -188,7 +190,9 @@ def build_prospective_epoch_plan(
             "policy_id": registry_policy.policy_id,
             "status": registry_policy.status,
             "required_before_real_trial": True,
-            "configured_for_real_trial": registry_policy.status == "CONFIGURED",
+            "configured_for_real_trial": registry_policy.status == "CONFIGURED_LOCAL_GIT",
+            "owner_controlled": registry_policy.owner_controlled,
+            "independent_immutability": registry_policy.independent_immutability,
         },
         "authorities": {
             "network": False,
@@ -206,7 +210,7 @@ def build_prospective_epoch_plan(
             "identity_calendar_or_bar_lineage_drift",
             "incomplete_corporate_action_or_delisting_coverage",
             "attempt_to_impute_or_drop_unresolved_outcomes",
-            "external_registry_not_configured_before_real_trial",
+            "git_registration_not_committed_and_backed_up_before_real_trial",
         ],
     }
     return {**unsigned, "prospective_epoch_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}

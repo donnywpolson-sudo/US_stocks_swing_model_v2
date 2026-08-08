@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from .common import canonical_json_bytes, sha256_bytes
 from .errors import ContractError
-from .s3_object_lock_trial_registry import S3ObjectLockRegistryPolicy
+from .git_trial_registry import GitTrialRegistryPolicy
 
 
 HISTORICAL_CENSUS_SOURCES = (
@@ -59,14 +59,14 @@ def build_prospective_preregistration_template(
 ) -> dict[str, object]:
     """Prepare the exact future package shape without choosing a hypothesis.
 
-    Registration cannot be represented as available while the S3 Compliance
-    backend is selected but not configured, and this template never opens
-    outcomes or writes a registry object.
+    The selected registry is a local tracked file backed up to the configured
+    GitHub branch. This template never opens outcomes or writes, stages,
+    commits, or pushes a registration.
     """
 
     root = Path(repository_root).resolve(strict=True)
-    registry = S3ObjectLockRegistryPolicy.load(
-        root / "config/trial_registry_s3_object_lock_policy.json", repository_root=root
+    registry = GitTrialRegistryPolicy.load(
+        root / "config/trial_registry_git_policy.json", repository_root=root
     )
     unsigned: dict[str, Any] = {
         "schema_version": 1,
@@ -89,18 +89,21 @@ def build_prospective_preregistration_template(
             },
         },
         "external_registry": {
-            "backend": "AWS_S3_OBJECT_LOCK_COMPLIANCE",
+            "backend": "LOCAL_GIT_WITH_GITHUB_BACKUP",
             "policy_id": registry.policy_id,
             "status": registry.status,
-            "minimum_retention_days": registry.minimum_retention_days,
-            "registration_available": registry.status == "CONFIGURED",
+            "owner_controlled": registry.owner_controlled,
+            "independent_immutability": registry.independent_immutability,
+            "registration_available": registry.status == "CONFIGURED_LOCAL_GIT",
         },
         "authorities": {
             "outcome_access": False,
             "registration": False,
             "training": False,
             "evaluation": False,
-            "aws_provisioning": False,
+            "git_write": False,
+            "git_commit": False,
+            "git_push": False,
         },
     }
     return {**unsigned, "prospective_preregistration_template_id": sha256_bytes(canonical_json_bytes(unsigned))}

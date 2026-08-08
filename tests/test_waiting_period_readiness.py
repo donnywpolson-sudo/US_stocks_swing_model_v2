@@ -30,7 +30,7 @@ from us_stocks_swing_model_v2.prospective_materializers import (
     materialize_eligible_universe,
     materialize_price_only_feature_rows,
 )
-from us_stocks_swing_model_v2.prospective_operations import HistoricalTrialCensusIntake, build_historical_trial_census_intake_plan, build_s3_object_lock_provisioning_checklist
+from us_stocks_swing_model_v2.prospective_operations import HistoricalTrialCensusIntake, build_git_trial_registry_readiness, build_historical_trial_census_intake_plan
 from us_stocks_swing_model_v2.prospective_price_features import CausalPriceBar
 from us_stocks_swing_model_v2.schemas import OutcomeStatus, SecurityType
 
@@ -141,7 +141,9 @@ def test_local_governance_preparation_remains_non_authorizing() -> None:
     intake = build_historical_trial_census_intake_plan(tuple(HistoricalTrialCensusIntake(kind, "a" * 64, False, None) for kind in (
         "legacy_repository_trial_records", "local_project_trial_records", "manual_reports_and_plots", "external_outcome_exposure_records",
     )))
-    checklist = build_s3_object_lock_provisioning_checklist(repository_root=REPO, proposed_target=None, aws_account_id=None, bucket_policy_sha256=None)
+    registry = build_git_trial_registry_readiness(repository_root=REPO)
     assert intake["completion"]["exact_census_complete"] is False
-    assert checklist["current_status"] == "BACKEND_SELECTED_NOT_CONFIGURED"
-    assert checklist["authorities"]["aws_calls"] == 0
+    assert registry["backend"] == "LOCAL_GIT_WITH_GITHUB_BACKUP"
+    assert registry["authorities"]["network_requests"] == 0
+    assert registry["authorities"]["commit"] is False
+    assert registry["authorities"]["push"] is False

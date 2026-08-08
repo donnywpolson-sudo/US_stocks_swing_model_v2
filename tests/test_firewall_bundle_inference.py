@@ -59,7 +59,7 @@ from us_stocks_swing_model_v2.ledger import (
     PredictionLedger,
 )
 from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, build_manifest, verify_release
-from us_stocks_swing_model_v2.s3_object_lock_trial_registry import ExternalTrialRegistration
+from us_stocks_swing_model_v2.git_trial_registry import GitBackedTrialRegistration
 from us_stocks_swing_model_v2.schemas import (
     FeatureRow,
     OutcomeRow,
@@ -428,7 +428,7 @@ def _bundle(
         readiness_receipt_id=BLOCKED_READINESS_RECEIPT_ID,
         eligibility_census_contract_id=ELIGIBILITY_CENSUS_CONTRACT_ID,
         external_anchor_receipt_id=BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID,
-        production_readiness_state="NOT_CONFIGURED_BLOCKS_PRODUCTION",
+        production_readiness_state="GIT_REGISTRATION_NOT_VERIFIED_BLOCKS_PRODUCTION",
         monitoring_policy_hash=MonitoringPolicy().policy_hash,
         monitoring_reference_hash="9" * 64,
         code_hash="1" * 64,
@@ -489,29 +489,31 @@ def test_bundle_readiness_verifier_binds_external_gate_holdout_and_releases(
     assert registration_hash == metadata.registration_hash
     external_fields = {
         "schema_version": 2,
-        "backend": "AWS_S3_OBJECT_LOCK_COMPLIANCE",
+        "backend": "LOCAL_GIT_WITH_GITHUB_BACKUP",
         "policy_id": "a" * 64,
         "trial_id": metadata.trial_id,
         "trial_registry_binding_id": metadata.trial_registry_binding_id,
         "registration_hash": registration_hash,
         "registration_authorization_record_id": "b" * 64,
-        "bucket": "synthetic-trial-registry",
-        "region": "us-west-2",
-        "key": f"trials/{metadata.trial_id}.json",
-        "s3_version_id": "synthetic-version",
+        "relative_path": f"research_registry/trials/{metadata.trial_id}.json",
         "object_sha256": registration_hash,
-        "object_created_at": registered_payload["registered_at"],
-        "object_lock_mode": "COMPLIANCE",
-        "retained_until": "2036-07-15T00:00:00Z",
+        "registered_at": registered_payload["registered_at"],
+        "git_commit": "1" * 40,
+        "remote_name": "origin",
+        "remote_branch": "main",
+        "remote_url_sha256": sha256_bytes(
+            b"https://github.com/donnywpolson-sudo/US_stocks_swing_model_v2.git"
+        ),
+        "remote_tip_commit": "2" * 40,
+        "backup_state": "GITHUB_REMOTE_TRACKING_REF_VERIFIED_OWNER_CONTROLLED",
         "registered_payload": registered_payload,
     }
     external_anchor_payload = {
         key: value
         for key, value in external_fields.items()
-        if key not in {"registered_payload", "s3_version_id"}
+        if key != "registered_payload"
     }
-    external_anchor_payload["version_id"] = external_fields["s3_version_id"]
-    external = ExternalTrialRegistration(
+    external = GitBackedTrialRegistration(
         **external_fields,
         external_anchor_receipt_id=sha256_bytes(
             canonical_json_bytes(external_anchor_payload)
@@ -666,7 +668,7 @@ def test_bundle_readiness_verifier_binds_external_gate_holdout_and_releases(
             clock=readiness_clock,
         )
     forged_external = replace(external, registration_hash="f" * 64)
-    with pytest.raises(EvaluationAuthorizationError, match="immutable object"):
+    with pytest.raises(EvaluationAuthorizationError, match="committed file"):
         verify_production_bundle_readiness(
             candidate,
             external_registration=forged_external,

@@ -16,9 +16,10 @@ deterministic-rule models remain scout-only until a separate scientific change
 is reviewed and authorized.
 
 Even a compatible specification remains blocked until the exact historical and
-external exposure census, required accepted prospective releases, configured
-external immutable registry, real preregistration, qualifying sealed bundle,
-and separate prospective execution authority all exist.
+external exposure census, required accepted prospective releases, a real
+registration committed locally and backed up to the configured GitHub branch,
+a qualifying sealed bundle, and separate prospective execution authority all
+exist.
 
 Only a content-addressed Stocks V2 census assessment covering legacy records,
 current-project records, manual reports/plots, and external outcome exposures

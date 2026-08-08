@@ -20,7 +20,7 @@ from .external_strategy_census import HistoricalTrialCensusAssessment
 from .gates import IndependentGatePolicy
 from .governance import ReleaseBinding, verify_release_bindings
 from .monitoring_policy import frozen_monitoring_policy_hash
-from .s3_object_lock_trial_registry import S3ObjectLockRegistryPolicy
+from .git_trial_registry import GitTrialRegistryPolicy
 from .trials import (
     TrialSpec,
     repository_trial_identity,
@@ -460,11 +460,11 @@ def build_external_strategy_intake_plan(
             if not _release_contracts_are_complete(bindings):
                 status = "BLOCKED_ACCEPTED_RELEASES"
     release_readiness = _release_readiness(bindings)
-    registry = S3ObjectLockRegistryPolicy.load(
-        root / "config/trial_registry_s3_object_lock_policy.json",
+    registry = GitTrialRegistryPolicy.load(
+        root / "config/trial_registry_git_policy.json",
         repository_root=root,
     )
-    if status is None and registry.status != "CONFIGURED":
+    if status is None and registry.status != "CONFIGURED_LOCAL_GIT":
         status = "BLOCKED_EXTERNAL_REGISTRY"
     if status is None:
         status = "READY_FOR_SEPARATELY_AUTHORIZED_REGISTRATION"

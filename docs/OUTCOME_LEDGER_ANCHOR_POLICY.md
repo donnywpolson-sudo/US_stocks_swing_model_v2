@@ -29,12 +29,12 @@ prediction ledgers use the same `LedgerAnchorStore` contract.
 ## Authority and limitations
 
 These receipts are independently retained local commitments. They are not an
-external timestamp, WORM store, signature, or production authority. They do
-not authorize outcome maturation, research, promotion, or live use.
+independent timestamp, signature, or production authority. They do not
+authorize outcome maturation, research, promotion, or live use.
 
 Moving both trees together to one untrusted replacement remains outside the
-guarantee of a local anchor. Any future external retention or signing design
-requires a separate reviewed policy and implementation.
+guarantee of a local anchor. GitHub backup improves recoverability but does not
+create an independent immutability guarantee.
 
 ## Interruption and recovery
 

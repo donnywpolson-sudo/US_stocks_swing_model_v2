@@ -12,7 +12,6 @@ from .errors import ContractError
 
 
 PACKAGE_DISTRIBUTIONS = {
-    "boto3": "boto3",
     "exchange-calendars": "exchange-calendars",
     "joblib": "joblib",
     "numpy": "numpy",

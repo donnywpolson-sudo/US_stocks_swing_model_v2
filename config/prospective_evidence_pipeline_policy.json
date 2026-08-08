@@ -39,10 +39,12 @@
     "minimum_total_sessions": 2268
   },
   "external_registry": {
-    "policy_path": "config/trial_registry_s3_object_lock_policy.json",
+    "policy_path": "config/trial_registry_git_policy.json",
     "required_before_real_trial": true,
-    "minimum_retention_days": 3650,
-    "configured_status": "CONFIGURED"
+    "configured_status": "CONFIGURED_LOCAL_GIT",
+    "requires_remote_backup": true,
+    "owner_controlled": true,
+    "independent_immutability": false
   },
   "prohibitions": [
     "legacy_discovery_only_input",

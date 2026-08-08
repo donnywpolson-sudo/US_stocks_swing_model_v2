@@ -517,7 +517,15 @@ class TrialSpec:
             "registered_at",
             "trial_registry_binding_id",
         }
-        allowed = (expected, expected | {"repository_trial_identity_id"})
+        allowed = (
+            expected,
+            expected | {"repository_trial_identity_id"},
+            expected
+            | {
+                "repository_trial_identity_id",
+                "registration_authorization_record_id",
+            },
+        )
         if set(payload) not in allowed:
             raise ContractError("registered trial payload fields differ from the frozen contract")
         parse_utc_z(str(payload["registered_at"]), "registered_at")
@@ -529,6 +537,7 @@ class TrialSpec:
                 "registered_at",
                 "trial_registry_binding_id",
                 "repository_trial_identity_id",
+                "registration_authorization_record_id",
             }
         }
         fields["data_release_ids"] = tuple(fields["data_release_ids"])
@@ -1089,7 +1098,7 @@ class TrialRegistry:
         self._clock = require_trusted_clock(clock)
         if self._clock.trust_eligible:
             raise EvaluationAuthorizationError(
-                "production trial registry requires an external immutable registry loader"
+                "production trial registry requires the Git-backed registration loader"
             )
         self._synthetic_permit = require_synthetic_permit(
             synthetic_permit,

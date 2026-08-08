@@ -9,11 +9,10 @@
     "platform_tag": "win_amd64",
     "machine": "AMD64"
   },
-  "requirements_lock_sha256": "d97aa5778e9176d8d61184e1673623c487362979e3e6dd3895252f4c0aeac432",
-  "requirements_sha256_lock_sha256": "ec071303329f550247edecdefd03aa52d1b5d0e384739339325896feb36c0c3c",
-  "binary_closure_package_count": 27,
+  "requirements_lock_sha256": "0084afba3df9a8dafe75b37ed5a4510bec477bf49c341979af1ebf98233068f9",
+  "requirements_sha256_lock_sha256": "e240f5fc90cc43586b38ab7ccb68703764eeb8343f6c7b368ef7976347e348a9",
+  "binary_closure_package_count": 22,
   "packages": {
-    "boto3": "1.43.62",
     "exchange-calendars": "4.13.2",
     "joblib": "1.5.3",
     "numpy": "2.4.4",

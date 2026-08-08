@@ -58,7 +58,6 @@ _SECRET_PATTERNS = (
             re.IGNORECASE,
         ),
     ),
-    ("AWS_ACCESS_KEY", re.compile(rb"\bAKIA[0-9A-Z]{16}\b")),
     (
         "BEARER_TOKEN",
         re.compile(rb"\bBearer[ \t]+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),

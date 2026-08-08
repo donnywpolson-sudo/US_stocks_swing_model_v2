@@ -43,9 +43,11 @@ before acting.
   D1-open/D5-close outcome builder remains blocked until the necessary mature
   bars and governed action/delisting coverage exist.
 - The historical-trial census workflow and prospective preregistration schema
-  are prepared locally; the census is still indeterminate and the selected S3
-  Object Lock registry remains unconfigured, so registration, training, and
-  evaluation remain blocked.
+  are prepared locally. The trial registry is now a canonical tracked file in
+  this repository with required backup to `origin/main`; it is owner-controlled
+  and does not claim independent immutability. The census is still
+  indeterminate, and no real trial has been registered, committed, or backed
+  up, so training and evaluation remain blocked.
 
 ## Next meaningful gate
 
@@ -58,8 +60,9 @@ lineage. The July bar fixtures remain diagnostic-only.
 
 For the binding task classification, revalidation, and authorization rules, use
 the [canonical checklist in `AGENTS.md`](../AGENTS.md#canonical-task-routing-and-gate-checklist).
-This snapshot does not combine or waive those rules. The selected S3 Object
-Lock registry backend is not configured, so no real trial can be registered.
+This snapshot does not combine or waive those rules. A real trial may be
+registered only through the local Git contract and must be present in the
+configured GitHub branch before outcome access; no such registration exists.
 
 ## Non-claims
 

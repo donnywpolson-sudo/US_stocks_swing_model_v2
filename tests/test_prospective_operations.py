@@ -9,9 +9,8 @@ from us_stocks_swing_model_v2.prospective_operations import (
     HistoricalTrialCensusLocator,
     build_historical_trial_census_intake_plan,
     build_historical_trial_census_locator_manifest,
-    build_s3_object_lock_provisioning_checklist,
+    build_git_trial_registry_readiness,
 )
-from us_stocks_swing_model_v2.s3_object_lock_trial_registry import S3ObjectLockTrialRegistryTarget
 
 REPO = Path(__file__).parents[1]
 
@@ -76,9 +75,10 @@ def test_census_locator_manifest_is_deterministic_bounded_and_no_io() -> None:
         ).validate()
 
 
-def test_s3_checklist_validates_proposed_target_without_aws_activity() -> None:
-    target = S3ObjectLockTrialRegistryTarget(bucket="swing-model-trial-registry", region="us-east-1", prefix="us-stocks-swing-v2", version_id="version-1")
-    checklist = build_s3_object_lock_provisioning_checklist(repository_root=REPO, proposed_target=target, aws_account_id="123456789012", bucket_policy_sha256="f" * 64)
-    assert checklist["current_status"] == "BACKEND_SELECTED_NOT_CONFIGURED"
-    assert checklist["authorities"]["aws_calls"] == 0
-    assert checklist["minimum_retention_days"] == 3650
+def test_git_registry_readiness_is_local_read_only_and_owner_controlled() -> None:
+    readiness = build_git_trial_registry_readiness(repository_root=REPO)
+    assert readiness["backend"] == "LOCAL_GIT_WITH_GITHUB_BACKUP"
+    assert readiness["owner_controlled"] is True
+    assert readiness["independent_immutability"] is False
+    assert readiness["remote_url_matches"] is True
+    assert all(value in {False, 0} for value in readiness["authorities"].values())

@@ -53,10 +53,12 @@ def _inputs(tmp_path: Path) -> dict[str, Path]:
     return {"accepted": accepted, "identity": identity, "calendar": calendar, "bars": bars, "actions": actions}
 
 
-def test_policy_freezes_prospective_horizon_and_external_registry() -> None:
+def test_policy_freezes_prospective_horizon_and_local_git_registry() -> None:
     policy = load_prospective_evidence_policy(REPO)
     assert policy["wfa_evidence_horizon"]["minimum_total_sessions"] == 2268
-    assert policy["external_registry"]["minimum_retention_days"] == 3650
+    assert policy["external_registry"]["configured_status"] == "CONFIGURED_LOCAL_GIT"
+    assert policy["external_registry"]["requires_remote_backup"] is True
+    assert policy["external_registry"]["independent_immutability"] is False
     assert policy["feature_contract"]["feature_names"] == [
         "d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"
     ]
@@ -138,7 +140,8 @@ def test_epoch_plan_binds_only_trust_eligible_prospective_inputs(tmp_path: Path)
     )
     assert plan["mode"] == "PROSPECTIVE_EVIDENCE_EPOCH_PLAN_ONLY"
     assert plan["authorities"]["training"] is False
-    assert plan["external_registry"]["configured_for_real_trial"] is False
+    assert plan["external_registry"]["configured_for_real_trial"] is True
+    assert plan["external_registry"]["owner_controlled"] is True
     assert len(plan["prospective_epoch_plan_id"]) == 64
 
 

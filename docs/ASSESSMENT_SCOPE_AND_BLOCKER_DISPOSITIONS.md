@@ -7,9 +7,10 @@ correctly enforced, explicitly disclosed release prerequisite.
 
 The current repository milestone is mechanical historical-research readiness,
 not candidate or production readiness. Prospective point-in-time evidence,
-the exact legacy-trial census, an external immutable anchor, production
-eligibility-census materialization, holdout authorization, and a
-trust-eligible readiness receipt are deliberately unresolved.
+the exact legacy-trial census, a committed and GitHub-backed local trial
+registration, production eligibility-census materialization, holdout
+authorization, and a trust-eligible readiness receipt are deliberately
+unresolved.
 
 Those states are acceptance prerequisites and must remain fail-closed. Their
 presence is not a defect unless implementation or documentation:

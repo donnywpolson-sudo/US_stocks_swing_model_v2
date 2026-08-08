@@ -37,7 +37,9 @@ BLOCKED_READINESS_RECEIPT_ID = sha256_bytes(
     canonical_json_bytes({"state": "NOT_ISSUED_BLOCKS_PRODUCTION", "schema": 1})
 )
 BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID = sha256_bytes(
-    canonical_json_bytes({"state": "NOT_CONFIGURED_BLOCKS_PRODUCTION", "schema": 1})
+    canonical_json_bytes(
+        {"state": "GIT_REGISTRATION_NOT_VERIFIED_BLOCKS_PRODUCTION", "schema": 1}
+    )
 )
 TRUST_ELIGIBLE_ROLES = {
     "active_historical",
@@ -403,7 +405,7 @@ class SealedBundleMetadata:
             raise ContractError("readiness receipt must be the exact not-issued blocker")
         if self.external_anchor_receipt_id != BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID:
             raise ContractError("external anchor receipt must be the exact not-configured blocker")
-        if self.production_readiness_state != "NOT_CONFIGURED_BLOCKS_PRODUCTION":
+        if self.production_readiness_state != "GIT_REGISTRATION_NOT_VERIFIED_BLOCKS_PRODUCTION":
             raise ContractError(
                 "schema-v3 bundles cannot embed verified readiness; candidate must remain blocked"
             )
@@ -698,7 +700,7 @@ class PreparedBundleCandidate:
 def verify_production_bundle_readiness(
     candidate: PreparedBundleCandidate,
     *,
-    external_registration: "ExternalTrialRegistration",
+    external_registration: "GitBackedTrialRegistration",
     holdout_access_chain: Iterable["GovernedHoldoutAccessReceipt"],
     unlock_authorization: LocalIntegrityRecord,
     close_authorization: LocalIntegrityRecord,
@@ -709,7 +711,7 @@ def verify_production_bundle_readiness(
     clock: TrustedClock,
 ) -> BundleReadinessReceipt:
     """Verify the exact production prerequisites without sealing a bundle."""
-    from .s3_object_lock_trial_registry import ExternalTrialRegistration
+    from .git_trial_registry import GitBackedTrialRegistration
     from .trials import GovernedHoldoutAccessReceipt
 
     if type(candidate) is not PreparedBundleCandidate:
@@ -718,7 +720,8 @@ def verify_production_bundle_readiness(
     if (
         payload["readiness_receipt_id"] != BLOCKED_READINESS_RECEIPT_ID
         or payload["external_anchor_receipt_id"] != BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID
-        or payload["production_readiness_state"] != "NOT_CONFIGURED_BLOCKS_PRODUCTION"
+        or payload["production_readiness_state"]
+        != "GIT_REGISTRATION_NOT_VERIFIED_BLOCKS_PRODUCTION"
     ):
         raise ContractError("bundle readiness requires the exact blocked candidate state")
     gate = GateReceipt.from_dict(payload["gate_receipt"])
@@ -729,8 +732,8 @@ def verify_production_bundle_readiness(
         raise ContractError(
             "bundle readiness requires an exact PASS final-holdout gate receipt"
         )
-    if type(external_registration) is not ExternalTrialRegistration:
-        raise ContractError("bundle readiness requires an external immutable registration")
+    if type(external_registration) is not GitBackedTrialRegistration:
+        raise ContractError("bundle readiness requires a committed Git registration with GitHub backup")
     external_registration.validate()
     if (
         external_registration.trial_id != payload["trial_id"]
@@ -740,7 +743,7 @@ def verify_production_bundle_readiness(
         or external_registration.external_anchor_receipt_id
         == BLOCKED_EXTERNAL_ANCHOR_RECEIPT_ID
     ):
-        raise ContractError("bundle readiness external registration differs from the candidate")
+        raise ContractError("bundle readiness Git registration differs from the candidate")
     chain = tuple(holdout_access_chain)
     if len(chain) != 3 or any(
         type(receipt) is not GovernedHoldoutAccessReceipt for receipt in chain
@@ -867,7 +870,7 @@ def verify_production_bundle_readiness(
             < parse_utc_z(unlocked_holdout_receipt.created_at, "holdout.unlocked_at")
             < parse_utc_z(closed_holdout_receipt.created_at, "holdout.closed_at")
         )
-        or parse_utc_z(external_registration.object_created_at, "external.object_created_at")
+        or parse_utc_z(external_registration.registered_at, "git_registration.registered_at")
         > verified_at
     ):
         raise ContractError("bundle readiness evidence postdates verification")

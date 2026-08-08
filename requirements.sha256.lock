@@ -2,18 +2,12 @@
 # without installation. Install only with: pip install --require-hashes
 # --only-binary=:all: -r requirements.sha256.lock
 
-# target-wheel: boto3-1.43.62-py3-none-any.whl
-boto3==1.43.62 --hash=sha256:0bb298e7ffd72b91615df44bf71c417df80a29d844971e5d665b8bd743a4bb35
-# target-wheel: botocore-1.43.62-py3-none-any.whl
-botocore==1.43.62 --hash=sha256:76de153de1ba3e242b2e6df6a13ab8a3fb35d17db562462969e661457b63166e
 # target-wheel: colorama-0.4.6-py2.py3-none-any.whl
 colorama==0.4.6 --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
 # target-wheel: exchange_calendars-4.13.2-py3-none-any.whl
 exchange-calendars==4.13.2 --hash=sha256:fc5a2ad0d61b5c3a6539a3061cd4cbb55c59f4a903455cec7926e4b798919996
 # target-wheel: iniconfig-2.3.0-py3-none-any.whl
 iniconfig==2.3.0 --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
-# target-wheel: jmespath-1.1.0-py3-none-any.whl
-jmespath==1.1.0 --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
 # target-wheel: joblib-1.5.3-py3-none-any.whl
 joblib==1.5.3 --hash=sha256:5fc3c5039fc5ca8c0276333a188bbd59d6b7ab37fe6632daa76bc7f9ec18e713
 # target-wheel: korean_lunar_calendar-0.4.0-py3-none-any.whl
@@ -42,8 +36,6 @@ PyYAML==6.0.3 --hash=sha256:9f3bfb4965eb874431221a3ff3fdcddc7e74e3b07799e0e84ca4
 scikit-learn==1.8.0 --hash=sha256:c57b1b610bd1f40ba43970e11ce62821c2e6569e4d74023db19c6b26f246cb3b
 # target-wheel: scipy-1.17.1-cp311-cp311-win_amd64.whl
 scipy==1.17.1 --hash=sha256:d30e57c72013c2a4fe441c2fcb8e77b14e152ad48b5464858e07e2ad9fbfceff
-# target-wheel: s3transfer-0.19.2-py3-none-any.whl
-s3transfer==0.19.2 --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
 # target-wheel: setuptools-82.0.1-py3-none-any.whl
 setuptools==82.0.1 --hash=sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb
 # target-wheel: six-1.17.0-py2.py3-none-any.whl
@@ -54,5 +46,3 @@ threadpoolctl==3.6.0 --hash=sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083
 toolz==1.1.0 --hash=sha256:15ccc861ac51c53696de0a5d6d4607f99c210739caf987b5d2054f3efed429d8
 # target-wheel: tzdata-2026.2-py2.py3-none-any.whl
 tzdata==2026.2 --hash=sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7
-# target-wheel: urllib3-2.7.0-py3-none-any.whl
-urllib3==2.7.0 --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897

@@ -38,5 +38,7 @@ symbols never inherit eligibility after disappearance or reuse.
 
 Historical and prospective outcomes may not be accessed for a real trial until
 the hypothesis, releases, sleeves, costs, WFA schedule, and robustness policy
-are preregistered in the external immutable registry. Training, evaluation,
-candidate sealing, monitoring, and trading each require separate authorization.
+are recorded in a canonical trial file committed to this repository and backed
+up to the configured GitHub branch. This is an owner-controlled audit trail,
+not an independently immutable service. Training, evaluation, candidate
+sealing, monitoring, and trading each require separate authorization.

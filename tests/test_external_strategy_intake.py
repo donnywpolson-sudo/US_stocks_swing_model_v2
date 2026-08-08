@@ -219,7 +219,7 @@ def test_compatible_complete_spec_still_requires_accepted_releases(project_root:
     assert plan["release_readiness"]["minimum_total_sessions"] == 2268
 
 
-def test_current_registry_blocks_after_release_verification(
+def test_local_git_registry_allows_separately_authorized_registration_after_other_gates(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -234,7 +234,7 @@ def test_current_registry_blocks_after_release_verification(
         accepted_release_directories=[project_root],
         accepted_release_root=project_root,
     )
-    assert plan["status"] == "BLOCKED_EXTERNAL_REGISTRY"
+    assert plan["status"] == "READY_FOR_SEPARATELY_AUTHORIZED_REGISTRATION"
     assert len(plan["accepted_release_ids"]) == 7
 
 
