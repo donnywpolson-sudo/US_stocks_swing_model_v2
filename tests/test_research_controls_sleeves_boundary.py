@@ -109,6 +109,7 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         alpha=0.05,
         dsr_probability_minimum=0.95,
         pbo_conservative_maximum=0.20,
+        pbo_failure_threshold=0.50,
     )
     stock_long = evaluate_synthetic_sleeve(
         sleeve_id="stock_long",
@@ -176,6 +177,29 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         fixture=fixture,
     )
     assert failure_precedes_robustness.state is SleeveState.MECHANICS_FAIL_CLOSED
+
+    data_or_power_inconclusive = evaluate_synthetic_sleeve(
+        sleeve_id="stock_short",
+        metrics=replace(_metrics(adjusted_p=0.01), pbo_conservative=0.20),
+        thresholds=thresholds,
+        permit=permit,
+        fixture=fixture,
+    )
+    assert (
+        data_or_power_inconclusive.state
+        is SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
+    )
+    power_inconclusive = evaluate_synthetic_sleeve(
+        sleeve_id="stock_long",
+        metrics=replace(_metrics(adjusted_p=0.01), power_sufficient=False),
+        thresholds=thresholds,
+        permit=permit,
+        fixture=fixture,
+    )
+    assert (
+        power_inconclusive.state
+        is SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
+    )
 
     with np.testing.assert_raises_regex(ValueError, "explicit real float"):
         evaluate_synthetic_sleeve(
@@ -245,6 +269,30 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
         )
         is PortfolioState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     )
+    assert (
+        evaluate_portfolio_mechanics(
+            all_included,
+            (
+                stock_long,
+                data_or_power_inconclusive,
+                replace(robustness_inconclusive, sleeve_id="etf_long"),
+                etf_short_ready,
+            ),
+        )
+        is PortfolioState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
+    )
+    assert (
+        evaluate_portfolio_mechanics(
+            all_included,
+            (
+                stock_long,
+                data_or_power_inconclusive,
+                etf_long,
+                etf_short,
+            ),
+        )
+        is PortfolioState.MECHANICS_FAIL_CLOSED
+    )
 
     forged_charter = replace(all_included, charter_hash="0" * 64)
     with np.testing.assert_raises_regex(ValueError, "charter hash"):
@@ -290,6 +338,89 @@ def test_sleeves_are_independent_and_portfolio_cannot_cross_subsidize() -> None:
                 replace(etf_short, failed_gates=()),
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("pbo", "expected_state", "expected_failed_gates"),
+    (
+        (
+            np.nextafter(0.20, -np.inf),
+            SleeveState.MECHANICS_READY,
+            (),
+        ),
+        (0.20, SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER, ()),
+        (
+            np.nextafter(0.20, np.inf),
+            SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER,
+            (),
+        ),
+        (
+            np.nextafter(0.50, -np.inf),
+            SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER,
+            (),
+        ),
+        (0.50, SleeveState.MECHANICS_FAIL_CLOSED, ("PBO",)),
+        (
+            np.nextafter(0.50, np.inf),
+            SleeveState.MECHANICS_FAIL_CLOSED,
+            ("PBO",),
+        ),
+    ),
+)
+def test_pbo_three_band_boundaries_match_independent_gate_semantics(
+    pbo: float,
+    expected_state: SleeveState,
+    expected_failed_gates: tuple[str, ...],
+) -> None:
+    fixture = np.asarray([[0.0, 1.0], [1.0, 0.0]], dtype=np.float64)
+    permit = make_synthetic_permit(fixture, generator_id="pbo-boundary", seed=5)
+    result = evaluate_synthetic_sleeve(
+        sleeve_id="stock_long",
+        metrics=replace(_metrics(adjusted_p=0.01), pbo_conservative=pbo),
+        thresholds=SleeveThresholds(
+            alpha=0.05,
+            dsr_probability_minimum=0.95,
+            pbo_conservative_maximum=0.20,
+            pbo_failure_threshold=0.50,
+        ),
+        permit=permit,
+        fixture=fixture,
+    )
+
+    assert result.state is expected_state
+    assert result.failed_gates == expected_failed_gates
+
+
+@pytest.mark.parametrize(
+    ("maximum", "failure"),
+    (
+        (np.nextafter(0.0, -np.inf), 0.50),
+        (0.20, 0.20),
+        (np.nextafter(0.50, np.inf), 0.50),
+        (0.20, np.nextafter(1.0, np.inf)),
+    ),
+)
+def test_pbo_threshold_bands_reject_invalid_exact_and_nextafter_boundaries(
+    maximum: float,
+    failure: float,
+) -> None:
+    with pytest.raises(
+        ResearchContractError,
+        match="0 <= maximum < failure <= 1",
+    ):
+        SleeveThresholds(
+            alpha=0.05,
+            dsr_probability_minimum=0.95,
+            pbo_conservative_maximum=maximum,
+            pbo_failure_threshold=failure,
+        ).validate()
+
+    SleeveThresholds(
+        alpha=0.05,
+        dsr_probability_minimum=0.95,
+        pbo_conservative_maximum=0.0,
+        pbo_failure_threshold=1.0,
+    ).validate()
 
 
 ALLOWED_IMPORT_ROOTS = {

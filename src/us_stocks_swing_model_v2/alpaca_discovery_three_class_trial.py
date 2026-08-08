@@ -39,7 +39,7 @@ def load_three_class_trial_contract(repo_root: Path | None = None) -> dict[str, 
         or payload.get("metrics_and_costs") != {"primary_forecast_metric": "multiclass_log_loss", "stress_cost_basis_points_one_way": 25, "policy_path": READINESS_POLICY_PATH}
         or payload.get("wfa") != {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True}
         or payload.get("claims") != {"historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "training_or_evaluation_authorized": False}
-        or payload.get("registration") != {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": False}
+        or payload.get("registration") != {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": True, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES"}
     ):
         raise ContractError("three-class trial contract differs")
     return {**payload, "contract_id": contract_id}
@@ -55,7 +55,7 @@ def build_three_class_trial_plan(feature_wfa_plan: Mapping[str, Any], *, repo_ro
         raise ContractError("three-class trial caveats differ")
     if feature_wfa_plan.get("features", {}).get("feature_names") != ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"]:
         raise ContractError("three-class trial features differ")
-    if feature_wfa_plan.get("wfa") != {"state": "CHRONOLOGICAL_PROXY_DISCOVERY_EXECUTION_PLANNED_UNREGISTERED", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True, "external_registry_required": False, "real_history_execution_authorized": False, "training_or_evaluation_authorized": False}:
+    if feature_wfa_plan.get("wfa") != {"state": "BLOCKED_EXTERNAL_PREREGISTRATION_REQUIRES_ELIGIBLE_RELEASES", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True, "external_registry_required": True, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES", "real_history_execution_authorized": False, "training_or_evaluation_authorized": False}:
         raise ContractError("three-class trial WFA safeguards differ")
     for field in ("feature_wfa_plan_id",):
         value = feature_wfa_plan.get(field)

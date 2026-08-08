@@ -17,10 +17,15 @@ from typing import Any, Iterable, Mapping
 from .common import canonical_json_bytes, require_sha256, sha256_bytes
 from .errors import ContractError
 from .external_strategy_census import HistoricalTrialCensusAssessment
+from .gates import IndependentGatePolicy
 from .governance import ReleaseBinding, verify_release_bindings
 from .monitoring_policy import frozen_monitoring_policy_hash
 from .s3_object_lock_trial_registry import S3ObjectLockRegistryPolicy
-from .trials import TrialSpec
+from .trials import (
+    TrialSpec,
+    repository_trial_identity,
+    require_trial_gate_policy,
+)
 
 
 MAX_SPEC_BYTES = 256 * 1024
@@ -272,9 +277,41 @@ class ProjectTrialBindings:
     config_hash: str
     environment_hash: str
 
-    def validate(self) -> None:
+    @classmethod
+    def from_repository(
+        cls,
+        *,
+        repository_root: Path,
+        census_anchor_id: str,
+        trial_family_anchor_id: str,
+    ) -> "ProjectTrialBindings":
+        identity = repository_trial_identity(repository_root)
+        return cls(
+            census_anchor_id=census_anchor_id,
+            trial_family_anchor_id=trial_family_anchor_id,
+            evaluator_closure_hash=identity.evaluator_closure_hash,
+            governance_contract_hash=identity.governance_contract_hash,
+            code_hash=identity.code_hash,
+            config_hash=identity.config_hash,
+            environment_hash=identity.environment_hash,
+        )
+
+    def validate(self, *, repository_root: Path | None = None) -> None:
         for name in self.__dataclass_fields__:
             require_sha256(getattr(self, name), name)
+        if repository_root is not None:
+            identity = repository_trial_identity(repository_root)
+            expected = {
+                "evaluator_closure_hash": identity.evaluator_closure_hash,
+                "governance_contract_hash": identity.governance_contract_hash,
+                "code_hash": identity.code_hash,
+                "config_hash": identity.config_hash,
+                "environment_hash": identity.environment_hash,
+            }
+            if any(getattr(self, name) != value for name, value in expected.items()):
+                raise ContractError(
+                    "project trial bindings differ from the live repository execution identity"
+                )
 
 
 @dataclass(frozen=True)
@@ -465,23 +502,27 @@ def build_trial_spec_from_intake(
     release_bindings: Iterable[ReleaseBinding],
     census_assessment: HistoricalTrialCensusAssessment,
     project_bindings: ProjectTrialBindings,
+    gate_policy: IndependentGatePolicy,
     repository_root: Path,
 ) -> TrialSpec:
     if _compatibility_status(spec) is not None or not _require_census_binding(spec, census_assessment):
         raise ContractError("external strategy is not compatible and project-census-complete")
-    project_bindings.validate()
     bindings = tuple(sorted(release_bindings, key=lambda item: item.release_id))
     if not _release_contracts_are_complete(bindings):
         raise ContractError("trial spec lacks required accepted release roles")
     for binding in bindings:
         binding.validate()
     root = Path(repository_root).resolve(strict=True)
+    project_bindings.validate(repository_root=root)
     if (
         project_bindings.census_anchor_id != census_assessment.census_anchor_id
         or project_bindings.trial_family_anchor_id != census_assessment.trial_family_anchor_id
     ):
         raise ContractError("trial bindings differ from the project census anchors")
     readiness = json.loads((root / "config/research_readiness_contract.json").read_text(encoding="utf-8"))
+    if type(gate_policy) is not IndependentGatePolicy:
+        raise ContractError("trial specification requires the exact independent gate policy")
+    gate_policy.validate()
     governance_hash = sha256_bytes(canonical_json_bytes(readiness))
     if governance_hash != project_bindings.governance_contract_hash:
         raise ContractError("project governance hash does not bind the readiness contract")
@@ -495,7 +536,7 @@ def build_trial_spec_from_intake(
         split_plan_id=sha256_bytes(canonical_json_bytes(readiness["nested_wfa"])),
         model_family="linear_distribution_v1",
         primary_metric="multiclass_log_loss",
-        primary_gate_id=sha256_bytes(canonical_json_bytes(readiness["binding_gate"])),
+        primary_gate_id=sha256_bytes(canonical_json_bytes(gate_policy.as_dict())),
         robustness_policy_id=sha256_bytes(canonical_json_bytes(readiness["robustness"])),
         cost_policy_id=sha256_bytes(canonical_json_bytes(readiness["economic_translation"])),
         trial_family_id=str(spec.trial_family["trial_family_id"]),
@@ -508,6 +549,8 @@ def build_trial_spec_from_intake(
         environment_hash=project_bindings.environment_hash,
     )
     trial.validate()
+    repository_trial_identity(root).require_spec(trial)
+    require_trial_gate_policy(trial, gate_policy, repository_root=root)
     return trial
 
 

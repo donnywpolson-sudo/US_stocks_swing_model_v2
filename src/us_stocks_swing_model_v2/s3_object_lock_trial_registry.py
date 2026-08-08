@@ -26,7 +26,13 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, EvaluationAuthorizationError
-from .trials import TrialSpec, validate_trial_evidence_roles
+from .gates import IndependentGatePolicy
+from .trials import (
+    TrialSpec,
+    repository_trial_identity,
+    require_trial_gate_policy,
+    validate_trial_evidence_roles,
+)
 from .governance import (
     LocalIntegrityRecord,
     ReleaseBinding,
@@ -211,11 +217,37 @@ def _registration_action_bindings(
     policy: S3ObjectLockRegistryPolicy,
     trial_registry_binding_id: str,
     verified_release_bindings: Iterable[ReleaseBinding],
+    repository_trial_identity_id: str,
 ) -> dict[str, str]:
     return {
         "policy_id": policy.policy_id,
         "release_bindings_hash": release_bindings_hash(verified_release_bindings),
         "trial_registry_binding_id": trial_registry_binding_id,
+        "repository_trial_identity_id": repository_trial_identity_id,
+    }
+
+
+def _preflight_registration_action_bindings(
+    *,
+    policy: S3ObjectLockRegistryPolicy,
+    trial_registry_binding_id: str,
+    verified_release_bindings: Iterable[ReleaseBinding],
+    repository_trial_identity_id: str,
+) -> dict[str, str]:
+    try:
+        require_sha256(
+            repository_trial_identity_id,
+            "registration.repository_trial_identity_id",
+        )
+    except ContractError as exc:
+        raise EvaluationAuthorizationError(
+            "external trial registration action lacks its repository identity"
+        ) from exc
+    return {
+        "policy_id": policy.policy_id,
+        "release_bindings_hash": release_bindings_hash(verified_release_bindings),
+        "trial_registry_binding_id": trial_registry_binding_id,
+        "repository_trial_identity_id": repository_trial_identity_id,
     }
 
 
@@ -227,6 +259,8 @@ def register_s3_object_lock_trial(
     spec: TrialSpec,
     verified_release_directories: Iterable[Path],
     accepted_release_root: Path,
+    repository_root: Path,
+    gate_policy: IndependentGatePolicy,
     action_record: LocalIntegrityRecord,
     clock: TrustedClock | None = None,
 ) -> ExternalTrialRegistration:
@@ -243,6 +277,9 @@ def register_s3_object_lock_trial(
     target_probe = location.target("placeholder")
     target_probe.validate()
     spec.validate()
+    live_identity = repository_trial_identity(repository_root)
+    live_identity.require_spec(spec)
+    require_trial_gate_policy(spec, gate_policy, repository_root=repository_root)
     trusted_clock = require_trusted_clock(clock)
     if not trusted_clock.trust_eligible:
         raise EvaluationAuthorizationError("external trial registration requires production UTC")
@@ -267,6 +304,7 @@ def register_s3_object_lock_trial(
             policy=policy,
             trial_registry_binding_id=binding_id,
             verified_release_bindings=verified,
+            repository_trial_identity_id=live_identity.identity_id,
         ),
         clock=trusted_clock,
     )
@@ -310,6 +348,8 @@ def register_s3_object_lock_trial(
         trial_id=spec.trial_id,
         verified_release_directories=release_directories,
         accepted_release_root=accepted_release_root,
+        repository_root=repository_root,
+        gate_policy=gate_policy,
         action_record=action_record,
         clock=trusted_clock,
     )
@@ -340,6 +380,8 @@ def load_s3_object_lock_trial_registration(
     verified_release_directories: Iterable[Path],
     accepted_release_root: Path,
     action_record: LocalIntegrityRecord,
+    repository_root: Path,
+    gate_policy: IndependentGatePolicy,
     clock: TrustedClock | None = None,
 ) -> ExternalTrialRegistration:
     """Load one immutable externally retained registration and verify its evidence."""
@@ -349,6 +391,12 @@ def load_s3_object_lock_trial_registration(
     policy.require_configured()
     target.validate()
     require_sha256(trial_id, "trial_id")
+    if type(gate_policy) is not IndependentGatePolicy:
+        raise EvaluationAuthorizationError(
+            "S3 trial registry loading requires the exact independent gate policy"
+        )
+    gate_policy.validate()
+    live_identity = repository_trial_identity(repository_root)
     trusted_clock = require_trusted_clock(clock)
     if not trusted_clock.trust_eligible:
         raise EvaluationAuthorizationError("external trial registry loading requires production UTC")
@@ -371,10 +419,11 @@ def load_s3_object_lock_trial_registration(
     action_record.validate(
         expected_scope=_REGISTRATION_ACTION_SCOPE,
         expected_subject_id=trial_id,
-        required_bindings=_registration_action_bindings(
+        required_bindings=_preflight_registration_action_bindings(
             policy=policy,
             trial_registry_binding_id=binding_id,
             verified_release_bindings=verified,
+            repository_trial_identity_id=live_identity.identity_id,
         ),
         clock=trusted_clock,
     )
@@ -450,6 +499,33 @@ def load_s3_object_lock_trial_registration(
         validate_trial_evidence_roles(spec)
     except (KeyError, TypeError, ValueError, ContractError) as exc:
         raise EvaluationAuthorizationError("S3 trial registration payload is invalid") from exc
+    try:
+        live_identity.require_spec(spec)
+    except ContractError as exc:
+        raise EvaluationAuthorizationError(
+            "S3 trial registration differs from the live repository execution identity"
+        ) from exc
+    try:
+        require_trial_gate_policy(
+            spec,
+            gate_policy,
+            repository_root=repository_root,
+        )
+    except ContractError as exc:
+        raise EvaluationAuthorizationError(
+            "S3 trial registration differs from its executable gate policy"
+        ) from exc
+    action_record.validate(
+        expected_scope=_REGISTRATION_ACTION_SCOPE,
+        expected_subject_id=trial_id,
+        required_bindings=_registration_action_bindings(
+            policy=policy,
+            trial_registry_binding_id=binding_id,
+            verified_release_bindings=verified,
+            repository_trial_identity_id=live_identity.identity_id,
+        ),
+        clock=trusted_clock,
+    )
     registered_at = parse_utc_z(str(payload["registered_at"]), "registered_at")
     action_recorded_at = parse_utc_z(
         action_record.recorded_at,

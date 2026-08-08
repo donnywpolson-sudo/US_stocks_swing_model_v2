@@ -33,11 +33,11 @@ from us_stocks_swing_model_v2.eligibility import (
     EligibilityCensus,
 )
 from us_stocks_swing_model_v2.gates import (
+    GATE_RESULT_CONTRACT_UNAVAILABLE,
     GateReceipt,
     GateState,
     IndependentGatePolicy,
     SleeveMetric,
-    build_gate_receipt,
 )
 from us_stocks_swing_model_v2.monitoring import MonitoringPolicy
 from us_stocks_swing_model_v2.governance import (
@@ -67,13 +67,16 @@ from us_stocks_swing_model_v2.schemas import (
     assert_underlying_only_payload,
 )
 from us_stocks_swing_model_v2.trials import (
+    EvaluationExecutionEvidence,
     TrialRegistry,
     TrialSpec,
     build_holdout_receipt,
+    repository_trial_identity,
 )
 
 
 NOW = datetime(2026, 7, 15, 20, 0, tzinfo=timezone.utc)
+REPO = Path(__file__).resolve().parents[1]
 _FIREWALL_CLOCK_PERMIT = SyntheticOnlyPermit.create(
     fixture_id="firewall-shared-clock-authority",
     scope="TRUSTED_CLOCK_FIXED_TIME",
@@ -134,6 +137,89 @@ def _sleeve_metric(
         robustness_state="PASS",
         robustness_evidence_hash="a" * 64,
     )
+
+
+def _evaluation_input_commitments(scope: str) -> dict[str, dict[str, object]]:
+    """Return pre-permit input commitments, never evaluator outcomes or metrics."""
+
+    unsigned = {
+        "schema_version": 1,
+        "evaluation_scope": scope,
+        "purpose": "SYNTHETIC_MECHANICS_INPUT_ONLY",
+    }
+    return {
+        "evaluation_plan": {
+            **unsigned,
+            "commitment_hash": sha256_bytes(canonical_json_bytes(unsigned)),
+        }
+    }
+
+
+def _seed_test_only_synthetic_gate_receipt_for_downstream_mechanics(
+    registry: TrialRegistry,
+    permit,
+    *,
+    state: GateState,
+    evaluated_at: datetime,
+) -> GateReceipt:
+    """Privately seed a non-trust-eligible receipt for downstream mechanics tests."""
+
+    rebound = registry.with_clock(_clock(evaluated_at))
+    if rebound._clock.trust_eligible:
+        raise AssertionError("test-only gate seeding requires a synthetic clock")
+    policy_hash = sha256_bytes(canonical_json_bytes(_gate_policy().as_dict()))
+    if policy_hash != permit.primary_gate_id:
+        raise AssertionError("test-only gate seeding requires the permit's exact policy")
+    descriptor = {
+        "purpose": "TEST_ONLY_SYNTHETIC_DOWNSTREAM_MECHANICS",
+        "evaluation_permit_id": permit.permit_id,
+        "state": state.value,
+    }
+    unsigned = {
+        "schema_version": 3,
+        "trial_registry_binding_id": permit.trial_registry_binding_id,
+        "trial_id": permit.trial_id,
+        "evaluation_permit_id": permit.permit_id,
+        "permit_payload_hash": sha256_bytes(canonical_json_bytes(permit.as_dict())),
+        "registration_hash": permit.registration_hash,
+        "evaluation_scope": permit.evaluation_scope,
+        "evaluation_input_hash": permit.evaluation_input_hash,
+        "evaluator_code_hash": permit.evaluator_code_hash,
+        "evaluator_closure_hash": permit.evaluator_closure_hash,
+        "census_anchor_id": permit.census_anchor_id,
+        "trial_family_anchor_id": permit.trial_family_anchor_id,
+        "governance_contract_hash": permit.governance_contract_hash,
+        "release_bindings_hash": permit.release_bindings_hash,
+        "holdout_receipt_id": permit.holdout_receipt_id,
+        "authorization_receipt_id": permit.authorization_receipt_id,
+        "permit_issued_at": permit.issued_at,
+        "primary_gate_id": permit.primary_gate_id,
+        "policy_hash": policy_hash,
+        "robustness_policy_hash": permit.robustness_policy_id,
+        "robustness_evidence_hash": sha256_bytes(
+            canonical_json_bytes({**descriptor, "kind": "robustness_placeholder"})
+        ),
+        "metrics_hash": sha256_bytes(
+            canonical_json_bytes({**descriptor, "kind": "metrics_placeholder"})
+        ),
+        "state": state.value,
+        "evaluated_at": iso_z(rebound._clock.now()),
+        "time_authority": rebound._clock.mode,
+        "synthetic_clock_permit_id": rebound._clock.synthetic_permit_id,
+    }
+    receipt = GateReceipt(
+        **unsigned,
+        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
+    )
+    receipt.validate()
+    history = rebound._gate_receipts.read_verified()
+    rebound._gate_receipts.append(
+        receipt.as_dict(),
+        expected_record_count=len(history),
+        expected_head_hash=history[-1]["record_hash"] if history else "0" * 64,
+    )
+    assert registry.verify_issued_gate_receipt(permit, receipt) == receipt.as_dict()
+    return receipt
 
 
 def _accepted_release(
@@ -261,14 +347,18 @@ def _bundle(
         clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
     )
     spec = _trial(tuple(releases.values()))
-    trial_id = registry.register(spec, verified_release_directories=releases.values())
-    permit, _ = _outer_permit(registry, spec, trial_id)
-    gate = registry.with_clock(
-        _clock(datetime(2026, 7, 15, 2, tzinfo=timezone.utc))
-    ).build_gate_receipt(
+    trial_id = registry.register(
+        spec,
+        verified_release_directories=releases.values(),
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
+    )
+    permit, _, _ = _outer_permit(registry, spec, trial_id)
+    gate = _seed_test_only_synthetic_gate_receipt_for_downstream_mechanics(
+        registry,
         permit,
-        policy=_gate_policy(),
-        metrics={name: _sleeve_metric() for name in ("stock_long", "stock_short", "etf_long", "etf_short")},
+        state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
+        evaluated_at=datetime(2026, 7, 15, 2, tzinfo=timezone.utc),
     )
     if production_sealing:
         sealing_clock = TrustedClock.production()
@@ -1163,6 +1253,7 @@ def test_prediction_payload_rejects_option_or_outcome_poison() -> None:
 
 
 def _trial(release_directories: tuple[Path, ...], hypothesis: str = "h1") -> TrialSpec:
+    identity = repository_trial_identity(REPO)
     bindings = tuple(
         sorted(
             (ReleaseBinding.from_manifest(verify_release(path)) for path in release_directories),
@@ -1174,22 +1265,22 @@ def _trial(release_directories: tuple[Path, ...], hypothesis: str = "h1") -> Tri
         evidence_class="REGISTERED_HISTORICAL_DISCOVERY",
         data_release_ids=tuple(binding.release_id for binding in bindings),
         release_bindings=bindings,
-        feature_schema_id="features-v1",
-        outcome_schema_id="outcomes-v1",
-        split_plan_id="nested-wfa-v1",
-        model_family="linear-baseline",
-        primary_metric="net_mean_return",
+        feature_schema_id=identity.feature_schema_id,
+        outcome_schema_id=identity.outcome_schema_id,
+        split_plan_id=identity.split_plan_id,
+        model_family=identity.model_family,
+        primary_metric=identity.primary_metric,
         primary_gate_id=sha256_bytes(canonical_json_bytes(_gate_policy().as_dict())),
-        robustness_policy_id="8" * 64,
-        cost_policy_id="cost-v1",
+        robustness_policy_id=identity.robustness_policy_id,
+        cost_policy_id=identity.cost_policy_id,
         trial_family_id="family-v1",
         census_anchor_id="4" * 64,
         trial_family_anchor_id="5" * 64,
-        evaluator_closure_hash="6" * 64,
-        governance_contract_hash="7" * 64,
-        code_hash="1" * 64,
-        config_hash="2" * 64,
-        environment_hash="3" * 64,
+        evaluator_closure_hash=identity.evaluator_closure_hash,
+        governance_contract_hash=identity.governance_contract_hash,
+        code_hash=identity.code_hash,
+        config_hash=identity.config_hash,
+        environment_hash=identity.environment_hash,
     )
 
 
@@ -1207,12 +1298,18 @@ def _outer_permit(
         state="LOCKED",
         clock=_clock(datetime(2026, 7, 15, 0, 15, tzinfo=timezone.utc)),
     )
+    execution_evidence = EvaluationExecutionEvidence.create(
+        spec=spec,
+        evaluation_scope="OUTER_SCREEN",
+        artifacts=_evaluation_input_commitments("OUTER_SCREEN"),
+        repository_root=REPO,
+    )
     bindings = {
         "trial_registry_binding_id": registry.registry_binding_id,
         "registration_hash": registration_hash,
         "evaluation_scope": "OUTER_SCREEN",
-        "evaluation_input_hash": "8" * 64,
-        "evaluator_code_hash": "9" * 64,
+        "evaluation_input_hash": execution_evidence.evaluation_input_hash,
+        "evaluator_code_hash": execution_evidence.evaluator_code_hash,
         "evaluator_closure_hash": spec.evaluator_closure_hash,
         "census_anchor_id": spec.census_anchor_id,
         "trial_family_anchor_id": spec.trial_family_anchor_id,
@@ -1221,6 +1318,8 @@ def _outer_permit(
         "robustness_policy_id": spec.robustness_policy_id,
         "release_bindings_hash": release_bindings_hash(spec.release_bindings),
         "holdout_receipt_id": holdout.receipt_id,
+        "execution_evidence_id": execution_evidence.evidence_id,
+        "repository_trial_identity_id": execution_evidence.repository_trial_identity_id,
     }
     authorization = create_local_integrity_record(
         scope="AUTHORIZE_OUTER_SCREEN",
@@ -1231,12 +1330,13 @@ def _outer_permit(
     permit = registry.with_clock(_clock(permit_issued_at)).issue_permit(
         trial_id,
         evaluation_scope="OUTER_SCREEN",
-        evaluation_input_hash="8" * 64,
-        evaluator_code_hash="9" * 64,
+        execution_evidence=execution_evidence,
         holdout_receipt=holdout,
         action_record=authorization,
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
     )
-    return permit, holdout
+    return permit, holdout, execution_evidence
 
 
 def _final_permit(
@@ -1257,12 +1357,18 @@ def _final_permit(
         previous=initial_holdout,
         clock=_clock(datetime(2026, 7, 15, 2, 30, tzinfo=timezone.utc)),
     )
+    execution_evidence = EvaluationExecutionEvidence.create(
+        spec=spec,
+        evaluation_scope="FINAL_HOLDOUT",
+        artifacts=_evaluation_input_commitments("FINAL_HOLDOUT"),
+        repository_root=REPO,
+    )
     bindings = {
         "trial_registry_binding_id": registry.registry_binding_id,
         "registration_hash": registration_hash,
         "evaluation_scope": "FINAL_HOLDOUT",
-        "evaluation_input_hash": evaluation_input_hash,
-        "evaluator_code_hash": evaluator_code_hash,
+        "evaluation_input_hash": execution_evidence.evaluation_input_hash,
+        "evaluator_code_hash": execution_evidence.evaluator_code_hash,
         "evaluator_closure_hash": spec.evaluator_closure_hash,
         "census_anchor_id": spec.census_anchor_id,
         "trial_family_anchor_id": spec.trial_family_anchor_id,
@@ -1271,6 +1377,8 @@ def _final_permit(
         "robustness_policy_id": spec.robustness_policy_id,
         "release_bindings_hash": release_bindings_hash(spec.release_bindings),
         "holdout_receipt_id": unlocked.receipt_id,
+        "execution_evidence_id": execution_evidence.evidence_id,
+        "repository_trial_identity_id": execution_evidence.repository_trial_identity_id,
     }
     authorization = create_local_integrity_record(
         scope="AUTHORIZE_FINAL_HOLDOUT",
@@ -1281,13 +1389,14 @@ def _final_permit(
     permit = registry.with_clock(_clock(permit_issued_at)).issue_permit(
         trial_id,
         evaluation_scope="FINAL_HOLDOUT",
-        evaluation_input_hash=evaluation_input_hash,
-        evaluator_code_hash=evaluator_code_hash,
+        execution_evidence=execution_evidence,
         holdout_receipt=unlocked,
         initial_holdout_receipt=initial_holdout,
         action_record=authorization,
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
     )
-    return permit, unlocked
+    return permit, unlocked, execution_evidence
 
 
 def _gate_for_state(
@@ -1297,26 +1406,11 @@ def _gate_for_state(
     state: GateState,
     evaluated_at: datetime = datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc),
 ):
-    metrics = {
-        name: _sleeve_metric()
-        for name in ("stock_long", "stock_short", "etf_long", "etf_short")
-    }
-    if state is GateState.INCONCLUSIVE_DATA_OR_POWER:
-        del metrics["etf_short"]
-    elif state is GateState.INCONCLUSIVE_ROBUSTNESS:
-        metrics["stock_long"] = replace(
-            metrics["stock_long"],
-            robustness_state="INCONCLUSIVE_ROBUSTNESS",
-        )
-    elif state is GateState.FAIL_MULTIPLICITY_OR_CONTROL:
-        metrics["stock_short"] = replace(
-            metrics["stock_short"],
-            rw_adjusted_p=0.06,
-        )
-    gate = registry.with_clock(_clock(evaluated_at)).build_gate_receipt(
+    gate = _seed_test_only_synthetic_gate_receipt_for_downstream_mechanics(
+        registry,
         permit,
-        policy=_gate_policy(),
-        metrics=metrics,
+        state=state,
+        evaluated_at=evaluated_at,
     )
     assert gate.state == state.value
     return gate
@@ -1344,6 +1438,164 @@ def _evaluation_result(permit, holdout, gate) -> dict[str, object]:
     return result
 
 
+def test_trial_registration_and_execution_revalidate_live_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release_directories = (
+        _accepted_release(
+            tmp_path,
+            "identity_trial_bars",
+            "active_historical",
+            "historical-v1",
+        ),
+        _accepted_release(
+            tmp_path,
+            "identity_trial_features",
+            "feature_only",
+            "historical-v1",
+        ),
+    )
+    governance_root = tmp_path / "governance"
+    governance_root.mkdir()
+    registry = TrialRegistry(
+        governance_root / "trials.jsonl",
+        governance_root / "evaluations.jsonl",
+        accepted_release_root=tmp_path / "accepted",
+        governance_root=governance_root,
+        synthetic_permit=SyntheticOnlyPermit.create(
+            fixture_id="live-identity-trial-registry",
+            scope="SYNTHETIC_TRIAL_REGISTRY",
+        ),
+        clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
+    )
+    spec = _trial(release_directories)
+    alternate_checkout = tmp_path / "alternate_checkout"
+    alternate_checkout.mkdir()
+    with pytest.raises(ContractError, match="executing package checkout"):
+        repository_trial_identity(alternate_checkout)
+    with pytest.raises(ContractError, match="exact independent gate policy"):
+        registry.register(
+            spec,
+            verified_release_directories=release_directories,
+            repository_root=REPO,
+            gate_policy=object(),
+        )
+    with pytest.raises(ContractError, match="live repository execution identity"):
+        registry.register(
+            replace(spec, code_hash="0" * 64),
+            verified_release_directories=release_directories,
+            repository_root=REPO,
+            gate_policy=_gate_policy(),
+        )
+    trial_id = registry.register(
+        spec,
+        verified_release_directories=release_directories,
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
+    )
+    registration = registry.authorize(trial_id)
+    for result_artifacts in (
+        {"gate/policy": _gate_policy().as_dict()},
+        {"evaluation_summary": {"conservative_pbo": 0.10}},
+        {"innocent_name": {"favorable_value": 0.99}},
+    ):
+        with pytest.raises(
+            ContractError,
+            match="pre-permit evaluation input cannot contain gate or result artifacts",
+        ):
+            EvaluationExecutionEvidence.create(
+                spec=spec,
+                evaluation_scope="OUTER_SCREEN",
+                artifacts=result_artifacts,
+                repository_root=REPO,
+            )
+    evidence = EvaluationExecutionEvidence.create(
+        spec=spec,
+        evaluation_scope="OUTER_SCREEN",
+        artifacts=_evaluation_input_commitments("OUTER_SCREEN"),
+        repository_root=REPO,
+    )
+    with pytest.raises(TypeError):
+        EvaluationExecutionEvidence.create(  # type: ignore[call-arg]
+            spec=spec,
+            evaluation_scope="OUTER_SCREEN",
+            artifacts=_evaluation_input_commitments("OUTER_SCREEN"),
+            repository_root=REPO,
+            evaluator_source="caller-selected evaluator",
+        )
+    holdout = build_holdout_receipt(
+        trial_id=trial_id,
+        state="LOCKED",
+        clock=_clock(datetime(2026, 7, 15, 0, 15, tzinfo=timezone.utc)),
+    )
+    bindings = {
+        "trial_registry_binding_id": registry.registry_binding_id,
+        "registration_hash": sha256_bytes(canonical_json_bytes(registration)),
+        "evaluation_scope": "OUTER_SCREEN",
+        "evaluation_input_hash": evidence.evaluation_input_hash,
+        "evaluator_code_hash": evidence.evaluator_code_hash,
+        "evaluator_closure_hash": spec.evaluator_closure_hash,
+        "census_anchor_id": spec.census_anchor_id,
+        "trial_family_anchor_id": spec.trial_family_anchor_id,
+        "governance_contract_hash": spec.governance_contract_hash,
+        "primary_gate_id": spec.primary_gate_id,
+        "robustness_policy_id": spec.robustness_policy_id,
+        "release_bindings_hash": release_bindings_hash(spec.release_bindings),
+        "holdout_receipt_id": holdout.receipt_id,
+        "execution_evidence_id": evidence.evidence_id,
+        "repository_trial_identity_id": evidence.repository_trial_identity_id,
+    }
+    action = create_local_integrity_record(
+        scope="AUTHORIZE_OUTER_SCREEN",
+        subject_id=trial_id,
+        bindings=bindings,
+        clock=_clock(datetime(2026, 7, 15, 0, 30, tzinfo=timezone.utc)),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="execution evidence"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, tzinfo=timezone.utc))
+        ).issue_permit(
+            trial_id,
+            evaluation_scope="OUTER_SCREEN",
+            execution_evidence=replace(evidence, evaluator_code_hash="0" * 64),
+            holdout_receipt=holdout,
+            action_record=action,
+            repository_root=REPO,
+            gate_policy=_gate_policy(),
+        )
+    with pytest.raises(EvaluationAuthorizationError, match="execution contract"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, tzinfo=timezone.utc))
+        ).issue_permit(
+            trial_id,
+            evaluation_scope="OUTER_SCREEN",
+            execution_evidence=evidence,
+            holdout_receipt=holdout,
+            action_record=action,
+            repository_root=REPO,
+            gate_policy=_gate_policy(minimum_sessions=21),
+        )
+    live_identity = repository_trial_identity(REPO)
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.trials.repository_trial_identity",
+        lambda _root: replace(live_identity, code_hash="0" * 64),
+    )
+    with pytest.raises(EvaluationAuthorizationError, match="live repository"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, tzinfo=timezone.utc))
+        ).issue_permit(
+            trial_id,
+            evaluation_scope="OUTER_SCREEN",
+            execution_evidence=evidence,
+            holdout_receipt=holdout,
+            action_record=action,
+            repository_root=REPO,
+            gate_policy=_gate_policy(),
+        )
+    assert registry.permits.read_verified() == []
+
+
 def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path) -> None:
     release_directories = (
         _accepted_release(tmp_path, "trial_bars", "active_historical", "historical-v1"),
@@ -1365,14 +1617,41 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
     with pytest.raises(EvaluationAuthorizationError):
         registry.authorize("missing")
     first = _trial(release_directories)
-    trial_id = registry.register(first, verified_release_directories=release_directories)
+    trial_id = registry.register(
+        first,
+        verified_release_directories=release_directories,
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
+    )
     assert registry.registry.read_verified()[0]["time_authority"] == (
         "SYNTHETIC_FIXED_TIME_NOT_TRUST_ELIGIBLE"
     )
     assert registry.authorize(trial_id)["hypothesis_id"] == "h1"
     mutated = _trial(release_directories, "h2")
     assert mutated.trial_id != trial_id
-    permit, holdout = _outer_permit(registry, first, trial_id)
+    permit, holdout, execution_evidence = _outer_permit(
+        registry,
+        first,
+        trial_id,
+    )
+    assert registry._gate_receipts.read_verified() == []
+    with pytest.raises(ContractError, match="predeclared trial policy"):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
+        ).build_gate_receipt(
+            permit,
+            policy=_gate_policy(minimum_sessions=21),
+            evidence={"state": GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value},
+        )
+    with pytest.raises(ContractError, match=GATE_RESULT_CONTRACT_UNAVAILABLE):
+        registry.with_clock(
+            _clock(datetime(2026, 7, 15, 1, 30, tzinfo=timezone.utc))
+        ).build_gate_receipt(
+            permit,
+            policy=_gate_policy(),
+            evidence={"state": GateState.PASS_HISTORICAL_DISCOVERY_SCREEN.value},
+        )
+    assert registry._gate_receipts.read_verified() == []
     inconclusive_gate = _gate_for_state(
         registry,
         permit,
@@ -1429,22 +1708,37 @@ def test_trial_registry_blocks_unregistered_and_semantic_mutation(tmp_path: Path
             _evaluation_result(permit, holdout, forged_gate),
             gate_receipt=forged_gate,
         )
+    assert registry.verify_issued_gate_receipt(
+        permit,
+        inconclusive_gate,
+    ) == inconclusive_gate.as_dict()
+    directly_forged_gate = replace(
+        inconclusive_gate,
+        metrics_hash="0" * 64,
+        receipt_id="",
+    )
+    directly_forged_gate = replace(
+        directly_forged_gate,
+        receipt_id=sha256_bytes(
+            canonical_json_bytes(directly_forged_gate.unsigned_dict())
+        ),
+    )
+    directly_forged_gate.validate()
+    with pytest.raises(
+        EvaluationAuthorizationError,
+        match="exact registry-issued gate receipt",
+    ):
+        registry.verify_issued_gate_receipt(permit, directly_forged_gate)
     registry.with_clock(_clock(datetime(2026, 7, 15, 2, tzinfo=timezone.utc))).record_evaluation(
         permit,
         _evaluation_result(permit, holdout, inconclusive_gate),
         gate_receipt=inconclusive_gate,
     )
-    pass_gate = _gate_for_state(
-        registry,
-        permit,
-        state=GateState.PASS_HISTORICAL_DISCOVERY_SCREEN,
-        evaluated_at=datetime(2026, 7, 15, 2, 30, tzinfo=timezone.utc),
-    )
     with pytest.raises(IntegrityError, match="duplicate"):
         registry.with_clock(_clock(datetime(2026, 7, 15, 3, tzinfo=timezone.utc))).record_evaluation(
             permit,
-            _evaluation_result(permit, holdout, pass_gate),
-            gate_receipt=pass_gate,
+            _evaluation_result(permit, holdout, inconclusive_gate),
+            gate_receipt=inconclusive_gate,
         )
 
 
@@ -1469,7 +1763,12 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
         clock=_clock(datetime(2026, 7, 15, tzinfo=timezone.utc)),
     )
     spec = _trial(release_directories)
-    trial_id = registry.register(spec, verified_release_directories=release_directories)
+    trial_id = registry.register(
+        spec,
+        verified_release_directories=release_directories,
+        repository_root=REPO,
+        gate_policy=_gate_policy(),
+    )
     assert registry.registry.read_verified()[0]["recorded_at"] == "2026-07-15T00:00:00Z"
     with pytest.raises(EvaluationAuthorizationError, match="after trial registration"):
         _outer_permit(
@@ -1478,7 +1777,7 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
             trial_id,
             permit_issued_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
         )
-    permit, holdout = _outer_permit(registry, spec, trial_id)
+    permit, holdout, _ = _outer_permit(registry, spec, trial_id)
     gate = _gate_for_state(
         registry,
         permit,
@@ -1519,7 +1818,7 @@ def test_trial_evaluation_chronology_and_malformed_registration_fail_closed(tmp_
         _evaluation_result(permit, holdout, gate),
         gate_receipt=gate,
     )
-    final_permit, unlocked = _final_permit(
+    final_permit, unlocked, _ = _final_permit(
         registry,
         spec,
         trial_id,

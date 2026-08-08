@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError
+from us_stocks_swing_model_v2.gates import IndependentGatePolicy
 from us_stocks_swing_model_v2.external_strategy_census import (
     SOURCE_KINDS,
     CensusSourceEvidence,
@@ -25,6 +25,21 @@ from us_stocks_swing_model_v2.external_strategy_intake import (
     build_trial_spec_from_intake,
 )
 from us_stocks_swing_model_v2.governance import ReleaseBinding
+
+
+def gate_policy() -> IndependentGatePolicy:
+    return IndependentGatePolicy(
+        minimum_effective_sessions=20,
+        sleeve_economic_hurdles={
+            sleeve: 0.001
+            for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")
+        },
+        minimum_confidence_lower=0.0,
+        rw_alpha=0.05,
+        minimum_dsr_probability=0.95,
+        maximum_conservative_pbo=0.20,
+        pbo_failure_threshold=0.50,
+    )
 from us_stocks_swing_model_v2.monitoring_policy import frozen_monitoring_policy_hash
 
 
@@ -235,22 +250,17 @@ def test_release_role_mismatch_remains_blocked(project_root: Path, monkeypatch: 
 def test_trial_spec_mapping_uses_project_contract_hashes(project_root: Path) -> None:
     spec = load(frozen_spec(census_complete=True))
     census = census_for(spec)
-    readiness = json.loads((project_root / "config/research_readiness_contract.json").read_text(encoding="utf-8"))
-    governance_hash = sha256_bytes(canonical_json_bytes(readiness))
-    values = ProjectTrialBindings(
+    values = ProjectTrialBindings.from_repository(
+        repository_root=project_root,
         census_anchor_id=census.census_anchor_id,
         trial_family_anchor_id=census.trial_family_anchor_id,
-        evaluator_closure_hash="3" * 64,
-        governance_contract_hash=governance_hash,
-        code_hash="4" * 64,
-        config_hash="5" * 64,
-        environment_hash="6" * 64,
     )
     trial = build_trial_spec_from_intake(
         spec,
         release_bindings=all_bindings(),
         census_assessment=census,
         project_bindings=values,
+        gate_policy=gate_policy(),
         repository_root=project_root,
     )
     assert trial.hypothesis_id == spec.spec_id
@@ -258,25 +268,41 @@ def test_trial_spec_mapping_uses_project_contract_hashes(project_root: Path) -> 
     assert trial.evidence_class == "PROSPECTIVE_FINAL"
 
 
+def test_trial_spec_rejects_caller_declared_repository_hashes(project_root: Path) -> None:
+    spec = load(frozen_spec(census_complete=True))
+    census = census_for(spec)
+    live = ProjectTrialBindings.from_repository(
+        repository_root=project_root,
+        census_anchor_id=census.census_anchor_id,
+        trial_family_anchor_id=census.trial_family_anchor_id,
+    )
+    drifted = ProjectTrialBindings(**{**live.__dict__, "code_hash": "0" * 64})
+
+    with pytest.raises(ContractError, match="live repository execution identity"):
+        build_trial_spec_from_intake(
+            spec,
+            release_bindings=all_bindings(),
+            census_assessment=census,
+            project_bindings=drifted,
+            gate_policy=gate_policy(),
+            repository_root=project_root,
+        )
+
+
 def test_prospective_plan_is_content_bound_and_non_authorizing(project_root: Path) -> None:
     spec = load(frozen_spec(census_complete=True))
     census = census_for(spec)
     releases = [item.release_id for item in all_bindings()]
-    readiness = json.loads((project_root / "config/research_readiness_contract.json").read_text(encoding="utf-8"))
-    governance_hash = sha256_bytes(canonical_json_bytes(readiness))
     trial = build_trial_spec_from_intake(
         spec,
         release_bindings=all_bindings(),
         census_assessment=census,
-        project_bindings=ProjectTrialBindings(
+        project_bindings=ProjectTrialBindings.from_repository(
+            repository_root=project_root,
             census_anchor_id=census.census_anchor_id,
             trial_family_anchor_id=census.trial_family_anchor_id,
-            evaluator_closure_hash="3" * 64,
-            governance_contract_hash=governance_hash,
-            code_hash="4" * 64,
-            config_hash="5" * 64,
-            environment_hash="6" * 64,
         ),
+        gate_policy=gate_policy(),
         repository_root=project_root,
     )
     unsigned_intake = {

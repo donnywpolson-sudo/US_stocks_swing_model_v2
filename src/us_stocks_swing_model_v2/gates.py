@@ -5,13 +5,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-from .common import canonical_json_bytes, iso_z, parse_utc_z, require_sha256, sha256_bytes
+from .common import canonical_json_bytes, parse_utc_z, require_sha256, sha256_bytes
 from .clock import TrustedClock, require_trusted_clock
 from .errors import ContractError
 
 
 REQUIRED_SLEEVES = ("stock_long", "stock_short", "etf_long", "etf_short")
 EVALUATION_SCOPES = {"OUTER_SCREEN", "FINAL_HOLDOUT"}
+GATE_RESULT_CONTRACT_UNAVAILABLE = "GATE_RESULT_CONTRACT_UNAVAILABLE"
 
 
 class GateState(str, Enum):
@@ -122,7 +123,12 @@ class SleeveMetric:
             or not isinstance(self.lineage_valid, bool)
         ):
             raise ContractError("gate power/numerical/lineage states must be explicit booleans")
-        if self.negative_control_state not in {"PASS", "FAIL", "INCONCLUSIVE"}:
+        if self.negative_control_state not in {
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE",
+            "INVALID",
+        }:
             raise ContractError("gate negative-control state is invalid")
         if self.pit_identity_state not in {
             "PASS",
@@ -250,6 +256,7 @@ class IndependentGatePolicy:
                 not metric.numerical_valid
                 or not metric.lineage_valid
                 or metric.pit_identity_state == "INVALID"
+                or metric.negative_control_state == "INVALID"
                 or metric.robustness_state == "INVALID"
             ):
                 results[sleeve] = GateState.INVALID
@@ -428,64 +435,19 @@ def _build_gate_receipt_from_issued_permit(
     permit: Any,
     issued_permit: Mapping[str, Any],
     policy: IndependentGatePolicy,
-    metrics: Mapping[str, SleeveMetric],
+    evidence: object | None,
     clock: TrustedClock,
 ) -> GateReceipt:
     permit.validate()
     if dict(issued_permit) != permit.as_dict():
         raise ContractError("gate requires the exact registry-issued permit payload")
-    trusted_clock = require_trusted_clock(clock)
-    state = policy.aggregate(metrics)
-    unsigned = {
-        "schema_version": 3,
-        "trial_registry_binding_id": permit.trial_registry_binding_id,
-        "trial_id": permit.trial_id,
-        "evaluation_permit_id": permit.permit_id,
-        "permit_payload_hash": sha256_bytes(canonical_json_bytes(permit.as_dict())),
-        "registration_hash": permit.registration_hash,
-        "evaluation_scope": permit.evaluation_scope,
-        "evaluation_input_hash": permit.evaluation_input_hash,
-        "evaluator_code_hash": permit.evaluator_code_hash,
-        "evaluator_closure_hash": permit.evaluator_closure_hash,
-        "census_anchor_id": permit.census_anchor_id,
-        "trial_family_anchor_id": permit.trial_family_anchor_id,
-        "governance_contract_hash": permit.governance_contract_hash,
-        "release_bindings_hash": permit.release_bindings_hash,
-        "holdout_receipt_id": permit.holdout_receipt_id,
-        "authorization_receipt_id": permit.authorization_receipt_id,
-        "permit_issued_at": permit.issued_at,
-        "primary_gate_id": permit.primary_gate_id,
-        "policy_hash": sha256_bytes(canonical_json_bytes(policy.as_dict())),
-        "robustness_policy_hash": permit.robustness_policy_id,
-        "robustness_evidence_hash": sha256_bytes(
-            canonical_json_bytes(
-                {
-                    name: {
-                        "state": metric.robustness_state,
-                        "evidence_hash": metric.robustness_evidence_hash,
-                    }
-                    for name, metric in sorted(metrics.items())
-                }
-            )
-        ),
-        "metrics_hash": sha256_bytes(
-            canonical_json_bytes({name: metric.as_dict() for name, metric in sorted(metrics.items())})
-        ),
-        "state": state.value,
-        "evaluated_at": iso_z(trusted_clock.now()),
-        "time_authority": trusted_clock.mode,
-        "synthetic_clock_permit_id": trusted_clock.synthetic_permit_id,
-    }
-    if unsigned["policy_hash"] != permit.primary_gate_id:
+    if type(policy) is not IndependentGatePolicy:
+        raise ContractError("gate requires the exact independent gate policy")
+    policy_hash = sha256_bytes(canonical_json_bytes(policy.as_dict()))
+    if policy_hash != permit.primary_gate_id:
         raise ContractError("gate policy differs from the predeclared trial policy")
-    if unsigned["robustness_policy_hash"] != permit.robustness_policy_id:
-        raise ContractError("gate robustness policy differs from the predeclared trial policy")
-    receipt = GateReceipt(
-        **unsigned,
-        receipt_id=sha256_bytes(canonical_json_bytes(unsigned)),
-    )
-    receipt.validate()
-    return receipt
+    require_trusted_clock(clock)
+    raise ContractError(GATE_RESULT_CONTRACT_UNAVAILABLE)
 
 
 def build_gate_receipt(**_: object) -> GateReceipt:

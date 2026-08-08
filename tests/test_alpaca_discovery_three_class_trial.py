@@ -7,7 +7,7 @@ from us_stocks_swing_model_v2.errors import ContractError
 
 
 def _wfa_plan() -> dict[str, object]:
-    return {"mode": "ALPACA_LEGACY_DISCOVERY_PROXY_FEATURE_WFA_PLAN_ONLY", "feature_wfa_plan_id": "a" * 64, "feature_release": {"release_id": "b" * 64}, "proxy_outcome_release": {"release_id": "c" * 64}, "features": {"feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"]}, "wfa": {"state": "CHRONOLOGICAL_PROXY_DISCOVERY_EXECUTION_PLANNED_UNREGISTERED", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True, "external_registry_required": False, "real_history_execution_authorized": False, "training_or_evaluation_authorized": False}, "claims": {"historical_proxy": True, "canonical_target_equivalent": False, "trusted_sleeve_eligible": False, "alpha_claim": False}}
+    return {"mode": "ALPACA_LEGACY_DISCOVERY_PROXY_FEATURE_WFA_PLAN_ONLY", "feature_wfa_plan_id": "a" * 64, "feature_release": {"release_id": "b" * 64}, "proxy_outcome_release": {"release_id": "c" * 64}, "features": {"feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"]}, "wfa": {"state": "BLOCKED_EXTERNAL_PREREGISTRATION_REQUIRES_ELIGIBLE_RELEASES", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True, "external_registry_required": True, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES", "real_history_execution_authorized": False, "training_or_evaluation_authorized": False}, "claims": {"historical_proxy": True, "canonical_target_equivalent": False, "trusted_sleeve_eligible": False, "alpha_claim": False}}
 
 
 def test_three_class_contract_is_fixed_and_non_executable() -> None:
@@ -15,6 +15,8 @@ def test_three_class_contract_is_fixed_and_non_executable() -> None:
     assert contract["target"]["neutral_band"] == 0.005
     assert contract["model"]["hyperparameter_tuning"] is False
     assert contract["registration"]["trial_write_authorized"] is False
+    assert contract["registration"]["external_registry_required"] is True
+    assert contract["registration"]["registration_eligibility"] == "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
 
 
 def test_three_class_plan_binds_wfa_without_rows_or_trial_write() -> None:

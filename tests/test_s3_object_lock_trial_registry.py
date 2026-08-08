@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import json
@@ -20,6 +21,7 @@ from us_stocks_swing_model_v2.governance import (
     create_local_integrity_record,
     release_bindings_hash,
 )
+from us_stocks_swing_model_v2.gates import IndependentGatePolicy
 from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     S3ObjectLockRegistryPolicy,
     S3ObjectLockTrialRegistryLocation,
@@ -28,7 +30,28 @@ from us_stocks_swing_model_v2.s3_object_lock_trial_registry import (
     load_s3_object_lock_trial_registration,
     register_s3_object_lock_trial,
 )
-from us_stocks_swing_model_v2.trials import TrialSpec
+from us_stocks_swing_model_v2.trials import (
+    TrialSpec,
+    repository_trial_identity,
+)
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _gate_policy() -> IndependentGatePolicy:
+    return IndependentGatePolicy(
+        minimum_effective_sessions=20,
+        sleeve_economic_hurdles={
+            sleeve: 0.001
+            for sleeve in ("stock_long", "stock_short", "etf_long", "etf_short")
+        },
+        minimum_confidence_lower=0.0,
+        rw_alpha=0.05,
+        minimum_dsr_probability=0.95,
+        maximum_conservative_pbo=0.20,
+        pbo_failure_threshold=0.50,
+    )
 
 
 class _Reader:
@@ -82,27 +105,28 @@ def _payload(
     quality_state: str = "PASS",
     registered_at: str | None = None,
 ) -> dict[str, object]:
+    identity = repository_trial_identity(REPO)
     payload: dict[str, object] = {
         "hypothesis_id": "fixed_discovery_hypothesis",
         "evidence_class": evidence_class,
         "data_release_ids": ["a" * 64],
         "release_bindings": [{"release_id": "a" * 64, "project": "US_stocks_swing_model_v2", "dataset": "eligible_features", "source_epoch": "accepted_causal_v1", "role": role, "quality_state": quality_state, "created_at": "2026-07-30T00:00:00Z", "event_start": "2016-01-04T00:00:00Z", "event_end": "2026-07-10T00:00:00Z"}],
-        "feature_schema_id": "c" * 64,
-        "outcome_schema_id": "d" * 64,
-        "split_plan_id": "e" * 64,
-        "model_family": "fixed_linear",
-        "primary_metric": "multiclass_log_loss",
-        "primary_gate_id": "f" * 64,
-        "robustness_policy_id": "1" * 64,
-        "cost_policy_id": "cost_policy_v1",
+        "feature_schema_id": identity.feature_schema_id,
+        "outcome_schema_id": identity.outcome_schema_id,
+        "split_plan_id": identity.split_plan_id,
+        "model_family": identity.model_family,
+        "primary_metric": identity.primary_metric,
+        "primary_gate_id": sha256_bytes(canonical_json_bytes(_gate_policy().as_dict())),
+        "robustness_policy_id": identity.robustness_policy_id,
+        "cost_policy_id": identity.cost_policy_id,
         "trial_family_id": "discovery_family_v1",
         "census_anchor_id": "2" * 64,
         "trial_family_anchor_id": "3" * 64,
-        "evaluator_closure_hash": "4" * 64,
-        "governance_contract_hash": "5" * 64,
-        "code_hash": "6" * 64,
-        "config_hash": "7" * 64,
-        "environment_hash": "8" * 64,
+        "evaluator_closure_hash": identity.evaluator_closure_hash,
+        "governance_contract_hash": identity.governance_contract_hash,
+        "code_hash": identity.code_hash,
+        "config_hash": identity.config_hash,
+        "environment_hash": identity.environment_hash,
         "trial_id": "0" * 64,
         "registered_at": registered_at or iso_z(datetime.now(timezone.utc)),
         "trial_registry_binding_id": binding_id,
@@ -138,6 +162,7 @@ def _action_record(
             "policy_id": policy.policy_id,
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "trial_registry_binding_id": binding_id,
+            "repository_trial_identity_id": repository_trial_identity(REPO).identity_id,
         },
         clock=TrustedClock.production(),
     )
@@ -198,6 +223,7 @@ def test_loads_only_a_versioned_compliance_retained_trial_record(
         reader=reader, policy=policy, target=target, trial_id=trial_id,
         verified_release_directories=(), accepted_release_root=repo_root,
         action_record=action_record,
+        repository_root=repo_root, gate_policy=_gate_policy(),
     )
 
     assert record.trial_id == trial_id
@@ -207,6 +233,43 @@ def test_loads_only_a_versioned_compliance_retained_trial_record(
         reader.response["LastModified"]  # type: ignore[arg-type]
     )
     assert reader.calls == [{"Bucket": target.bucket, "Key": target.key_for(trial_id), "VersionId": target.version_id}]
+
+
+def test_load_requires_live_repository_and_gate_policy_before_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _policy(REPO)
+    target = _target()
+    payload = _payload(binding_id=target.registry_binding_id(policy))
+    spec = TrialSpec.from_registered_payload(payload)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=target.registry_binding_id(policy),
+        spec=spec,
+    )
+    reader = _Reader(
+        _response(
+            target=target,
+            payload=payload,
+            action_record=action_record,
+        )
+    )
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: spec.release_bindings,
+    )
+
+    with pytest.raises(TypeError):
+        load_s3_object_lock_trial_registration(  # type: ignore[call-arg]
+            reader=reader,
+            policy=policy,
+            target=target,
+            trial_id=spec.trial_id,
+            verified_release_directories=(),
+            accepted_release_root=REPO,
+            action_record=action_record,
+        )
+    assert reader.calls == []
 
 
 @pytest.mark.parametrize("field, value, message", [("ObjectLockMode", "GOVERNANCE", "Compliance"), ("VersionId", "other", "version")])
@@ -242,6 +305,7 @@ def test_rejects_nonimmutable_or_wrong_version_evidence(
             reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root, gate_policy=_gate_policy(),
         )
 
 
@@ -263,6 +327,7 @@ def test_rejects_short_retention_and_local_backend_status(
             reader=_Reader({}), policy=selected, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
             action_record=selected_action,
+            repository_root=repo_root, gate_policy=_gate_policy(),
         )
 
     policy = _policy(repo_root)
@@ -289,6 +354,7 @@ def test_rejects_short_retention_and_local_backend_status(
             reader=_Reader(response), policy=policy, target=target, trial_id=trial_id,
             verified_release_directories=(), accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root, gate_policy=_gate_policy(),
         )
 
 
@@ -315,6 +381,8 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
         spec=spec,
         verified_release_directories=(),
         accepted_release_root=tmp_path,
+        repository_root=repo_root,
+        gate_policy=_gate_policy(),
         action_record=action_record,
     )
 
@@ -334,6 +402,8 @@ def test_registration_requests_compliance_retention_and_reloads_its_version(monk
             spec=spec,
             verified_release_directories=(),
             accepted_release_root=tmp_path,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
             action_record=action_record,
         )
     assert len(client.puts) == 1
@@ -375,6 +445,8 @@ def test_registration_requires_exact_action_record_before_write(
             spec=spec,
             verified_release_directories=(),
             accepted_release_root=tmp_path,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
             action_record=wrong_action,
         )
     assert client.puts == []
@@ -416,6 +488,8 @@ def test_load_binds_action_metadata_and_authoritative_creation_time(
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
 
     missing_creation = _response(
@@ -433,6 +507,8 @@ def test_load_binds_action_metadata_and_authoritative_creation_time(
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
 
     future_creation = _response(
@@ -450,6 +526,8 @@ def test_load_binds_action_metadata_and_authoritative_creation_time(
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
 
     backdated_payload = _payload(
@@ -471,6 +549,8 @@ def test_load_binds_action_metadata_and_authoritative_creation_time(
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
 
 
@@ -537,6 +617,8 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
             spec=spec,
             verified_release_directories=(),
             accepted_release_root=tmp_path,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
             action_record=action_record,
         )
     assert client.puts == []
@@ -563,6 +645,8 @@ def test_s3_registry_enforces_release_roles_before_write_and_after_load(
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
 
 
@@ -592,7 +676,47 @@ def test_loaded_registration_rejects_unverified_release_bindings() -> None:
             verified_release_directories=(),
             accepted_release_root=repo_root,
             action_record=action_record,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
         )
+
+
+def test_registration_revalidates_live_repository_identity_before_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = REPO
+    policy = _policy(repo_root)
+    location = S3ObjectLockTrialRegistryLocation(
+        bucket="swing-model-trial-registry",
+        region="us-west-2",
+        prefix="trial-registry/v1",
+    )
+    drifted = replace(_spec(), code_hash="0" * 64)
+    action_record = _action_record(
+        policy=policy,
+        binding_id=location.registry_binding_id(policy),
+        spec=drifted,
+    )
+    client = _Client({})
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.s3_object_lock_trial_registry.verify_release_bindings",
+        lambda *_args, **_kwargs: drifted.release_bindings,
+    )
+
+    with pytest.raises(ContractError, match="live repository execution identity"):
+        register_s3_object_lock_trial(
+            client=client,
+            policy=policy,
+            location=location,
+            spec=drifted,
+            verified_release_directories=(),
+            accepted_release_root=tmp_path,
+            repository_root=repo_root,
+            gate_policy=_gate_policy(),
+            action_record=action_record,
+        )
+    assert client.puts == []
 
 
 def test_policy_status_cannot_be_forged_with_a_stale_policy_id() -> None:

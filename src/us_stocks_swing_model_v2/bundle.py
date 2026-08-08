@@ -648,6 +648,12 @@ def prepare_bundle_candidate(
     issued_permit = trial_registry.verify_issued_permit(trial_permit)
     if issued_permit != trial_permit.as_dict():
         raise ContractError("bundle requires the exact registry-issued trial permit")
+    issued_gate_receipt = trial_registry.verify_issued_gate_receipt(
+        trial_permit,
+        gate_receipt,
+    )
+    if issued_gate_receipt != gate_receipt.as_dict():
+        raise ContractError("bundle requires the exact registry-issued gate receipt")
     gate_receipt.validate()
     permit_gate_bindings = {
         "trial_registry_binding_id": trial_permit.trial_registry_binding_id,

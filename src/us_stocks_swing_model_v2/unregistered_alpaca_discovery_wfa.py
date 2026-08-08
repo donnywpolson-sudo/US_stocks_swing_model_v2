@@ -1,4 +1,4 @@
-"""In-memory, caveated WFA mechanics for the unregistered Alpaca discovery lane."""
+"""Synthetic-only WFA mechanics plus fail-closed legacy discovery plans."""
 
 from __future__ import annotations
 
@@ -22,7 +22,13 @@ from .common import atomic_write
 from .releases import AtomicReleasePublisher, ReleaseFile, ReleaseManifest, verify_accepted_release
 from .alpaca_discovery_three_class_trial import load_three_class_trial_contract
 from .exchange_calendar import load_xnys_calendar_release
-from .research.contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
+from .research.contracts import (
+    ResearchContractError,
+    SyntheticOnlyPermit,
+    finite_float64,
+    require_synthetic_permit,
+    require_unique_ascii_ids,
+)
 from .research.splits import SessionWindow, TemporalSamples, nested_chronological_splits
 
 
@@ -60,6 +66,22 @@ _OUTCOME_READY = "READY_UNTRUSTED_RAW_PRICE_PROXY"
 _STAGING_OVERHEAD_MULTIPLIER = 4
 JOINED_DATASET = "alpaca_discovery_joined_trial_inputs"
 COMPARISON_CONTRACT_PATH = "config/alpaca_discovery_class_base_rate_comparison_contract.json"
+_BLOCKED_EXTERNAL_REGISTRATION = {
+    "trial_write_authorized": False,
+    "real_history_execution_authorized": False,
+    "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY",
+    "external_registry_required": True,
+    "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES",
+}
+_REAL_HISTORY_REGISTRATION_BLOCK = (
+    "planned real-history discovery is blocked before release access: "
+    "external preregistration is required and legacy/caveated releases are registration-ineligible"
+)
+_SYNTHETIC_WFA_GENERATOR_ID = "unregistered_discovery_wfa_fixture_v1"
+_STREAMING_SYNTHETIC_INPUT_CONTRACT_UNAVAILABLE = (
+    "streaming discovery mechanics are unavailable until exact batch content "
+    "and sessions are bound by a synthetic-only permit"
+)
 _FEATURE_SCHEMA = pa.schema(
     [("symbol", pa.string()), ("decision_session", pa.date32())]
     + [(name, pa.float64()) for name in FEATURE_COLUMNS[2:5]]
@@ -508,8 +530,8 @@ def build_unregistered_wfa_plan(
         "model": contract["model"], "target": contract["target"], "wfa": contract["wfa"],
         "claims": contract["claims"], "registration": contract["registration"],
         "validation_scope": {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0},
-        "required_authority": {"real_row_access": True, "training_or_evaluation": True, "report_write": False, "external_registry_required": False},
-        "stop_conditions": ["release or calendar identity drift", "calendar-session mapping failure", "attempt to write a report, candidate, or registry record", "trusted or alpha claim"],
+        "required_authority": {"external_preregistration": True, "registration_eligible_releases": True, "real_row_access": True, "training_or_evaluation": True, "report_write": False},
+        "stop_conditions": ["release or calendar identity drift", "external preregistration absent", "attempt to register legacy or caveated releases", "real-history execution requested for registration-ineligible inputs", "calendar-session mapping failure", "attempt to write a report, candidate, or registry record", "trusted or alpha claim"],
     }
     return {**unsigned, "unregistered_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
@@ -538,7 +560,7 @@ def load_unregistered_class_base_rate_comparison_contract(
         or payload.get("metric") != "multiclass_log_loss"
         or payload.get("wfa") != {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True}
         or payload.get("claims") != {"historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "training_or_evaluation_authorized": False}
-        or payload.get("registration") != {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": False}
+        or payload.get("registration") != _BLOCKED_EXTERNAL_REGISTRATION
     ):
         raise ResearchContractError("discovery comparison contract differs")
     return {**payload, "contract_id": contract_id}
@@ -579,7 +601,7 @@ def build_unregistered_class_base_rate_comparison_plan(
         "claims": contract["claims"],
         "registration": contract["registration"],
         "validation_scope": {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0},
-        "required_authority": {"real_row_access": True, "training_or_evaluation": True, "report_write": False, "external_registry_required": False},
+        "required_authority": {"external_preregistration": True, "registration_eligible_releases": True, "real_row_access": True, "training_or_evaluation": True, "report_write": False},
         "stop_conditions": contract["stop_conditions"],
     }
     return {**unsigned, "comparison_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
@@ -640,6 +662,47 @@ class UnregisteredDiscoveryDataset:
         return len(ids)
 
 
+def synthetic_unregistered_discovery_fixture(
+    dataset: UnregisteredDiscoveryDataset,
+    *,
+    session_count: int,
+) -> np.ndarray:
+    """Encode every in-memory WFA input into an exact float64 permit fixture."""
+
+    count = dataset.validate()
+    if (
+        isinstance(session_count, bool)
+        or not isinstance(session_count, (int, np.integer))
+        or not 0 <= int(session_count) <= np.iinfo(np.int64).max
+    ):
+        raise ResearchContractError("session_count must fit a non-negative int64")
+
+    fixture = np.empty((count, 22), dtype=np.float64)
+    for position, sample_id in enumerate(dataset.sample_ids):
+        digest = hashlib.sha256(sample_id.encode("ascii")).digest()
+        fixture[position, :8] = np.frombuffer(digest, dtype=">u4")
+    fixture[:, 8:11] = dataset.features
+    fixture[:, 11] = dataset.proxy_returns
+
+    temporal = (
+        dataset.temporal_samples.decision_session,
+        dataset.temporal_samples.label_start,
+        dataset.temporal_samples.label_end,
+        dataset.temporal_samples.label_known_session,
+    )
+    for number, values in enumerate(temporal):
+        unsigned = values.view(np.uint64)
+        fixture[:, 12 + 2 * number] = unsigned >> np.uint64(32)
+        fixture[:, 13 + 2 * number] = unsigned & np.uint64(0xFFFFFFFF)
+
+    encoded_session_count = np.asarray([int(session_count)], dtype=np.int64).view(
+        np.uint64
+    )[0]
+    fixture[:, 20] = encoded_session_count >> np.uint64(32)
+    fixture[:, 21] = encoded_session_count & np.uint64(0xFFFFFFFF)
+    return fixture
+
+
 def _schedule(session_count: int) -> tuple[tuple[SessionWindow, ...], tuple[tuple[SessionWindow, ...], ...]]:
     if session_count < 2016:
         raise ResearchContractError("discovery WFA requires at least 2016 sessions")
@@ -653,10 +716,21 @@ def _schedule(session_count: int) -> tuple[tuple[SessionWindow, ...], tuple[tupl
     return outer, inner
 
 
-def execute_unregistered_discovery_wfa(dataset: UnregisteredDiscoveryDataset, *, session_count: int) -> dict[str, object]:
-    """Return fixed-ridge chronological metrics; never writes, registers, or claims alpha."""
+def execute_unregistered_discovery_wfa(
+    dataset: UnregisteredDiscoveryDataset,
+    *,
+    session_count: int,
+    synthetic_permit: SyntheticOnlyPermit,
+) -> dict[str, object]:
+    """Run fixed-ridge mechanics only for the exact permit-bound fixture."""
 
-    dataset.validate()
+    fixture = synthetic_unregistered_discovery_fixture(
+        dataset,
+        session_count=session_count,
+    )
+    require_synthetic_permit(synthetic_permit, fixture)
+    if synthetic_permit.generator_id != _SYNTHETIC_WFA_GENERATOR_ID:
+        raise ResearchContractError("synthetic permit generator differs")
     outer, inner = _schedule(session_count)
     folds = nested_chronological_splits(dataset.temporal_samples, outer, inner, session_embargo=5, minimum_fit_samples=1, minimum_audit_samples=1)
     results: list[dict[str, object]] = []
@@ -672,103 +746,51 @@ def execute_unregistered_discovery_wfa(dataset: UnregisteredDiscoveryDataset, *,
             probability = 1.0 - upper if actual > 0.005 else lower if actual < -0.005 else upper - lower
             losses.append(-math.log(max(probability, 1e-15)))
         results.append({"outer_fold": number, "fit_samples": len(fold.fit_indices), "audit_samples": len(fold.audit_indices), "multiclass_log_loss": float(np.mean(losses))})
-    return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_IN_MEMORY", "folds": results, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
-
-
-def _proxy_return_class(value: float) -> int:
-    return 2 if value > 0.005 else 0 if value < -0.005 else 1
+    return {"mode": "SYNTHETIC_ONLY_UNREGISTERED_DISCOVERY_WFA_IN_MEMORY", "folds": results, "synthetic_only": True, "historical_proxy": False, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
 
 
 def _execute_streaming_unregistered_discovery_wfa(
-    batch_factory, *, sessions: tuple[date, ...], include_class_base_rate: bool
+    batch_factory,
+    *,
+    sessions: tuple[date, ...],
+    include_class_base_rate: bool,
+    synthetic_permit: SyntheticOnlyPermit,
 ) -> dict[str, object]:
-    """Run fixed-ridge folds, optionally alongside the fixed class-base-rate baseline."""
+    """Reject unbound streaming inputs before invoking the batch factory."""
 
-    if len(sessions) < 2016 or tuple(sorted(sessions)) != sessions or len(set(sessions)) != len(sessions):
-        raise ResearchContractError("discovery WFA sessions differ")
-    session_index = {value: number for number, value in enumerate(sessions)}
-    outer, _ = _schedule(len(sessions))
-    stats = [{"n": 0, "sx": np.zeros(3), "sxx": np.zeros((3, 3)), "sy": 0.0, "sy2": 0.0, "sxy": np.zeros(3)} for _ in outer]
-    class_counts = [np.zeros(3, dtype=np.int64) for _ in outer]
-
-    def rows():
-        for batch in batch_factory():
-            if tuple(batch.schema.names) != JOINED_COLUMNS or batch.num_rows > 65536:
-                raise ResearchContractError("streaming discovery batch differs")
-            yield from batch.to_pylist()
-
-    for row in rows():
-        decision = row["decision_session"]
-        if decision not in session_index or session_index[decision] + 5 >= len(sessions):
-            raise ResearchContractError("streaming discovery decision session differs")
-        values = np.asarray([row[name] for name in JOINED_COLUMNS[2:5]], dtype=np.float64)
-        target = float(row["proxy_return"])
-        if not np.all(np.isfinite(values)) or not math.isfinite(target):
-            raise ResearchContractError("streaming discovery row is non-finite")
-        position = session_index[decision]
-        for fold, window in enumerate(outer):
-            if position < window.start - 5 and position + 5 < window.start:
-                item = stats[fold]
-                item["n"] += 1; item["sx"] += values; item["sxx"] += np.outer(values, values)
-                item["sy"] += target; item["sy2"] += target * target; item["sxy"] += values * target
-                class_counts[fold][_proxy_return_class(target)] += 1
-    fitted: list[tuple[np.ndarray, float, float]] = []
-    for item in stats:
-        n = int(item["n"])
-        if n < 1:
-            raise ResearchContractError("streaming discovery fold is underpowered")
-        mean_x, mean_y = item["sx"] / n, item["sy"] / n
-        scale = np.sqrt(np.maximum(np.diag(item["sxx"]) / n - mean_x * mean_x, 0.0)); scale = np.where(scale > 0, scale, 1.0)
-        gram = (item["sxx"] - np.outer(item["sx"], item["sx"]) / n) / np.outer(scale, scale)
-        rhs = (item["sxy"] - item["sx"] * mean_y) / scale
-        try:
-            scaled = np.linalg.solve(gram + np.eye(3), rhs)
-        except np.linalg.LinAlgError as exc:
-            raise ResearchContractError("streaming discovery ridge system is not solvable") from exc
-        coefficients = scaled / scale; bias = float(mean_y - mean_x @ coefficients)
-        rss = item["sy2"] - 2 * coefficients @ item["sxy"] - 2 * bias * item["sy"] + coefficients @ (item["sxx"] @ coefficients) + 2 * bias * coefficients @ item["sx"] + n * bias * bias
-        uncertainty = max(math.sqrt(max(float(rss) / n, 0.0)), 1e-12)
-        fitted.append((coefficients, bias, uncertainty))
-    losses = [[] for _ in outer]
-    baseline_losses = [[] for _ in outer]
-    for row in rows():
-        position = session_index[row["decision_session"]]
-        values = np.asarray([row[name] for name in JOINED_COLUMNS[2:5]], dtype=np.float64); actual = float(row["proxy_return"])
-        for fold, window in enumerate(outer):
-            if window.start <= position < window.stop:
-                coefficients, bias, uncertainty = fitted[fold]
-                mean = float(values @ coefficients + bias)
-                upper = 0.5 * (1.0 + math.erf((0.005 - mean) / uncertainty / math.sqrt(2.0)))
-                lower = 0.5 * (1.0 + math.erf((-0.005 - mean) / uncertainty / math.sqrt(2.0)))
-                probability = 1.0 - upper if actual > 0.005 else lower if actual < -0.005 else upper - lower
-                losses[fold].append(-math.log(max(probability, 1e-15)))
-                if include_class_base_rate:
-                    probability = class_counts[fold][_proxy_return_class(actual)] / int(stats[fold]["n"])
-                    baseline_losses[fold].append(-math.log(max(float(probability), 1e-15)))
-    if any(not values for values in losses):
-        raise ResearchContractError("streaming discovery outer audit is absent")
-    if include_class_base_rate:
-        if any(not values for values in baseline_losses):
-            raise ResearchContractError("streaming discovery baseline audit is absent")
-        return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_CLASS_BASE_RATE_COMPARISON_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "candidate_multiclass_log_loss": float(np.mean(values)), "baseline_multiclass_log_loss": float(np.mean(baseline_losses[number])), "candidate_minus_baseline_log_loss": float(np.mean(values) - np.mean(baseline_losses[number]))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
-    return {"mode": "UNREGISTERED_HISTORICAL_DISCOVERY_WFA_STREAMING_NO_WRITE", "folds": tuple({"outer_fold": number, "fit_samples": int(stats[number]["n"]), "audit_samples": len(values), "multiclass_log_loss": float(np.mean(values))} for number, values in enumerate(losses)), "batch_passes": 2, "historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "writes": 0}
+    del batch_factory, sessions, include_class_base_rate, synthetic_permit
+    raise ResearchContractError(_STREAMING_SYNTHETIC_INPUT_CONTRACT_UNAVAILABLE)
 
 
-def execute_streaming_unregistered_discovery_wfa(batch_factory, *, sessions: tuple[date, ...]) -> dict[str, object]:
-    """Run fixed-ridge outer folds with two bounded scans and no row retention."""
+def execute_streaming_unregistered_discovery_wfa(
+    batch_factory,
+    *,
+    sessions: tuple[date, ...],
+    synthetic_permit: SyntheticOnlyPermit,
+) -> dict[str, object]:
+    """Reject streaming evaluation until its complete input can be bound."""
 
     return _execute_streaming_unregistered_discovery_wfa(
-        batch_factory, sessions=sessions, include_class_base_rate=False
+        batch_factory,
+        sessions=sessions,
+        include_class_base_rate=False,
+        synthetic_permit=synthetic_permit,
     )
 
 
 def execute_streaming_unregistered_class_base_rate_comparison(
-    batch_factory, *, sessions: tuple[date, ...]
+    batch_factory,
+    *,
+    sessions: tuple[date, ...],
+    synthetic_permit: SyntheticOnlyPermit,
 ) -> dict[str, object]:
-    """Compare the fixed candidate with fold-local class base rates in two scans."""
+    """Reject streaming comparison until its complete input can be bound."""
 
     return _execute_streaming_unregistered_discovery_wfa(
-        batch_factory, sessions=sessions, include_class_base_rate=True
+        batch_factory,
+        sessions=sessions,
+        include_class_base_rate=True,
+        synthetic_permit=synthetic_permit,
     )
 
 
@@ -839,20 +861,12 @@ def execute_planned_streaming_unregistered_wfa(
     repo_root: Path,
     approved_unregistered_wfa_plan_id: str,
 ) -> dict[str, object]:
-    """Execute exactly one separately authorized unregistered discovery WFA."""
+    """Fail before opening releases because caveated inputs cannot be registered."""
 
-    if os.environ.get("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED") != "YES":
-        raise ResearchContractError("discovery WFA execution confirmation is absent")
-    plan, joined_paths, sessions = _prepare_planned_unregistered_wfa_inputs(
-        joined_release_directory, calendar_release_directory=calendar_release_directory,
-        accepted_root=accepted_root, repo_root=repo_root,
-        approved_unregistered_wfa_plan_id=approved_unregistered_wfa_plan_id,
-    )
-    result = execute_streaming_unregistered_discovery_wfa(
-        lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
-        sessions=sessions,
-    )
-    return {**result, "unregistered_wfa_plan_id": plan["unregistered_wfa_plan_id"]}
+    contract = load_three_class_trial_contract(Path(repo_root))
+    if contract.get("registration") != _BLOCKED_EXTERNAL_REGISTRATION:
+        raise ResearchContractError("planned discovery registration safeguards differ")
+    raise ResearchContractError(_REAL_HISTORY_REGISTRATION_BLOCK)
 
 
 def execute_planned_streaming_unregistered_class_base_rate_comparison(
@@ -863,26 +877,9 @@ def execute_planned_streaming_unregistered_class_base_rate_comparison(
     repo_root: Path,
     approved_comparison_plan_id: str,
 ) -> dict[str, object]:
-    """Execute one separately authorized caveated candidate-versus-baseline comparison."""
+    """Fail before opening releases because caveated inputs cannot be registered."""
 
-    if os.environ.get("ALPACA_DISCOVERY_COMPARISON_EXECUTION_APPROVED") != "YES":
-        raise ResearchContractError("discovery comparison execution confirmation is absent")
-    wfa_plan = build_unregistered_wfa_plan(
-        joined_release_directory, calendar_release_directory=calendar_release_directory,
-        accepted_root=accepted_root, repo_root=repo_root,
-    )
-    comparison_plan = build_unregistered_class_base_rate_comparison_plan(
-        wfa_plan, repo_root=repo_root
-    )
-    if approved_comparison_plan_id != comparison_plan["comparison_plan_id"]:
-        raise ResearchContractError("approved discovery comparison plan ID differs")
-    _, joined_paths, sessions = _prepare_planned_unregistered_wfa_inputs(
-        joined_release_directory, calendar_release_directory=calendar_release_directory,
-        accepted_root=accepted_root, repo_root=repo_root,
-        approved_unregistered_wfa_plan_id=wfa_plan["unregistered_wfa_plan_id"],
-    )
-    result = execute_streaming_unregistered_class_base_rate_comparison(
-        lambda: (batch for path in joined_paths for batch in iter_caveated_parquet_batches(str(path), columns=JOINED_COLUMNS)),
-        sessions=sessions,
-    )
-    return {**result, "comparison_plan_id": comparison_plan["comparison_plan_id"]}
+    contract = load_unregistered_class_base_rate_comparison_contract(Path(repo_root))
+    if contract.get("registration") != _BLOCKED_EXTERNAL_REGISTRATION:
+        raise ResearchContractError("planned discovery comparison registration safeguards differ")
+    raise ResearchContractError(_REAL_HISTORY_REGISTRATION_BLOCK)

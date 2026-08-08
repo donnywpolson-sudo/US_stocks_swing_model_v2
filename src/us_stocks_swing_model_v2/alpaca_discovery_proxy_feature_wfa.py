@@ -72,8 +72,9 @@ def load_feature_wfa_contract(repo_root: Path | None = None) -> dict[str, Any]:
         or wfa.get("purge_sessions") != 5
         or wfa.get("embargo_sessions") != 5
         or wfa.get("fold_local_transforms_required") is not True
-        or wfa.get("state") != "CHRONOLOGICAL_PROXY_DISCOVERY_EXECUTION_PLANNED_UNREGISTERED"
-        or wfa.get("external_registry_required") is not False
+        or wfa.get("state") != "BLOCKED_EXTERNAL_PREREGISTRATION_REQUIRES_ELIGIBLE_RELEASES"
+        or wfa.get("external_registry_required") is not True
+        or wfa.get("registration_eligibility") != "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
         or wfa.get("real_history_execution_authorized") is not False
         or wfa.get("training_or_evaluation_authorized") is not False
         or claims != {"historical_proxy": True, "canonical_target_equivalent": False, "trusted_sleeve_eligible": False, "alpha_claim": False}
@@ -153,7 +154,7 @@ def build_feature_wfa_plan(
     # sessions.  Their valid WFA input is therefore their common interval.
     if feature_release.event_start < outcome_release.event_start or feature_release.event_end < outcome_release.event_end:
         raise ContractError("proxy feature/outcome temporal coverage differs")
-    unsigned = {"schema_version": 1, "mode": contract["mode"], "contract_id": contract["contract_id"], "feature_release": {"release_id": feature_release.release_id, "manifest_sha256": sha256_file(Path(feature_release_directory) / "release_manifest.json"), "row_count": feature_release.row_count, "event_start": feature_release.event_start, "event_end": feature_release.event_end}, "proxy_outcome_release": {"release_id": outcome_release.release_id, "manifest_sha256": sha256_file(Path(proxy_outcome_release_directory) / "release_manifest.json"), "row_count": outcome_release.row_count, "event_start": outcome_release.event_start, "event_end": outcome_release.event_end}, "features": contract["features"], "wfa": contract["wfa"], "claims": contract["claims"], "validation_scope": {"feature_rows_opened": 0, "proxy_outcome_rows_opened": 0, "files_written": 0}, "required_later_authority": {"unregistered_discovery_execution": True, "training_or_evaluation": True}, "stop_conditions": contract["stop_conditions"]}
+    unsigned = {"schema_version": 1, "mode": contract["mode"], "contract_id": contract["contract_id"], "feature_release": {"release_id": feature_release.release_id, "manifest_sha256": sha256_file(Path(feature_release_directory) / "release_manifest.json"), "row_count": feature_release.row_count, "event_start": feature_release.event_start, "event_end": feature_release.event_end}, "proxy_outcome_release": {"release_id": outcome_release.release_id, "manifest_sha256": sha256_file(Path(proxy_outcome_release_directory) / "release_manifest.json"), "row_count": outcome_release.row_count, "event_start": outcome_release.event_start, "event_end": outcome_release.event_end}, "features": contract["features"], "wfa": contract["wfa"], "claims": contract["claims"], "validation_scope": {"feature_rows_opened": 0, "proxy_outcome_rows_opened": 0, "files_written": 0}, "required_later_authority": {"external_preregistration": True, "registration_eligible_releases": True, "real_history_execution": True, "training_or_evaluation": True}, "stop_conditions": contract["stop_conditions"]}
     return {**unsigned, "feature_wfa_plan_id": sha256_bytes(canonical_json_bytes(unsigned))}
 
 

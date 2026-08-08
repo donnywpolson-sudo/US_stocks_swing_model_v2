@@ -45,6 +45,10 @@ def build_trial_preregistration_template(feature_wfa_plan: Mapping[str, Any]) ->
         or feature_wfa_plan["wfa"].get("outer_protocol") != "rolling_origin"
         or feature_wfa_plan["wfa"].get("purge_sessions") != 5
         or feature_wfa_plan["wfa"].get("embargo_sessions") != 5
+        or feature_wfa_plan["wfa"].get("state") != "BLOCKED_EXTERNAL_PREREGISTRATION_REQUIRES_ELIGIBLE_RELEASES"
+        or feature_wfa_plan["wfa"].get("external_registry_required") is not True
+        or feature_wfa_plan["wfa"].get("registration_eligibility") != "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
+        or feature_wfa_plan["wfa"].get("real_history_execution_authorized") is not False
     ):
         raise ContractError("feature/WFA plan differs")
     for field in ("contract_id", "feature_wfa_plan_id"):
@@ -70,14 +74,16 @@ def build_trial_preregistration_template(feature_wfa_plan: Mapping[str, Any]) ->
             "purge_sessions": 5,
             "embargo_sessions": 5,
             "fold_local_transforms_required": True,
-            "evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY",
+            "evidence_class": "REGISTERED_HISTORICAL_DISCOVERY",
             "historical_proxy": True,
             "trusted_result_claim": False,
         },
         "unselected_hypothesis_fields": list(REQUIRED_UNSELECTED_FIELDS),
         "registration": {
             "permitted": False,
-            "reason": "EXPLICIT_HYPOTHESIS_FIELDS_REQUIRED",
+            "reason": "LEGACY_CAVEATED_RELEASES_INELIGIBLE_FOR_EXTERNAL_REGISTRATION",
+            "external_registry_required": True,
+            "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES",
             "trial_written": False,
             "rows_opened": 0,
             "training_or_evaluation": False,

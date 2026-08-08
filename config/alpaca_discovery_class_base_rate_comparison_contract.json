@@ -9,7 +9,7 @@
   "metric": "multiclass_log_loss",
   "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true},
   "claims": {"historical_proxy": true, "trusted_result_claim": false, "alpha_claim": false, "candidate_sealing": false, "training_or_evaluation_authorized": false},
-  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": false},
-  "stop_conditions": ["input WFA plan or contract identity drift", "candidate or baseline substitution", "real-history comparison execution without separate authorization", "trusted or alpha claim"],
-  "contract_id": "8eb8b8f25d5f57fd77b289e7ce8583f21083c4b92a4fc88fc125d22858afe924"
+  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": true, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES"},
+  "stop_conditions": ["input WFA plan or contract identity drift", "candidate or baseline substitution", "external preregistration absent", "attempt to register legacy or caveated releases", "real-history comparison requested for registration-ineligible inputs", "trusted or alpha claim"],
+  "contract_id": "d631f80e2eb73ae47ceca6a9627edc5d1f90b03e4aa197919f081677bd7f10da"
 }

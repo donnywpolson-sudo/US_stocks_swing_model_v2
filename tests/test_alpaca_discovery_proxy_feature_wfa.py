@@ -26,6 +26,8 @@ def test_feature_contract_is_content_addressed_and_discovery_only() -> None:
     contract = load_feature_wfa_contract(REPO)
     assert len(contract["contract_id"]) == 64
     assert contract["features"]["may_read_outcomes"] is False
+    assert contract["wfa"]["external_registry_required"] is True
+    assert contract["wfa"]["registration_eligibility"] == "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
     assert contract["wfa"]["real_history_execution_authorized"] is False
     assert contract["claims"]["alpha_claim"] is False
 
@@ -143,3 +145,5 @@ def test_wfa_plan_binds_separate_feature_and_outcome_releases_without_opening_ro
     assert plan["feature_release"]["release_id"] == feature.name
     assert plan["proxy_outcome_release"]["release_id"] == outcome.name
     assert plan["validation_scope"] == {"feature_rows_opened": 0, "proxy_outcome_rows_opened": 0, "files_written": 0}
+    assert plan["required_later_authority"]["external_preregistration"] is True
+    assert plan["required_later_authority"]["registration_eligible_releases"] is True

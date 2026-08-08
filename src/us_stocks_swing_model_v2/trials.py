@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -11,6 +12,7 @@ from .common import (
     require_contained_path,
     require_sha256,
     sha256_bytes,
+    sha256_file,
 )
 from .capabilities import SyntheticOnlyPermit, require_synthetic_permit
 from .clock import TrustedClock, require_trusted_clock
@@ -38,6 +40,403 @@ EVALUATION_STATES = {
     "INCONCLUSIVE_ROBUSTNESS",
     "PASS_HISTORICAL_DISCOVERY_SCREEN",
 }
+
+
+_TRIAL_ENVIRONMENT_PATHS = (
+    "pyproject.toml",
+    "requirements.lock",
+    "requirements.sha256.lock",
+    "config/environment.lock.json",
+)
+_TRIAL_IDENTITY_FIELDS = (
+    "feature_schema_id",
+    "outcome_schema_id",
+    "split_plan_id",
+    "model_family",
+    "primary_metric",
+    "primary_gate_id",
+    "robustness_policy_id",
+    "cost_policy_id",
+    "evaluator_closure_hash",
+    "governance_contract_hash",
+    "code_hash",
+    "config_hash",
+    "environment_hash",
+)
+_REPOSITORY_TRIAL_IDENTITY_FIELDS = tuple(
+    name for name in _TRIAL_IDENTITY_FIELDS if name != "primary_gate_id"
+)
+
+
+def _closure_hash(root: Path, paths: Iterable[Path], *, name: str) -> str:
+    entries: list[dict[str, object]] = []
+    for candidate in sorted((Path(item) for item in paths), key=lambda item: item.as_posix()):
+        contained = require_contained_path(candidate, root)
+        if contained.is_symlink() or not contained.is_file():
+            raise ContractError(f"{name} closure contains a non-regular file")
+        entries.append(
+            {
+                "path": contained.relative_to(root).as_posix(),
+                "size": contained.stat().st_size,
+                "sha256": sha256_file(contained),
+            }
+        )
+    if not entries:
+        raise ContractError(f"{name} closure cannot be empty")
+    return sha256_bytes(canonical_json_bytes({"name": name, "files": entries}))
+
+
+@dataclass(frozen=True)
+class RepositoryTrialIdentity:
+    """Live, fixed-census repository identity for a real-evidence trial."""
+
+    feature_schema_id: str
+    outcome_schema_id: str
+    split_plan_id: str
+    model_family: str
+    primary_metric: str
+    robustness_policy_id: str
+    cost_policy_id: str
+    evaluator_closure_hash: str
+    governance_contract_hash: str
+    code_hash: str
+    config_hash: str
+    environment_hash: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            name: str(getattr(self, name))
+            for name in _REPOSITORY_TRIAL_IDENTITY_FIELDS
+        }
+
+    @property
+    def identity_id(self) -> str:
+        return sha256_bytes(canonical_json_bytes(self.as_dict()))
+
+    def validate(self) -> None:
+        if (
+            self.feature_schema_id != "prospective_price_only_v1"
+            or self.outcome_schema_id
+            != "d1_open_to_d5_close_split_normalized_v1"
+            or self.model_family != "linear_distribution_v1"
+            or self.primary_metric != "multiclass_log_loss"
+        ):
+            raise ContractError("repository trial semantics differ from the fixed project contract")
+        for name in _REPOSITORY_TRIAL_IDENTITY_FIELDS:
+            if name not in {
+                "feature_schema_id",
+                "outcome_schema_id",
+                "model_family",
+                "primary_metric",
+            }:
+                require_sha256(getattr(self, name), f"repository_trial_identity.{name}")
+
+    def require_spec(self, spec: "TrialSpec") -> None:
+        spec.validate()
+        actual = {
+            name: getattr(spec, name)
+            for name in _REPOSITORY_TRIAL_IDENTITY_FIELDS
+        }
+        if actual != self.as_dict():
+            raise ContractError(
+                "trial specification differs from the live repository execution identity"
+            )
+
+
+def repository_trial_identity(repository_root: Path) -> RepositoryTrialIdentity:
+    """Derive the non-caller-selectable code, config, environment, and policy identity."""
+
+    root = Path(repository_root).resolve(strict=True)
+    executing_root = Path(__file__).resolve(strict=True).parents[2]
+    if root != executing_root:
+        raise ContractError(
+            "repository trial identity root differs from the executing package checkout"
+        )
+    package = require_contained_path(
+        root / "src" / "us_stocks_swing_model_v2",
+        root,
+    )
+    config_root = require_contained_path(root / "config", root)
+    readiness_path = require_contained_path(
+        config_root / "research_readiness_contract.json",
+        root,
+    )
+    if not (root / "AGENTS.md").is_file() or not package.is_dir() or not config_root.is_dir():
+        raise ContractError("repository trial identity requires the exact project checkout layout")
+    try:
+        readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ContractError("research readiness contract is unreadable") from exc
+    if (
+        type(readiness) is not dict
+        or readiness.get("project") != "US_stocks_swing_model_v2"
+        or type(readiness.get("nested_wfa")) is not dict
+        or type(readiness.get("binding_gate")) is not dict
+        or type(readiness.get("robustness")) is not dict
+        or type(readiness.get("economic_translation")) is not dict
+    ):
+        raise ContractError("research readiness contract lacks the fixed trial policies")
+    code_paths = tuple(package.rglob("*.py"))
+    config_paths = tuple(config_root.rglob("*.json"))
+    research_paths = tuple((package / "research").rglob("*.py"))
+    evaluator_paths = (*research_paths, package / "gates.py", package / "trials.py")
+    environment_paths = tuple(root / item for item in _TRIAL_ENVIRONMENT_PATHS)
+    result = RepositoryTrialIdentity(
+        feature_schema_id="prospective_price_only_v1",
+        outcome_schema_id="d1_open_to_d5_close_split_normalized_v1",
+        split_plan_id=sha256_bytes(canonical_json_bytes(readiness["nested_wfa"])),
+        model_family="linear_distribution_v1",
+        primary_metric="multiclass_log_loss",
+        robustness_policy_id=sha256_bytes(canonical_json_bytes(readiness["robustness"])),
+        cost_policy_id=sha256_bytes(canonical_json_bytes(readiness["economic_translation"])),
+        evaluator_closure_hash=_closure_hash(root, evaluator_paths, name="trial_evaluator"),
+        governance_contract_hash=sha256_bytes(canonical_json_bytes(readiness)),
+        code_hash=_closure_hash(root, code_paths, name="trial_code"),
+        config_hash=_closure_hash(root, config_paths, name="trial_config"),
+        environment_hash=_closure_hash(root, environment_paths, name="trial_environment"),
+    )
+    result.validate()
+    return result
+
+
+def require_trial_gate_policy(
+    spec: "TrialSpec",
+    gate_policy: Any,
+    *,
+    repository_root: Path,
+) -> None:
+    """Bind a trial-specific executable gate to fixed repository thresholds."""
+
+    from .gates import IndependentGatePolicy
+
+    spec.validate()
+    if type(gate_policy) is not IndependentGatePolicy:
+        raise ContractError("trial specification requires the exact independent gate policy")
+    gate_policy.validate()
+    root = Path(repository_root).resolve(strict=True)
+    try:
+        readiness = json.loads(
+            (root / "config" / "research_readiness_contract.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        fixed_gate_values = {
+            "rw_alpha": readiness["multiple_testing"]["romano_wolf"][
+                "maximum_adjusted_one_sided_p"
+            ],
+            "minimum_dsr_probability": readiness["multiple_testing"]["dsr"][
+                "minimum_probability"
+            ],
+            "maximum_conservative_pbo": readiness["multiple_testing"]["pbo"][
+                "pass_maximum"
+            ],
+            "pbo_failure_threshold": readiness["multiple_testing"]["pbo"][
+                "inconclusive_maximum"
+            ],
+        }
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ContractError("readiness contract lacks executable gate thresholds") from exc
+    if any(
+        getattr(gate_policy, name) != value
+        for name, value in fixed_gate_values.items()
+    ):
+        raise ContractError(
+            "independent gate policy differs from the fixed readiness thresholds"
+        )
+    policy_hash = sha256_bytes(canonical_json_bytes(gate_policy.as_dict()))
+    if spec.primary_gate_id != policy_hash:
+        raise ContractError(
+            "trial primary gate differs from its exact executable gate policy"
+        )
+
+
+def _validate_prepermit_input_artifacts(
+    artifacts: Mapping[str, Mapping[str, Any]],
+    *,
+    evaluation_scope: str,
+) -> None:
+    """Require one exact immutable plan commitment before outcome access."""
+
+    if type(artifacts) is not dict or set(artifacts) != {"evaluation_plan"}:
+        raise ContractError(
+            "pre-permit evaluation input cannot contain gate or result artifacts; "
+            "only the exact plan commitment is allowed"
+        )
+    plan = artifacts["evaluation_plan"]
+    fields = {
+        "schema_version",
+        "evaluation_scope",
+        "purpose",
+        "commitment_hash",
+    }
+    if type(plan) is not dict or set(plan) != fields:
+        raise ContractError(
+            "pre-permit evaluation input cannot contain gate or result artifacts; "
+            "plan fields differ from the exact commitment contract"
+        )
+    unsigned = {
+        "schema_version": 1,
+        "evaluation_scope": evaluation_scope,
+        "purpose": "SYNTHETIC_MECHANICS_INPUT_ONLY",
+    }
+    if any(plan.get(name) != value for name, value in unsigned.items()):
+        raise ContractError(
+            "pre-permit evaluation plan differs from its requested scope"
+        )
+    try:
+        require_sha256(plan.get("commitment_hash"), "evaluation_plan.commitment_hash")
+    except ContractError as exc:
+        raise ContractError(
+            "pre-permit evaluation plan commitment hash is invalid"
+        ) from exc
+    if plan["commitment_hash"] != sha256_bytes(canonical_json_bytes(unsigned)):
+        raise ContractError(
+            "pre-permit evaluation plan commitment differs from its exact content"
+        )
+
+
+@dataclass(frozen=True)
+class EvaluationExecutionEvidence:
+    """Exact synthetic evaluation payload bound to the live evaluator closure."""
+
+    schema_version: int
+    trial_id: str
+    evaluation_scope: str
+    evaluation_input_bytes: bytes
+    repository_trial_identity_id: str
+    evaluator_code_hash: str
+    evidence_id: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        spec: "TrialSpec",
+        evaluation_scope: str,
+        artifacts: Mapping[str, Mapping[str, Any]],
+        repository_root: Path,
+    ) -> "EvaluationExecutionEvidence":
+        spec.validate()
+        identity = repository_trial_identity(repository_root)
+        identity.require_spec(spec)
+        if evaluation_scope not in EVALUATION_SCOPES:
+            raise ContractError("evaluation execution evidence scope is invalid")
+        _validate_prepermit_input_artifacts(
+            artifacts,
+            evaluation_scope=evaluation_scope,
+        )
+        evaluation_input: dict[str, Any] = {
+            "schema_version": 1,
+            "trial_id": spec.trial_id,
+            "evaluation_scope": evaluation_scope,
+            "data_release_ids": list(spec.data_release_ids),
+            "release_bindings_hash": release_bindings_hash(spec.release_bindings),
+            "repository_trial_identity_id": identity.identity_id,
+            "evaluator_code_hash": identity.evaluator_closure_hash,
+            **{name: getattr(spec, name) for name in _TRIAL_IDENTITY_FIELDS},
+            "artifacts": {
+                name: dict(value) for name, value in sorted(artifacts.items())
+            },
+        }
+        unsigned = {
+            "schema_version": 1,
+            "trial_id": spec.trial_id,
+            "evaluation_scope": evaluation_scope,
+            "evaluation_input": evaluation_input,
+            "repository_trial_identity_id": identity.identity_id,
+            "evaluator_code_hash": identity.evaluator_closure_hash,
+        }
+        result = cls(
+            schema_version=1,
+            trial_id=spec.trial_id,
+            evaluation_scope=evaluation_scope,
+            evaluation_input_bytes=canonical_json_bytes(evaluation_input),
+            repository_trial_identity_id=identity.identity_id,
+            evaluator_code_hash=identity.evaluator_closure_hash,
+            evidence_id=sha256_bytes(canonical_json_bytes(unsigned)),
+        )
+        result.validate(spec, repository_identity=identity)
+        return result
+
+    @property
+    def evaluation_input_hash(self) -> str:
+        return sha256_bytes(self.evaluation_input_bytes)
+
+    def evaluation_input(self) -> dict[str, Any]:
+        if type(self.evaluation_input_bytes) is not bytes:
+            raise ContractError("evaluation input must be retained as exact canonical bytes")
+        try:
+            payload = json.loads(self.evaluation_input_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ContractError("evaluation input is not canonical JSON") from exc
+        if type(payload) is not dict or canonical_json_bytes(payload) != self.evaluation_input_bytes:
+            raise ContractError("evaluation input differs from its exact canonical bytes")
+        return payload
+
+    def validate(
+        self,
+        spec: "TrialSpec",
+        *,
+        repository_identity: RepositoryTrialIdentity,
+    ) -> None:
+        spec.validate()
+        repository_identity.validate()
+        repository_identity.require_spec(spec)
+        evaluation_input = self.evaluation_input()
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 1
+            or self.trial_id != spec.trial_id
+            or self.evaluation_scope not in EVALUATION_SCOPES
+            or self.repository_trial_identity_id != repository_identity.identity_id
+            or self.evaluator_code_hash
+            != repository_identity.evaluator_closure_hash
+        ):
+            raise ContractError("evaluation execution evidence identity is invalid")
+        expected_fields = {
+            "schema_version",
+            "trial_id",
+            "evaluation_scope",
+            "data_release_ids",
+            "release_bindings_hash",
+            "repository_trial_identity_id",
+            "evaluator_code_hash",
+            *_TRIAL_IDENTITY_FIELDS,
+            "artifacts",
+        }
+        if set(evaluation_input) != expected_fields:
+            raise ContractError("evaluation input fields differ from the exact evidence contract")
+        expected = {
+            "schema_version": 1,
+            "trial_id": spec.trial_id,
+            "evaluation_scope": self.evaluation_scope,
+            "data_release_ids": list(spec.data_release_ids),
+            "release_bindings_hash": release_bindings_hash(spec.release_bindings),
+            "repository_trial_identity_id": repository_identity.identity_id,
+            "evaluator_code_hash": repository_identity.evaluator_closure_hash,
+            **{name: getattr(spec, name) for name in _TRIAL_IDENTITY_FIELDS},
+        }
+        if any(evaluation_input.get(name) != value for name, value in expected.items()):
+            raise ContractError("evaluation input differs from the preregistered trial")
+        artifacts = evaluation_input.get("artifacts")
+        try:
+            _validate_prepermit_input_artifacts(
+                artifacts,
+                evaluation_scope=self.evaluation_scope,
+            )
+        except ContractError as exc:
+            raise ContractError("evaluation input artifact payloads are invalid") from exc
+        unsigned = {
+            "schema_version": 1,
+            "trial_id": self.trial_id,
+            "evaluation_scope": self.evaluation_scope,
+            "evaluation_input": evaluation_input,
+            "repository_trial_identity_id": self.repository_trial_identity_id,
+            "evaluator_code_hash": self.evaluator_code_hash,
+        }
+        require_sha256(self.evidence_id, "evaluation_execution_evidence.evidence_id")
+        if self.evidence_id != sha256_bytes(canonical_json_bytes(unsigned)):
+            raise ContractError("evaluation execution evidence ID differs from its content")
 
 
 @dataclass(frozen=True)
@@ -118,13 +517,19 @@ class TrialSpec:
             "registered_at",
             "trial_registry_binding_id",
         }
-        if set(payload) != expected:
+        allowed = (expected, expected | {"repository_trial_identity_id"})
+        if set(payload) not in allowed:
             raise ContractError("registered trial payload fields differ from the frozen contract")
         parse_utc_z(str(payload["registered_at"]), "registered_at")
         fields = {
             key: value
             for key, value in payload.items()
-            if key not in {"trial_id", "registered_at", "trial_registry_binding_id"}
+            if key not in {
+                "trial_id",
+                "registered_at",
+                "trial_registry_binding_id",
+                "repository_trial_identity_id",
+            }
         }
         fields["data_release_ids"] = tuple(fields["data_release_ids"])
         fields["release_bindings"] = tuple(ReleaseBinding(**entry) for entry in fields["release_bindings"])
@@ -332,6 +737,12 @@ def validate_trial_evidence_roles(spec: TrialSpec) -> None:
             )
 
 
+def _validate_gate_receipt_payload(payload: Mapping[str, Any]) -> None:
+    from .gates import GateReceipt
+
+    GateReceipt.from_dict(payload)
+
+
 class TrialRegistry:
     def __init__(
         self,
@@ -394,6 +805,15 @@ class TrialRegistry:
             clock=self._clock,
             unique_key="permit_id",
         )
+        self._gate_receipts = HashChainLedger(
+            evaluations_path.with_name(
+                f"{evaluations_path.stem}.gate_receipts.jsonl"
+            ),
+            "trial_gate_receipt_v1",
+            clock=self._clock,
+            unique_key="evaluation_permit_id",
+            payload_validator=_validate_gate_receipt_payload,
+        )
         self.expected_project = expected_project
 
     def with_clock(self, clock: TrustedClock) -> "TrialRegistry":
@@ -409,10 +829,25 @@ class TrialRegistry:
         rebound.registry = self.registry.with_clock(clock)
         rebound.evaluations = self.evaluations.with_clock(clock)
         rebound.permits = self.permits.with_clock(clock)
+        rebound._gate_receipts = self._gate_receipts.with_clock(clock)
         return rebound
 
-    def register(self, spec: TrialSpec, *, verified_release_directories: Iterable[Path]) -> str:
+    def register(
+        self,
+        spec: TrialSpec,
+        *,
+        verified_release_directories: Iterable[Path],
+        repository_root: Path,
+        gate_policy: Any,
+    ) -> str:
         spec.validate()
+        live_identity = repository_trial_identity(repository_root)
+        live_identity.require_spec(spec)
+        require_trial_gate_policy(
+            spec,
+            gate_policy,
+            repository_root=repository_root,
+        )
         verified = verify_release_bindings(
             verified_release_directories,
             accepted_release_root=self.accepted_release_root,
@@ -426,6 +861,7 @@ class TrialRegistry:
             "trial_id": spec.trial_id,
             "registered_at": iso_z(self._clock.now()),
             "trial_registry_binding_id": self.registry_binding_id,
+            "repository_trial_identity_id": live_identity.identity_id,
         }
         self.registry.append(payload, unique_key="trial_id")
         return spec.trial_id
@@ -459,14 +895,56 @@ class TrialRegistry:
         trial_id: str,
         *,
         evaluation_scope: str,
-        evaluation_input_hash: str,
-        evaluator_code_hash: str,
+        execution_evidence: EvaluationExecutionEvidence | None = None,
+        evaluation_input_hash: str | None = None,
+        evaluator_code_hash: str | None = None,
         holdout_receipt: HoldoutStateReceipt,
         action_record: LocalIntegrityRecord,
+        repository_root: Path,
+        gate_policy: Any,
         initial_holdout_receipt: HoldoutStateReceipt | None = None,
     ) -> TrialPermit:
         registration = self.authorize(trial_id)
         spec = TrialSpec.from_registered_payload(registration)
+        try:
+            live_identity = repository_trial_identity(repository_root)
+            live_identity.require_spec(spec)
+            require_trial_gate_policy(
+                spec,
+                gate_policy,
+                repository_root=repository_root,
+            )
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(
+                "registered trial differs from the live repository execution contract"
+            ) from exc
+        if registration.get("repository_trial_identity_id") != live_identity.identity_id:
+            raise EvaluationAuthorizationError(
+                "registered trial lacks its exact live repository identity"
+            )
+        if evaluation_input_hash is not None or evaluator_code_hash is not None:
+            raise EvaluationAuthorizationError(
+                "permit issuance rejects caller-declared execution hashes"
+            )
+        if type(execution_evidence) is not EvaluationExecutionEvidence:
+            raise EvaluationAuthorizationError(
+                "permit issuance requires exact content-addressed execution evidence"
+            )
+        try:
+            execution_evidence.validate(
+                spec,
+                repository_identity=live_identity,
+            )
+        except ContractError as exc:
+            raise EvaluationAuthorizationError(
+                "execution evidence differs from the preregistered trial"
+            ) from exc
+        if execution_evidence.evaluation_scope != evaluation_scope:
+            raise EvaluationAuthorizationError(
+                "execution evidence scope differs from the requested permit"
+            )
+        evaluation_input_hash = execution_evidence.evaluation_input_hash
+        evaluator_code_hash = execution_evidence.evaluator_code_hash
         issued = self._clock.now()
         if issued <= parse_utc_z(str(registration["registered_at"]), "registered_at"):
             raise EvaluationAuthorizationError("permit must be issued after trial registration")
@@ -519,6 +997,8 @@ class TrialRegistry:
             "robustness_policy_id": spec.robustness_policy_id,
             "release_bindings_hash": release_bindings_hash(spec.release_bindings),
             "holdout_receipt_id": holdout_receipt.receipt_id,
+            "execution_evidence_id": execution_evidence.evidence_id,
+            "repository_trial_identity_id": live_identity.identity_id,
         }
         action_record.validate(
             expected_scope=f"AUTHORIZE_{evaluation_scope}",
@@ -588,17 +1068,50 @@ class TrialRegistry:
         self.authorize(permit.trial_id)
         return issued[0]
 
-    def build_gate_receipt(self, permit: TrialPermit, *, policy: Any, metrics: Mapping[str, Any]):
+    def build_gate_receipt(self, permit: TrialPermit, *, policy: Any, evidence: Any):
         issued = self.verify_issued_permit(permit)
         from .gates import _build_gate_receipt_from_issued_permit
 
-        return _build_gate_receipt_from_issued_permit(
+        receipt = _build_gate_receipt_from_issued_permit(
             permit=permit,
             issued_permit=issued,
             policy=policy,
-            metrics=metrics,
+            evidence=evidence,
             clock=self._clock,
         )
+        history = self._gate_receipts.read_verified()
+        self._gate_receipts.append(
+            receipt.as_dict(),
+            expected_record_count=len(history),
+            expected_head_hash=(
+                history[-1]["record_hash"] if history else "0" * 64
+            ),
+        )
+        return receipt
+
+    def verify_issued_gate_receipt(
+        self,
+        permit: TrialPermit,
+        gate_receipt: Any,
+    ) -> Mapping[str, Any]:
+        self.verify_issued_permit(permit)
+        from .gates import GateReceipt
+
+        if type(gate_receipt) is not GateReceipt:
+            raise EvaluationAuthorizationError(
+                "evaluation requires the exact gate receipt contract"
+            )
+        gate_receipt.validate()
+        issued = [
+            row["payload"]
+            for row in self._gate_receipts.read_verified()
+            if row["payload"].get("evaluation_permit_id") == permit.permit_id
+        ]
+        if len(issued) != 1 or issued[0] != gate_receipt.as_dict():
+            raise EvaluationAuthorizationError(
+                "gate receipt is not the exact registry-issued gate receipt"
+            )
+        return issued[0]
 
     def record_evaluation(
         self,
@@ -658,6 +1171,7 @@ class TrialRegistry:
             raise EvaluationAuthorizationError(
                 "evaluation result differs from its gate or robustness bindings"
             )
+        self.verify_issued_gate_receipt(permit, gate_receipt)
         if result.get("state") not in EVALUATION_STATES or result.get("evaluation_closed") is not True:
             raise EvaluationAuthorizationError("evaluation result must be explicitly closed with a valid state")
         try:

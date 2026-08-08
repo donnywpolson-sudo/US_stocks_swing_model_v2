@@ -8,7 +8,7 @@
   "metrics_and_costs": {"primary_forecast_metric": "multiclass_log_loss", "stress_cost_basis_points_one_way": 25, "policy_path": "config/research_readiness_contract.json"},
   "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": true},
   "claims": {"historical_proxy": true, "trusted_result_claim": false, "alpha_claim": false, "candidate_sealing": false, "training_or_evaluation_authorized": false},
-  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": false},
-  "stop_conditions": ["feature or outcome identity drift", "feature/outcome firewall failure", "model or metric substitution", "real-history discovery execution without separate authorization", "trusted or alpha claim"],
-  "contract_id": "5095392fb9b6ac7f38274a99a7ed9f8b9511e6450465c906dcdb1e536b5e7feb"
+  "registration": {"trial_write_authorized": false, "real_history_execution_authorized": false, "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": true, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES"},
+  "stop_conditions": ["feature or outcome identity drift", "feature/outcome firewall failure", "model or metric substitution", "external preregistration absent", "attempt to register legacy or caveated releases", "real-history execution requested for registration-ineligible inputs", "trusted or alpha claim"],
+  "contract_id": "e96c1ad3a556d06b25ad831251fe8dd6262a985dfe6204432a3ee20e6685b4ef"
 }

@@ -14,7 +14,7 @@ def _wfa_plan() -> dict[str, object]:
         "feature_release": {"release_id": "b" * 64, "manifest_sha256": "c" * 64, "row_count": 1, "event_start": "2020-01-06", "event_end": "2020-01-08"},
         "proxy_outcome_release": {"release_id": "d" * 64, "manifest_sha256": "e" * 64, "row_count": 1, "event_start": "2020-01-02", "event_end": "2020-01-08"},
         "features": {"feature_names": ["d0_raw_intraday_return", "trailing_5_session_raw_return", "trailing_5_session_raw_volatility"]},
-        "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5},
+        "wfa": {"state": "BLOCKED_EXTERNAL_PREREGISTRATION_REQUIRES_ELIGIBLE_RELEASES", "outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True, "external_registry_required": True, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES", "real_history_execution_authorized": False, "training_or_evaluation_authorized": False},
         "claims": {"historical_proxy": True, "canonical_target_equivalent": False, "trusted_sleeve_eligible": False, "alpha_claim": False},
         "validation_scope": {}, "required_later_authority": {}, "stop_conditions": [],
         "feature_wfa_plan_id": "f" * 64,
@@ -26,7 +26,9 @@ def test_template_binds_known_inputs_but_cannot_register_or_evaluate() -> None:
     assert len(template["preregistration_template_id"]) == 64
     assert template["registration"]["permitted"] is False
     assert template["registration"]["rows_opened"] == 0
-    assert template["fixed_inputs"]["evidence_class"] == "UNREGISTERED_HISTORICAL_DISCOVERY"
+    assert template["fixed_inputs"]["evidence_class"] == "REGISTERED_HISTORICAL_DISCOVERY"
+    assert template["registration"]["external_registry_required"] is True
+    assert template["registration"]["registration_eligibility"] == "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
     assert template["unselected_hypothesis_fields"] == [
         "model_family", "primary_metric", "cost_policy", "primary_gate", "robustness_policy", "trial_family"
     ]
@@ -34,6 +36,6 @@ def test_template_binds_known_inputs_but_cannot_register_or_evaluate() -> None:
 
 def test_template_rejects_a_weakened_wfa_plan() -> None:
     plan = _wfa_plan()
-    plan["wfa"] = {"outer_protocol": "rolling_origin", "purge_sessions": 0, "embargo_sessions": 5}
+    plan["wfa"] = {**plan["wfa"], "purge_sessions": 0}
     with pytest.raises(ContractError, match="feature/WFA"):
         build_trial_preregistration_template(plan)

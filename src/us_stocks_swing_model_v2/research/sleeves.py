@@ -22,12 +22,14 @@ from .robustness import RobustnessState
 class SleeveState(str, Enum):
     REGISTERED = "REGISTERED"
     MECHANICS_READY = "MECHANICS_READY"
+    MECHANICS_INCONCLUSIVE_DATA_OR_POWER = "MECHANICS_INCONCLUSIVE_DATA_OR_POWER"
     MECHANICS_INCONCLUSIVE_ROBUSTNESS = "MECHANICS_INCONCLUSIVE_ROBUSTNESS"
     MECHANICS_FAIL_CLOSED = "MECHANICS_FAIL_CLOSED"
 
 
 class PortfolioState(str, Enum):
     MECHANICS_READY = "MECHANICS_READY"
+    MECHANICS_INCONCLUSIVE_DATA_OR_POWER = "MECHANICS_INCONCLUSIVE_DATA_OR_POWER"
     MECHANICS_INCONCLUSIVE_ROBUSTNESS = "MECHANICS_INCONCLUSIVE_ROBUSTNESS"
     MECHANICS_FAIL_CLOSED = "MECHANICS_FAIL_CLOSED"
 
@@ -45,21 +47,27 @@ class SleeveThresholds:
     alpha: float
     dsr_probability_minimum: float
     pbo_conservative_maximum: float
+    pbo_failure_threshold: float
 
     def validate(self) -> None:
         alpha = explicit_real(self.alpha, name="alpha")
         dsr = explicit_real(
             self.dsr_probability_minimum, name="dsr_probability_minimum"
         )
-        pbo = explicit_real(
+        pbo_maximum = explicit_real(
             self.pbo_conservative_maximum, name="pbo_conservative_maximum"
+        )
+        pbo_failure = explicit_real(
+            self.pbo_failure_threshold, name="pbo_failure_threshold"
         )
         if not (0.0 < alpha < 1.0):
             raise ResearchContractError("alpha must lie in (0,1)")
         if not (0.0 < dsr < 1.0):
             raise ResearchContractError("DSR threshold must lie in (0,1)")
-        if not (0.0 <= pbo < 1.0):
-            raise ResearchContractError("PBO threshold must lie in [0,1)")
+        if not (0.0 <= pbo_maximum < pbo_failure <= 1.0):
+            raise ResearchContractError(
+                "PBO thresholds must satisfy 0 <= maximum < failure <= 1"
+            )
 
 
 @dataclass(frozen=True)
@@ -189,6 +197,8 @@ def evaluate_synthetic_sleeve(
     metrics.negative_control_result.validate()
     if type(metrics.robustness_state) is not RobustnessState:
         raise ResearchContractError("robustness_state must be an exact RobustnessState")
+    if not 0.0 <= metrics.pbo_conservative <= 1.0:
+        raise ResearchContractError("pbo_conservative must lie in [0,1]")
     numeric_values = np.asarray(
         [
             metrics.mean_after_costs,
@@ -217,18 +227,20 @@ def evaluate_synthetic_sleeve(
         <= 1.0
     ):
         failed.append("DEFLATED_SHARPE")
-    if not (
-        0.0
-        <= metrics.pbo_conservative
-        <= thresholds.pbo_conservative_maximum
-    ):
+    if metrics.pbo_conservative >= thresholds.pbo_failure_threshold:
         failed.append("PBO")
-    if metrics.power_sufficient is not True:
-        failed.append("POWER")
     if metrics.negative_control_result.state is not NegativeControlState.CLEAR:
         failed.append("NEGATIVE_CONTROLS")
+    inconclusive_data_or_power = (
+        metrics.power_sufficient is not True
+        or thresholds.pbo_conservative_maximum
+        <= metrics.pbo_conservative
+        < thresholds.pbo_failure_threshold
+    )
     if failed:
         state = SleeveState.MECHANICS_FAIL_CLOSED
+    elif inconclusive_data_or_power:
+        state = SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
     elif metrics.robustness_state is RobustnessState.MECHANICS_INCONCLUSIVE:
         state = SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
     else:
@@ -262,6 +274,11 @@ def evaluate_portfolio_mechanics(
     included_states = tuple(by_id[sleeve].state for sleeve in charter.included_sleeves)
     if any(state is SleeveState.MECHANICS_FAIL_CLOSED for state in included_states):
         return PortfolioState.MECHANICS_FAIL_CLOSED
+    if any(
+        state is SleeveState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
+        for state in included_states
+    ):
+        return PortfolioState.MECHANICS_INCONCLUSIVE_DATA_OR_POWER
     if any(
         state is SleeveState.MECHANICS_INCONCLUSIVE_ROBUSTNESS
         for state in included_states

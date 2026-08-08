@@ -7,6 +7,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from us_stocks_swing_model_v2.research.contracts import (
+    ResearchContractError,
+    SyntheticOnlyPermit,
+    make_synthetic_permit,
+)
 from us_stocks_swing_model_v2.research.splits import TemporalSamples
 from us_stocks_swing_model_v2.common import canonical_json_bytes
 from us_stocks_swing_model_v2.releases import AtomicReleasePublisher, ReleaseManifest, build_manifest
@@ -28,12 +33,42 @@ from us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa import (
     execute_streaming_unregistered_class_base_rate_comparison,
     execute_planned_streaming_unregistered_wfa,
     execute_planned_streaming_unregistered_class_base_rate_comparison,
+    synthetic_unregistered_discovery_fixture,
     _sessions_covering_joined_decisions,
     iter_caveated_parquet_batches,
 )
 
 
 REPO = Path(__file__).resolve().parents[1]
+SYNTHETIC_WFA_GENERATOR_ID = "unregistered_discovery_wfa_fixture_v1"
+
+
+def _synthetic_wfa_dataset() -> UnregisteredDiscoveryDataset:
+    sessions = np.repeat(np.arange(2016, dtype=np.int64), 2)
+    count = len(sessions)
+    return UnregisteredDiscoveryDataset(
+        tuple(f"s{number}" for number in range(count)),
+        np.column_stack(
+            (sessions / 2016, np.ones(count), np.zeros(count))
+        ).astype(np.float64),
+        np.where(sessions % 3 == 0, 0.01, -0.01).astype(np.float64),
+        TemporalSamples(sessions, sessions + 1, sessions + 5, sessions + 5),
+    )
+
+
+def _synthetic_wfa_permit(
+    dataset: UnregisteredDiscoveryDataset,
+    *,
+    session_count: int = 2016,
+) -> SyntheticOnlyPermit:
+    return make_synthetic_permit(
+        synthetic_unregistered_discovery_fixture(
+            dataset,
+            session_count=session_count,
+        ),
+        generator_id=SYNTHETIC_WFA_GENERATOR_ID,
+        seed=0,
+    )
 
 
 def _joined_stage(tmp_path):
@@ -51,45 +86,84 @@ def _joined_stage(tmp_path):
 
 
 def test_executes_eight_caveated_chronological_folds_in_memory() -> None:
-    sessions = np.repeat(np.arange(2016, dtype=np.int64), 2)
-    count = len(sessions)
-    dataset = UnregisteredDiscoveryDataset(tuple(f"s{n}" for n in range(count)), np.column_stack((sessions / 2016, np.ones(count), np.zeros(count))).astype(float), np.where(sessions % 3 == 0, .01, -.01).astype(float), TemporalSamples(sessions, sessions + 1, sessions + 5, sessions + 5))
-    result = execute_unregistered_discovery_wfa(dataset, session_count=2016)
+    dataset = _synthetic_wfa_dataset()
+    with pytest.raises(TypeError):
+        execute_unregistered_discovery_wfa(dataset, session_count=2016)  # type: ignore[call-arg]
+    result = execute_unregistered_discovery_wfa(
+        dataset,
+        session_count=2016,
+        synthetic_permit=_synthetic_wfa_permit(dataset),
+    )
     assert len(result["folds"]) == 8
     assert result["writes"] == 0
+    assert result["synthetic_only"] is True
+    assert result["historical_proxy"] is False
     assert result["trusted_result_claim"] is False
 
 
-def test_streaming_executor_uses_two_bounded_passes_only() -> None:
-    sessions = tuple(date(2016, 1, 1) + timedelta(days=number) for number in range(2016))
-    decisions = sessions[:-5]
-    table = pa.table({
-        "symbol": ["AAPL"] * len(decisions), "decision_session": decisions,
-        "d0_raw_intraday_return": [0.01] * len(decisions), "trailing_5_session_raw_return": [0.02] * len(decisions),
-        "trailing_5_session_raw_volatility": [0.03] * len(decisions), "proxy_return": [0.01 if number % 3 == 0 else -0.01 for number in range(len(decisions))],
-    })
-    result = execute_streaming_unregistered_discovery_wfa(lambda: iter(table.to_batches(max_chunksize=65536)), sessions=sessions)
-    assert len(result["folds"]) == 8
-    assert result["batch_passes"] == 2
-    assert result["writes"] == 0
-
-
-def test_streaming_comparison_uses_fold_local_class_base_rates_only() -> None:
-    sessions = tuple(date(2016, 1, 1) + timedelta(days=number) for number in range(2016))
-    decisions = sessions[:-5]
-    returns = [0.01 if number % 3 == 0 else -0.01 for number in range(len(decisions))]
-    table = pa.table({
-        "symbol": ["AAPL"] * len(decisions), "decision_session": decisions,
-        "d0_raw_intraday_return": [0.01] * len(decisions), "trailing_5_session_raw_return": [0.02] * len(decisions),
-        "trailing_5_session_raw_volatility": [0.03] * len(decisions), "proxy_return": returns,
-    })
-    result = execute_streaming_unregistered_class_base_rate_comparison(
-        lambda: iter(table.to_batches(max_chunksize=65536)), sessions=sessions
+def test_in_memory_mechanics_reject_permit_input_or_scope_drift() -> None:
+    dataset = _synthetic_wfa_dataset()
+    permit = _synthetic_wfa_permit(dataset)
+    changed_returns = dataset.proxy_returns.copy()
+    changed_returns[0] = 0.02
+    changed_dataset = UnregisteredDiscoveryDataset(
+        dataset.sample_ids,
+        dataset.features,
+        changed_returns,
+        dataset.temporal_samples,
     )
-    assert result["batch_passes"] == 2
-    assert result["writes"] == 0
-    assert all(item["baseline_multiclass_log_loss"] > 0 for item in result["folds"])
-    assert all("candidate_minus_baseline_log_loss" in item for item in result["folds"])
+    with pytest.raises(ResearchContractError, match="does not bind this exact fixture"):
+        execute_unregistered_discovery_wfa(
+            changed_dataset,
+            session_count=2016,
+            synthetic_permit=permit,
+        )
+    with pytest.raises(ResearchContractError, match="does not bind this exact fixture"):
+        execute_unregistered_discovery_wfa(
+            dataset,
+            session_count=2017,
+            synthetic_permit=permit,
+        )
+    wrong_generator = make_synthetic_permit(
+        synthetic_unregistered_discovery_fixture(dataset, session_count=2016),
+        generator_id="other_fixture_v1",
+        seed=0,
+    )
+    with pytest.raises(ResearchContractError, match="generator differs"):
+        execute_unregistered_discovery_wfa(
+            dataset,
+            session_count=2016,
+            synthetic_permit=wrong_generator,
+        )
+
+
+@pytest.mark.parametrize(
+    "executor",
+    (
+        execute_streaming_unregistered_discovery_wfa,
+        execute_streaming_unregistered_class_base_rate_comparison,
+    ),
+)
+def test_streaming_mechanics_fail_before_opening_unbound_batches(executor) -> None:
+    opened = False
+
+    def batch_factory():
+        nonlocal opened
+        opened = True
+        return iter(())
+
+    permit = make_synthetic_permit(
+        np.asarray([1.0], dtype=np.float64),
+        generator_id=SYNTHETIC_WFA_GENERATOR_ID,
+        seed=0,
+    )
+    with pytest.raises(ResearchContractError, match="exact batch content"):
+        executor(
+            batch_factory,
+            sessions=(),
+            synthetic_permit=permit,
+        )
+    assert opened is False
 
 
 def _wfa_plan_for_comparison() -> dict[str, object]:
@@ -102,7 +176,7 @@ def _wfa_plan_for_comparison() -> dict[str, object]:
         "target": {"semantics": "ALPACA_RAW_NEXT_OPEN_TO_FIFTH_CLOSE_SIMPLE_PRICE_RETURN_PROXY_V1", "classes": ["down", "neutral", "up"], "neutral_band": 0.005},
         "wfa": {"outer_protocol": "rolling_origin", "purge_sessions": 5, "embargo_sessions": 5, "fold_local_transforms_required": True},
         "claims": {"historical_proxy": True, "trusted_result_claim": False, "alpha_claim": False, "candidate_sealing": False, "training_or_evaluation_authorized": False},
-        "registration": {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "UNREGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": False},
+        "registration": {"trial_write_authorized": False, "real_history_execution_authorized": False, "required_evidence_class": "REGISTERED_HISTORICAL_DISCOVERY", "external_registry_required": True, "registration_eligibility": "INELIGIBLE_LEGACY_CAVEATED_RELEASES"},
     }
 
 
@@ -113,6 +187,8 @@ def test_comparison_plan_preregisters_only_the_fold_local_base_rate_baseline() -
     assert plan["baseline"] == contract["baseline"]
     assert plan["metric"] == "multiclass_log_loss"
     assert plan["validation_scope"] == {"joined_rows_opened": 0, "calendar_rows_opened": 0, "writes": 0}
+    assert plan["required_authority"]["external_preregistration"] is True
+    assert plan["required_authority"]["registration_eligible_releases"] is True
     assert len(plan["comparison_plan_id"]) == 64
 
 
@@ -132,9 +208,12 @@ def test_calendar_window_retains_the_five_session_outcome_tail() -> None:
         _sessions_covering_joined_decisions(sessions, lower=sessions[2], upper=sessions[7])
 
 
-def test_planned_streaming_executor_rejects_missing_approval_before_opening_release(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED", raising=False)
-    with pytest.raises(Exception, match="confirmation"):
+def test_planned_streaming_executor_blocks_ineligible_inputs_before_opening_release(tmp_path, monkeypatch) -> None:
+    import us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa as subject
+
+    monkeypatch.setenv("ALPACA_DISCOVERY_WFA_EXECUTION_APPROVED", "YES")
+    monkeypatch.setattr(subject, "verify_accepted_release", lambda *_args, **_kwargs: pytest.fail("release access"))
+    with pytest.raises(Exception, match="blocked before release access"):
         execute_planned_streaming_unregistered_wfa(
             tmp_path / "joined", calendar_release_directory=tmp_path / "calendar",
             accepted_root=(tmp_path / "accepted").resolve(), repo_root=REPO,
@@ -142,9 +221,12 @@ def test_planned_streaming_executor_rejects_missing_approval_before_opening_rele
         )
 
 
-def test_planned_comparison_rejects_missing_approval_before_opening_release(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("ALPACA_DISCOVERY_COMPARISON_EXECUTION_APPROVED", raising=False)
-    with pytest.raises(Exception, match="comparison execution confirmation"):
+def test_planned_comparison_blocks_ineligible_inputs_before_opening_release(tmp_path, monkeypatch) -> None:
+    import us_stocks_swing_model_v2.unregistered_alpaca_discovery_wfa as subject
+
+    monkeypatch.setenv("ALPACA_DISCOVERY_COMPARISON_EXECUTION_APPROVED", "YES")
+    monkeypatch.setattr(subject, "verify_accepted_release", lambda *_args, **_kwargs: pytest.fail("release access"))
+    with pytest.raises(Exception, match="blocked before release access"):
         execute_planned_streaming_unregistered_class_base_rate_comparison(
             tmp_path / "joined", calendar_release_directory=tmp_path / "calendar",
             accepted_root=(tmp_path / "accepted").resolve(), repo_root=REPO,
@@ -290,6 +372,8 @@ def test_publication_and_wfa_plans_are_caveated_and_no_write(tmp_path) -> None:
     wfa = build_unregistered_wfa_plan(joined_release, calendar_release_directory=calendar, accepted_root=accepted, repo_root=REPO)
     assert wfa["validation_scope"]["writes"] == 0
     assert wfa["claims"]["trusted_result_claim"] is False
+    assert wfa["registration"]["external_registry_required"] is True
+    assert wfa["registration"]["registration_eligibility"] == "INELIGIBLE_LEGACY_CAVEATED_RELEASES"
 
 
 def test_publisher_requires_approval_then_publishes_only_joined_shards(tmp_path, monkeypatch) -> None:
