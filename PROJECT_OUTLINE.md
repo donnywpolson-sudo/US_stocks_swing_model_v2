@@ -13,6 +13,22 @@ V2 retains the legacy research question but not the legacy implementation or
 authority. No legacy source, model, trial, approval, path, or generated file
 becomes active merely because it existed in the earlier project.
 
+## Active free-only pathway
+
+The current project path uses completely free sources and services, local
+desktop storage, and GitHub backup only. It excludes paid data, subscriptions,
+commercial trial offers, cloud registries, and additional hosted
+infrastructure. While no complete free effective-event and delisting backend
+satisfies the binding evidence contract, the project remains limited to
+synthetic mechanics, legacy discovery-only evidence, and bounded prospective
+raw evidence.
+
+This cost constraint does not weaken the scientific contract. Production
+inputs, outcome access, real-trial registration, training, evaluation,
+candidate sealing, source activation, and production-readiness claims remain
+blocked until complete free evidence satisfies every existing capability and
+each controlled action receives its own authorization.
+
 ## Durable boundaries
 
 - Research remains separate from live use and trading.
@@ -44,6 +60,8 @@ The binding detail lives in
    operational, and cutover gates pass.
 
 Documentation of this roadmap is not permission to execute a phase.
+Under the active free-only pathway, steps 2 through 7 remain a conditional
+future route rather than a claim that suitable evidence currently exists.
 
 ## Document roles
 

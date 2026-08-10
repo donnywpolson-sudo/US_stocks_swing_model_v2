@@ -6,6 +6,14 @@ completed session can support a useful forecast after explicit costs and
 chronological walk-forward checks. It is research-only: not investment advice,
 a live trading system, an options model, or proof of profitability.
 
+The active operating path is completely free and uses local desktop storage
+with GitHub backup only. Paid data, subscriptions, commercial trial offers,
+and additional hosted infrastructure are excluded. Until a complete free
+effective-event and delisting source satisfies the existing evidence contract,
+the repository is a discovery and prospective-mechanics system: production
+inputs, outcomes, real-trial registration, training, evaluation, activation,
+candidate sealing, and readiness claims remain fail-closed.
+
 ## Five-session contract
 
 ```text
@@ -33,8 +41,9 @@ operational rules.
 | Source | Current role |
 |---|---|
 | Alpaca historical archive | Caveated legacy evidence with unresolved universe selection |
-| Alpaca Basic SIP | Sole qualified bar feed; non-active pending prospective smoke capture and activation |
+| Alpaca Basic SIP | Sole qualified bar feed; bounded smoke completed, still non-active |
 | Alpaca assets and Nasdaq Trader | Identity evidence, not bar or research authority |
+| Alpaca corporate actions | Raw provider-process-date evidence only; not complete effective-event or delisting evidence |
 | Alpha Vantage and options data | Excluded |
 
 ## Key documents

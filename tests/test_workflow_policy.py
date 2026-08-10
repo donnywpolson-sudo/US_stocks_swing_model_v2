@@ -98,11 +98,11 @@ def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation()
     assert "docs/CURRENT_STATE.md" in readme
     assert "not\nexecution authority" in state
     assert "current code, configuration, accepted\nreleases, Git state" in state
-    assert "PROSPECTIVE_EVIDENCE_WAITING_PERIOD_FOUNDATIONS_IMPLEMENTED" in state
+    assert "FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_PATH_ACTIVE" in state
     assert "as `legacy_discovery_only`" in state
     assert "materialized\n  releases are not established" in state
     assert "No proxy artifact can enter trusted eligibility" in state
-    assert "active-SIP canonical-bars smoke capture remains a separate" in state
+    assert "bounded SIP smoke capture and its non-active accepted release are" in state
     assert "unimplemented" not in state.lower()
     assert "## Operational routing" in state
     assert "canonical checklist in `AGENTS.md`" in state
@@ -118,6 +118,42 @@ def test_current_state_matches_the_qualified_non_active_sip_source_contract() ->
     assert alpaca["status"] == "qualified_sip_not_active"
     assert alpaca["enabled_for_active_pipeline"] is False
     assert "Alpaca SIP is the sole qualified bar feed, but remains non-active." in state
+
+
+def test_free_only_path_is_machine_readable_and_keeps_trusted_gates_closed() -> None:
+    readme = _read("README.md")
+    outline = _read("PROJECT_OUTLINE.md")
+    state = _read("docs/CURRENT_STATE.md")
+    contract = json.loads(_read("config/research_readiness_contract.json"))
+    path = contract["operating_path"]
+
+    assert path["mode"] == "FREE_ONLY_LOCAL_GITHUB_DISCOVERY_AND_PROSPECTIVE"
+    assert path["external_data_cost_policy"] == (
+        "PAID_DATA_SUBSCRIPTIONS_PURCHASES_AND_COMMERCIAL_TRIALS_PROHIBITED"
+    )
+    assert path["storage_policy"] == "LOCAL_DESKTOP_WITH_GITHUB_BACKUP_ONLY"
+    assert path["additional_hosted_infrastructure_allowed"] is False
+    assert path["current_backend_state"] == (
+        "BACKEND_UNSELECTED_NO_COMPLETE_FREE_BACKEND_ESTABLISHED"
+    )
+    assert path["future_free_evidence_is_self_authorizing"] is False
+    assert path["trusted_gates"] == {
+        "production_inputs": False,
+        "outcome_access": False,
+        "real_trial_registration": False,
+        "training": False,
+        "evaluation": False,
+        "candidate_sealing": False,
+        "source_activation": False,
+        "production_readiness": False,
+    }
+    assert contract["readiness"]["current_state"] == (
+        "FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_FAIL_CLOSED"
+    )
+    for document in (readme, outline, state):
+        assert "completely free" in document
+    assert "raw-only provider-process-date evidence" in state
+    assert "does not weaken the scientific contract" in outline
 
 
 def test_orientation_and_outline_route_to_specialist_documents() -> None:

@@ -7,10 +7,14 @@ before acting.
 
 ## Current milestone
 
-`PROSPECTIVE_EVIDENCE_WAITING_PERIOD_FOUNDATIONS_IMPLEMENTED`
+`FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_PATH_ACTIVE`
 
 - The controlled rebuild architecture and its synthetic acceptance contracts
   are complete.
+- The active operating path permits only completely free data and services.
+  Project storage remains on the local desktop with GitHub as the configured
+  backup. Paid data, subscriptions, commercial trial offers, and additional
+  hosted infrastructure are outside this path.
 - Retired non-Alpaca artifacts are excluded from new derivative and research
   work and await a separately authorized hash-bound cleanup plan.
 - Alpaca SIP is the sole qualified bar feed, but remains non-active. The
@@ -22,10 +26,12 @@ before acting.
   releases are not established by the currently reviewed accepted-release
   census. No proxy artifact can enter trusted eligibility, feature, outcome,
   registration, or evaluation work.
-- The first bounded active-SIP canonical-bars smoke capture remains a separate
-  time-gated external action. The prospective epoch planner binds accepted
-  identity, bars, action, and calendar releases before any downstream release
-  publication can be considered.
+- The bounded SIP smoke capture and its non-active accepted release are
+  complete. This does not activate Alpaca SIP or authorize downstream work.
+- The August 10 bounded Alpaca corporate-action capture is preserved as
+  raw-only provider-process-date evidence. It does not establish complete
+  effective-event or delisting coverage and cannot authorize outcomes,
+  registration, research, training, evaluation, publication, or activation.
 - One fresh Nasdaq/Alpaca identity pair has passed local integrity, continuity,
   projection, and join assessment. Its immutable `prospective_as_received`
   identity release is accepted but non-active; the hash-bound publication
@@ -49,12 +55,21 @@ before acting.
   indeterminate, and no real trial has been registered, committed, or backed
   up, so training and evaluation remain blocked.
 
-## Next meaningful gate
+## Free-only operating boundary
 
-The next data gate is a separately authorized prospective AAPL/SPY SIP smoke
-capture after the fixed completed session and its 20-minute lag. It requires
-the qualified-but-non-active SIP source plus accepted identity/calendar
-lineage. The July bar fixtures remain diagnostic-only.
+No reviewed completely free source establishes all required effective-event
+and delisting capabilities. The backend therefore remains
+`BACKEND_UNSELECTED`, and production inputs, outcome access, real-trial
+registration, training, evaluation, candidate sealing, source activation, and
+production-readiness claims remain blocked. Free evidence discovered later
+must satisfy the existing complete-census, lineage, receipt-time, and revision
+contracts; its availability would not authorize any controlled action.
+
+Safe local work may continue on synthetic mechanics, adversarial tests,
+documentation, and the historical-trial census without inspecting research
+outcomes. Separately authorized bounded free captures may extend prospective
+raw evidence, but they remain non-active and cannot repair historical
+completeness.
 
 ## Operational routing
 
@@ -67,9 +82,10 @@ configured GitHub branch before outcome access; no such registration exists.
 ## Non-claims
 
 The project has no historical alpha result, active candidate, prospective
-confirmation, trading readiness, or authority to use options data. SIP
-qualification does not establish point-in-time membership, complete corporate
-actions, canonical bars, or research eligibility.
+confirmation, trading readiness, or authority to use options data. Free-only
+operation, SIP qualification, and raw captures do not establish point-in-time
+membership, complete corporate actions or delistings, research eligibility, or
+production readiness.
 
 ## Where to verify details
 

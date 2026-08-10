@@ -1,8 +1,39 @@
 {
   "schema_version": 1,
-  "contract_version": "1.6.0-production-control-mechanics",
+  "contract_version": "1.7.0-free-only-operating-path",
   "project": "US_stocks_swing_model_v2",
   "contract_status": "SYNTHETIC_MECHANICS_IMPLEMENTED_REAL_EVIDENCE_BLOCKED",
+  "operating_path": {
+    "mode": "FREE_ONLY_LOCAL_GITHUB_DISCOVERY_AND_PROSPECTIVE",
+    "external_data_cost_policy": "PAID_DATA_SUBSCRIPTIONS_PURCHASES_AND_COMMERCIAL_TRIALS_PROHIBITED",
+    "storage_policy": "LOCAL_DESKTOP_WITH_GITHUB_BACKUP_ONLY",
+    "additional_hosted_infrastructure_allowed": false,
+    "current_backend_state": "BACKEND_UNSELECTED_NO_COMPLETE_FREE_BACKEND_ESTABLISHED",
+    "allowed_evidence_roles": [
+      "synthetic_mechanics",
+      "legacy_discovery_only",
+      "bounded_prospective_raw_evidence"
+    ],
+    "trusted_gates": {
+      "production_inputs": false,
+      "outcome_access": false,
+      "real_trial_registration": false,
+      "training": false,
+      "evaluation": false,
+      "candidate_sealing": false,
+      "source_activation": false,
+      "production_readiness": false
+    },
+    "complete_free_evidence_required_before_trusted_gates": [
+      "effective_event_census",
+      "delisting_census",
+      "asset_session_scope",
+      "raw_as_received_lineage",
+      "receipt_time_availability",
+      "revision_and_late_arrival_history"
+    ],
+    "future_free_evidence_is_self_authorizing": false
+  },
   "independence": {
     "common_interpreter_allowed": true,
     "byte_identical_provenance_preserving_source_copies_allowed": true,
@@ -49,8 +80,8 @@
     "legacy_repositories_read_only": true
   },
   "readiness": {
-    "target_state": "HISTORICAL_RESEARCH_READY",
-    "current_state": "HISTORICAL_RESEARCH_READY_MECHANICAL_DISCOVERY_ONLY",
+    "target_state": "FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_PATH",
+    "current_state": "FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_FAIL_CLOSED",
     "mechanical_assessment_status": "PASS_NON_AUTHORIZING_LEGACY_DISCOVERY_ONLY",
     "readiness_is_execution_authority": false,
     "historical_evidence_scope": "LEGACY_DISCOVERY_ONLY_PIT_UNRESOLVED",
