@@ -5,17 +5,41 @@ checklist. This guide explains ordinary workflow examples without repeating its
 scientific, source, secret, generated-data, destructive-action, revalidation,
 or approval controls.
 
-## One outcome, one local phase
+## Localized work
 
-Treat a request to pursue, continue, or implement an outcome as one plan to its
-next real durable-state or external gate. A repository-local implementation
-request includes routine discovery, edits, focused validation, static checks,
-read-only verification, and up to two evidenced corrective cycles. Do not ask
-for serial “do that” approvals during those steps.
+For a localized implementation, inspect the target and representative nearby
+tests, make the attributable edit, and run the focused checks as one local
+phase. Continue to the next real durable-state or external gate without serial
+routine confirmations.
 
-Before adding a module, policy, abstraction, or control, identify the concrete
-outcome or required safeguard it improves. Prefer the simplest robust approach
-that produces verified progress; surface complexity is not evidence of quality.
+## Task contract when scope is ambiguous
+
+For medium or ambiguous work, put a compact contract in the task prompt or
+working plan. Do not require one for localized work with an already clear
+outcome and boundary.
+
+```md
+## Goal
+
+[Specific outcome.]
+
+## In scope
+
+- [Required behavior and known subsystem or files.]
+
+## Non-goals
+
+- No unrelated refactor.
+- No unrequested public API, schema, dependency, or architecture change.
+- No generalized framework for hypothetical variants.
+- Report adjacent issues instead of fixing them.
+
+## Done when
+
+- [Observable acceptance criterion.]
+- [Narrowest relevant verification.]
+- The final diff contains no unrelated changes.
+```
 
 After an authorized commit, do the safe no-network, no-write planning needed to
 identify the next real gate. Do not detour into non-blocking hardening or
@@ -45,18 +69,6 @@ substantive invocation and does not spend it.
 For generated-data staging, calibrate file and byte limits before the first real
 attempt. Audit reviewer transport and completion-footer rules belong only to
 [`AUDIT_WORKFLOW.md`](AUDIT_WORKFLOW.md).
-
-## Keep context light
-
-Use verified live state rather than copied chronology. Keep only the current
-outcome, blocker (or `none`), and next meaningful phase. Use
-[`CODEX_HANDOFF.md`](../CODEX_HANDOFF.md) only for a genuine fresh-thread
-transfer, context loss, or high-risk gate that needs durable coordination.
-
-After two avoidable clarification or approval exchanges without a genuine
-boundary, state the outcome, blocker, and next real gate once, then continue
-the active local phase. Do not replace progress with another continuation prompt
-or handoff update.
 
 ## Read the specialist guide only when needed
 

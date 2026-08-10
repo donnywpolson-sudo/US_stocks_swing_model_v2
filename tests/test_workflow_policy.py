@@ -29,13 +29,14 @@ def _read(relative_path: str) -> str:
 
 def test_agents_retains_the_binding_action_and_safety_boundaries() -> None:
     agents = _read("AGENTS.md")
+    audit = _read("docs/AUDIT_WORKFLOW.md")
 
     for action_class in (
-        "`LOCAL_CORRECTABLE`",
-        "`READ_ONLY_INVOCATION`",
-        "`MUTATING_OR_EXTERNAL`",
+        "LOCAL_CORRECTABLE",
+        "READ_ONLY_INVOCATION",
+        "MUTATING_OR_EXTERNAL",
     ):
-        assert action_class in agents
+        assert agents.count(f"| `{action_class}` |") == 1
     for boundary in (
         "Do not commit, push, or cut over unless",
         "Never read, print, copy, move, edit, or commit secrets",
@@ -48,38 +49,46 @@ def test_agents_retains_the_binding_action_and_safety_boundaries() -> None:
     assert "| `LOCAL_CORRECTABLE` |" in agents
     assert "| `READ_ONLY_INVOCATION` |" in agents
     assert "| `MUTATING_OR_EXTERNAL` |" in agents
+    assert "### Action And Failure Classes" not in agents
+    assert "## Action Classes" not in audit
 
 
-def test_policies_prefer_verified_outcome_progress_over_surface_complexity() -> None:
+def test_agents_define_scope_simplicity_and_completion_structurally() -> None:
     agents = _read("AGENTS.md")
-    workflow = _read("docs/AGENT_WORKFLOW.md")
+    normalized = " ".join(agents.split())
 
-    assert "demonstrated progress toward the stated outcome" in agents
-    assert "apparent sophistication, abstraction count" in agents
-    assert "direct, well-tested solution that advances the outcome" in agents
-    assert "concrete\noutcome or required safeguard it improves" in workflow
-    assert "simplest robust approach\nthat produces verified progress" in workflow
+    assert "### Scope, Simplicity, And Completion" in agents
+    assert "Follow established repository architecture when it fits" in normalized
+    assert "Prefer a direct, well-tested solution" in agents
+    assert "new dependency, public API or schema" in normalized
+    assert "explain why a smaller alternative is insufficient" in normalized
+    assert "Localized work should proceed directly" in agents
+    assert "Use one agent by default" in normalized
+    assert "Update documentation and comments only for" in agents
+    assert "Do not add a fallback that conceals a visible failure" in normalized
+    assert "Stop when the requested behavior and acceptance criteria are satisfied" in normalized
+    assert "one final diff review finds no accidental scope growth" in normalized
+    assert "Report optional improvements without implementing them" in normalized
+    assert "more than five tracked paths" not in agents
+    assert "more than one new implementation concept" not in agents
 
 
 def test_workflow_routes_to_the_canonical_checklist_without_prompt_churn() -> None:
     agents = _read("AGENTS.md")
     workflow = _read("docs/AGENT_WORKFLOW.md")
-    handoff = _read("CODEX_HANDOFF.md")
+    audit = _read("docs/AUDIT_WORKFLOW.md")
     normalized_agents = " ".join(agents.split())
-    normalized_handoff = " ".join(handoff.split())
 
     assert workflow.count("## Approval matrix") == 0
     assert "canonical task-routing and gate checklist" in workflow
     assert "../AGENTS.md#canonical-task-routing-and-gate-checklist" in workflow
     assert "Never require copied plan IDs,\nhashes, commands, or authorization text." in workflow
-    assert "After two avoidable clarification or approval exchanges" in agents
-    assert "After two avoidable clarification or approval exchanges" in workflow
+    assert "before repository changes; CLI or test invocations" in normalized_agents
+    assert "Pure explanation and status work require only the evidence needed to answer" in normalized_agents
+    assert "Use this checklist for every task" not in agents
+    assert "## Action Classes" not in audit
+    assert "## Handoffs" not in audit
     assert "Do not create or update it for ordinary same-thread work." in normalized_agents
-    assert (
-        "Do not use it for routine progress, continuation prompts, or handoff-only commits."
-        in normalized_handoff
-    )
-    assert len(handoff.split()) <= 450
 
 
 def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation() -> None:

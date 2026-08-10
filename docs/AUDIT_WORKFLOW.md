@@ -44,20 +44,6 @@ prerequisite remains blocked. An incomplete invocation stops the sequence.
 Later local remediation is a separate `LOCAL_CORRECTABLE` phase and does not
 transfer the earlier verdict to the changed commit.
 
-## Action Classes
-
-`LOCAL_CORRECTABLE` work is repository-local and reversible. An implementation
-request includes focused tests, static checks, and at most two materially
-corrective edit-and-validation cycles.
-
-`READ_ONLY_INVOCATION` work is a content-addressed audit, assessment, or
-diagnostic whose manifest controls independence, ordering, attempt use, and
-retry.
-
-`MUTATING_OR_EXTERNAL` work includes generated evidence, data/release/receipt
-mutation, providers, research, model activity, activation, trading, destructive
-work, commit, push, and cutover. It retains exact action-specific authorization.
-
 ## Meta Audit Flow
 
 1. Freeze the exact ordinary tracked reference corpus without emitting target
@@ -100,11 +86,3 @@ the canonical dispatch reaches the fresh reviewer before creation, unchanged
 and checksum-verified, without a retained dispatch file or undeclared process.
 Preserve existing envelopes and stopped-attempt evidence; this freeze grants no
 cleanup authority.
-
-## Handoffs
-
-`CODEX_HANDOFF.md` is for genuine thread transfer, context loss, or an
-external/high-risk gate that depends on recorded continuation state. In one
-live thread, reconcile stale handoff prose against Git but continue safe,
-already-authorized work. Do not create handoff-only commits for routine prompt,
-validation, or gate transitions.

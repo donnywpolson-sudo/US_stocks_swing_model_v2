@@ -67,37 +67,18 @@
   inputs; build eligible, feature, and outcome releases separately; register
   research before outcome access; then evaluate, seal, and monitor only through
   their separate gates. Documentation never authorizes a phase.
-- Treat a non-trivial request as one outcome. Complete its safe read-only work,
-  local implementation, focused checks, and up to two evidence-based corrective
-  cycles without asking the user to repeat permission. Stop only for a genuine
-  approval, decision, scope change, or blocker.
-- Use the smallest direct change that meets the accepted contract. Avoid
-  speculative abstractions, duplicate controls, and unrelated cleanup. See
-  `docs/AGENT_WORKFLOW.md` for operating examples and preparation detail.
-- After two avoidable clarification or approval exchanges without a genuine
-  external, durable-state, or scope boundary, summarize the outcome, current
-  blocker, and next real gate, then continue the active local phase. Do not
-  create another prompt cycle for routine work.
-
-### Action And Failure Classes
-
-- `LOCAL_CORRECTABLE`: requested local edits, read-only diagnostics, focused
-  tests, static checks, and `git diff --check`. A plain-language implementation
-  request authorizes these routine steps and up to two evidenced corrections.
-- `READ_ONLY_INVOCATION`: a manifest-bound audit, assessment, or diagnostic.
-  Its manifest controls ordering, evidence, interruption, and retry.
-- `MUTATING_OR_EXTERNAL`: provider work, generated evidence, data/release/
-  receipt mutation, research, training, evaluation, prediction, activation,
-  trading, destructive work, commit, push, or cutover. It needs its existing
-  action-specific authorization and retry policy.
-- These classes never weaken scientific, secret, accepted-release, provider, or
-  commit/push controls.
+- Treat a non-trivial request as one outcome and continue its safe, authorized
+  local phase until completion or a genuine approval, decision, scope, or
+  external-state boundary. `docs/AGENT_WORKFLOW.md` provides ordinary examples
+  and preparation detail without adding authority.
 
 ### Canonical Task Routing And Gate Checklist
 
-Use this checklist for every task. `docs/AGENT_WORKFLOW.md` gives ordinary
-workflow examples only; it does not add authority or define another approval
-matrix.
+Use this checklist before repository changes; CLI or test invocations; audits,
+assessments, or diagnostics; and mutating or external actions. Pure explanation
+and status work require only the evidence needed to answer.
+`docs/AGENT_WORKFLOW.md` gives ordinary workflow examples only; it does not add
+authority or define another approval matrix.
 
 | Class | Before work | May proceed | Gate or stop condition |
 |---|---|---|---|
@@ -105,26 +86,46 @@ matrix.
 | `READ_ONLY_INVOCATION` | Confirm repository identity, the selected executable where applicable, and the controlling manifest or assessment contract. | Only the declared read-only audit, assessment, or diagnostic in its required order. | The manifest controls evidence, interruption, and retry; do not turn a failed or incomplete invocation into a new attempt. |
 | `MUTATING_OR_EXTERNAL` | Confirm repository identity, branch, HEAD, status, exact targets, applicable specialist controls, and the action-specific authorization. | Nothing beyond bounded planning and dry-run preparation until every required authorization detail is present. | Require the declared command family, scope, limit, timeout or stop condition, expected outputs, disposition, and action-specific authorization; preserve ambiguous or partial results and stop. |
 
-Immediately before the first write, before staging, and before claiming
-completion, revalidate the exact Git root, branch, HEAD, status, intended target
-paths, and attributable diff against the recorded baseline. The detailed
-controls below remain binding; this checklist organizes them without weakening
-them.
+The detailed controls below remain binding; this checklist organizes them
+without weakening them.
 
-### Simplicity And Proportionality
+### Scope, Simplicity, And Completion
 
-- Judge work by demonstrated progress toward the stated outcome, contract
-  satisfaction, focused verification, and maintainability—not by code volume,
-  apparent sophistication, abstraction count, or the number of controls.
-- Prefer a direct, well-tested solution that advances the outcome, even when it
-  looks ordinary. Do not add complexity that cannot show a concrete improvement
-  to the current outcome or a required control.
-- Prefer the smallest direct change and proportional focused validation. Do not
-  add speculative frameworks, duplicate controls, or unrelated cleanup.
-- For more than five tracked paths or more than one new implementation concept,
-  confirm internally why existing code cannot meet the goal and what can be
-  omitted. Simplicity never weakens scientific, secret, provider, destructive,
-  or accepted-release controls.
+- Judge work by progress toward the stated outcome, contract satisfaction,
+  focused verification, and maintainability—not by code volume, apparent
+  sophistication, abstraction count, or control count.
+- Inspect representative nearby code and tests before designing a change.
+  Follow established repository architecture when it fits, and limit changes
+  to necessary outcome, safety, documentation, and verification work. Report
+  unrelated defects rather than fixing them without scope.
+- Prefer a direct, well-tested solution. Necessary complexity is permitted when
+  the current requirement genuinely needs it, but do not introduce speculative
+  frameworks, interfaces, wrappers, extension systems, configuration systems,
+  operational layers, compatibility paths, fallbacks, retries, or dependencies
+  without a current requirement, an existing contract, or an established
+  repository pattern. Do not add a fallback that conceals a visible failure
+  unless the existing contract requires that fallback.
+- Localized work should proceed directly. Use a written plan only when
+  meaningful sequencing, ambiguity, or material risk warrants one. Use one
+  agent by default; use parallel work only when tasks are genuinely independent
+  or distinct expertise materially reduces risk or latency. Do not turn these
+  rules into a planning ceremony for trivial work.
+- If the outcome appears to require a new dependency, public API or schema,
+  migration, architectural or cross-cutting subsystem, library replacement, CI
+  or deployment expansion, or broader refactor, explain why a smaller
+  alternative is insufficient and obtain direction unless that exact class of
+  change was requested.
+- Update documentation and comments only for changed public behavior, changed
+  procedures or configuration, non-obvious invariants the implementation
+  depends on, or references made inaccurate by the patch. Do not add speculative
+  design narratives, future architecture, or unrelated cleanup documentation.
+- Stop when the requested behavior and acceptance criteria are satisfied; the
+  narrowest relevant checks pass or are explicitly unavailable; one final diff
+  review finds no accidental scope growth or hidden behavior change; and no
+  known material correctness, security, scientific, compatibility, or worktree
+  issue was caused by the change. Report optional improvements without
+  implementing them, and do not continue polishing after these conditions are
+  met.
 
 ## Project-Specific Rules
 
