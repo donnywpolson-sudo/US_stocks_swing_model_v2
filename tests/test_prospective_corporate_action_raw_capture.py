@@ -31,7 +31,12 @@ def _plan(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
 def test_raw_capture_plan_is_one_page_and_explicitly_blocks_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _plan(monkeypatch)
-    assert plan["replaces_capture_plan_id"] == "0e68260b72adbc27f1ddb71b8eb3b2f07d781f60828afd6b3b4a10daebcaf1f8"
+    assert plan["replaces_capture_plan_id"] == "798e1777dfdc8caee5e62aca2285e1c35f9357b69f8b7a42b7e981ef5932a449"
+    assert [item["path"] for item in plan["code_closure"]["files"]] == [
+        "src/us_stocks_swing_model_v2/prospective_corporate_action_raw_capture.py",
+        "src/us_stocks_swing_model_v2/cli/prospective_corporate_action_raw_capture.py",
+        "src/us_stocks_swing_model_v2/providers/corporate_actions.py",
+    ]
     assert plan["request"]["max_pages"] == 1
     assert plan["coverage"]["effective_event_completeness"] is False
     assert plan["coverage"]["delisting_evidence_available"] is False

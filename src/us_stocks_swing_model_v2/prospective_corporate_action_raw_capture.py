@@ -25,6 +25,7 @@ SNAPSHOT_ROOT = "data/vault/qualification/as_received/prospective_corporate_acti
 CODE_CLOSURE_PATHS = (
     "src/us_stocks_swing_model_v2/prospective_corporate_action_raw_capture.py",
     "src/us_stocks_swing_model_v2/cli/prospective_corporate_action_raw_capture.py",
+    "src/us_stocks_swing_model_v2/providers/corporate_actions.py",
 )
 PROJECT = "US_stocks_swing_model_v2"
 
@@ -58,7 +59,7 @@ def _policy(root: Path) -> dict[str, Any]:
         "mode": "PROSPECTIVE_CORPORATE_ACTION_RAW_CAPTURE_PLAN_ONLY",
         "source": "alpaca_corporate_actions",
         "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
-        "replaces_capture_plan_id": "0e68260b72adbc27f1ddb71b8eb3b2f07d781f60828afd6b3b4a10daebcaf1f8",
+        "replaces_capture_plan_id": "798e1777dfdc8caee5e62aca2285e1c35f9357b69f8b7a42b7e981ef5932a449",
         "request_contract": {"sort": "asc", "http_timeout_seconds": 30, "host_timeout_seconds": 120, "max_pages": 1, "max_response_bytes": 1048576, "redirects_allowed": False},
         "coverage": {"semantics": "PROVIDER_PROCESS_DATE_ACQUISITION_ONLY", "effective_event_completeness": False, "delisting_evidence_available": False, "outcomes_may_compute": False, "unresolved_rows_remain_in_denominator": True, "imputation_or_drop_allowed": False},
     }

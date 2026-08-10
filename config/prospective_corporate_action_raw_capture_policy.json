@@ -4,7 +4,7 @@
   "mode": "PROSPECTIVE_CORPORATE_ACTION_RAW_CAPTURE_PLAN_ONLY",
   "source": "alpaca_corporate_actions",
   "endpoint": "https://data.alpaca.markets/v1/corporate-actions",
-  "replaces_capture_plan_id": "0e68260b72adbc27f1ddb71b8eb3b2f07d781f60828afd6b3b4a10daebcaf1f8",
+  "replaces_capture_plan_id": "798e1777dfdc8caee5e62aca2285e1c35f9357b69f8b7a42b7e981ef5932a449",
   "request_contract": {
     "sort": "asc",
     "http_timeout_seconds": 30,

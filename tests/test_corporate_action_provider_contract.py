@@ -142,10 +142,12 @@ def test_guarded_fetch_persists_the_approved_request_plan_binding(
         api_secret_key="fixture-secret",
         network_enabled=True,
         max_pages=1,
+        max_response_bytes=1048576,
         clock=clock,
         authorization_session=session,
     )
     assert pages == (page,)
+    assert observed["max_bytes"] == 1048576
     assert observed["requested_at"] == requested
     assert observed["request_plan_id"] == "a" * 64
 
