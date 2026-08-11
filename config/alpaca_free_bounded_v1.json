@@ -21,8 +21,29 @@
     "accepted_root": "data/vault/accepted",
     "strict_release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
     "successor_candidate_release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
-    "qualified_release_id": null,
-    "qualification": null,
+    "qualified_release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+    "qualification": {
+      "schema_version": 1,
+      "status": "QUALIFIED_BYTE_IDENTICAL_SUCCESSOR",
+      "qualified_at": "2026-08-11T02:03:08.609132Z",
+      "qualification_plan_id": "6e8e8b94f6b98043abf837787567c52d00f3a8f095940168c883fec1dd028886",
+      "old_release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
+      "successor_release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+      "old_environment_sha256": "3b3b2d0e10f142d14bdf37e7ff6e0e30c99ac675bb2f27b7e6be672cbc318851",
+      "successor_environment_sha256": "357140d886aeb7f8b9eb46be606451eeff072d652cdf0d726d1d22e437b49fe8",
+      "old_sessions_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+      "successor_sessions_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+      "session_count": 9049,
+      "first_session": "2000-01-03",
+      "last_session": "2035-12-31",
+      "session_payload_comparison": "BYTE_IDENTICAL",
+      "session_difference_count": 0,
+      "original_release_recoverable": true,
+      "strict_binding_unchanged": true,
+      "source_activation": false,
+      "research_authorized": false,
+      "qualification_id": "789f7392ad5c442d4374840156fe7b7467bb8d94f8974830d4be59360536aec3"
+    },
     "strict_binding_unchanged": true
   },
   "bars": {
@@ -47,7 +68,10 @@
     "provider": "alpha_vantage",
     "endpoint": "https://www.alphavantage.co/query",
     "function": "LISTING_STATUS",
-    "states": ["active", "delisted"],
+    "states": [
+      "active",
+      "delisted"
+    ],
     "explicit_date_required": true,
     "response_format": "csv",
     "status": "CANDIDATE_PENDING_LIVE_SEMANTICS_VALIDATION",
@@ -77,7 +101,11 @@
     "rest_endpoint": "https://data.alpaca.markets/v1/corporate-actions",
     "optional_stream_endpoint": "https://stream.data.alpaca.markets/v1beta1/events/corporate-actions",
     "stream_is_optional_capability": true,
-    "mutation_types": ["insert", "update", "delete"],
+    "mutation_types": [
+      "insert",
+      "update",
+      "delete"
+    ],
     "known_groups": [
       "reverse_splits",
       "forward_splits",
@@ -103,7 +131,11 @@
     "primary_size": 500,
     "sensitivity_profile_id": "ALPACA_FREE_BOUNDED_V1_TOP_1000_SENSITIVITY",
     "sensitivity_size": 1000,
-    "permitted_primary_exchanges": ["NASDAQ", "NYSE", "NYSE_AMERICAN"],
+    "permitted_primary_exchanges": [
+      "NASDAQ",
+      "NYSE",
+      "NYSE_AMERICAN"
+    ],
     "minimum_previous_close": 5.0,
     "lookback_sessions": 60,
     "ranking": "TRAILING_60_SESSION_MEDIAN_DOLLAR_VOLUME",
@@ -116,7 +148,10 @@
     "human_estimand": "Alpaca SIP five-session gross long/short trading return before stock-borrow and locate costs, using a bounded provider-reconstructed universe of affirmatively verified U.S. primary-listed common stocks, prospective easy-to-borrow short gating, and explicit unresolved-event reporting.",
     "entry": "D1_REGULAR_SESSION_OPEN",
     "exit": "D5_REGULAR_SESSION_CLOSE",
-    "supported_sides": ["LONG", "SHORT"],
+    "supported_sides": [
+      "LONG",
+      "SHORT"
+    ],
     "fixed_horizon_layer": "FIXED_HORIZON_SIGNAL_RETURN",
     "executed_layer": "BORROW_AWARE_EXECUTED_RETURN_EX_BORROW_COSTS",
     "stock_borrow_fee": 0.0,
@@ -125,7 +160,11 @@
     "historical_shortability": "UNVERIFIED",
     "prospective_shortability": "EASY_TO_BORROW_ONLY",
     "unresolved_long_stress_return": -1.0,
-    "unresolved_short_buy_in_multiples": [2.0, 3.0, 5.0],
+    "unresolved_short_buy_in_multiples": [
+      2.0,
+      3.0,
+      5.0
+    ],
     "not_complete_total_return": true,
     "not_net_trading_return": true,
     "not_complete_terminal_economic_return": true,
@@ -201,8 +240,13 @@
     "source_activation": "BLOCKED_PENDING_PROFILE_READINESS"
   },
   "credentials": {
-    "alpaca": ["APCA_API_KEY_ID", "APCA_API_SECRET_KEY"],
-    "alpha_vantage": ["ALPHA_VANTAGE_API_KEY"],
+    "alpaca": [
+      "APCA_API_KEY_ID",
+      "APCA_API_SECRET_KEY"
+    ],
+    "alpha_vantage": [
+      "ALPHA_VANTAGE_API_KEY"
+    ],
     "storage": "ENVIRONMENT_ONLY"
   },
   "prohibitions": [

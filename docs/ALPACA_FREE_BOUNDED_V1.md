@@ -227,11 +227,16 @@ established. AAPL, FB/META, and ATVI known cases are partial; LK/LKNCY and
 BBBY/BBBYQ remain unresolved because the available evidence does not prove a
 terminal economic exit.
 
-The strict/default SIP qualification remains fail closed against its original
-calendar release. A canonical successor with the current locked-environment
-hash exists and has byte-identical session data, but the existing qualification
-receipt and cutover policy bind the older release. Rebinding requires a new
-reviewed qualification/cutover; no hash or accepted release was edited here.
+The strict/default SIP qualification remains bound to its original calendar
+release. The opt-in profile completed a governed cutover to accepted successor
+`834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7`.
+Its 9,049-session payload is byte-identical to strict release
+`71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d`;
+both session payloads have SHA-256
+`9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69`,
+and the exact session difference count is zero. The old release remains
+recoverable. No accepted release, strict source binding, or environment hash
+was edited.
 
 Current profile states are:
 

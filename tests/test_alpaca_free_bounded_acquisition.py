@@ -64,15 +64,18 @@ def test_profile_is_explicit_free_sip_long_short_and_fail_closed() -> None:
         "alpha_vantage": ["ALPHA_VANTAGE_API_KEY"],
         "storage": "ENVIRONMENT_ONLY",
     }
-    assert profile["calendar"]["qualified_release_id"] is None
+    assert profile["calendar"]["qualified_release_id"] == profile["calendar"]["successor_candidate_release_id"]
     assert profile["calendar"]["accepted_root"] == "data/vault/accepted"
     assert profile["prospective_capture"]["soak_required_consecutive_sessions"] == 20
 
 
 def test_calendar_successor_requires_governed_qualification_and_manual_hash_edits_fail() -> None:
-    with pytest.raises(ContractError, match="CALENDAR_NOT_QUALIFIED"):
-        load_qualified_profile_calendar(repository_root=REPO)
     calendar = dict(load_profile(REPO)["calendar"])
+    load_qualified_profile_calendar(repository_root=REPO)
+    unqualified = dict(calendar)
+    unqualified["qualification"] = None
+    with pytest.raises(ContractError, match="receipt is missing"):
+        _validate_calendar_config(unqualified)
     receipt_unsigned = {
         "status": "QUALIFIED_BYTE_IDENTICAL_SUCCESSOR",
         "old_release_id": calendar["strict_release_id"],
