@@ -18,7 +18,7 @@
   ],
   "calendar": {
     "name": "XNYS",
-    "accepted_root": "data/vault/accepted/xnys_sessions",
+    "accepted_root": "data/vault/accepted",
     "strict_release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
     "successor_candidate_release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
     "qualified_release_id": null,

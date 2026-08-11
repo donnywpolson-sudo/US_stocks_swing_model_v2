@@ -178,7 +178,7 @@ def _validate_calendar_config(calendar: Mapping[str, object]) -> None:
     if (
         set(calendar) != expected
         or calendar.get("name") != "XNYS"
-        or calendar.get("accepted_root") != "data/vault/accepted/xnys_sessions"
+        or calendar.get("accepted_root") != "data/vault/accepted"
         or calendar.get("strict_binding_unchanged") is not True
     ):
         raise ContractError("profile calendar configuration drifted")
@@ -247,8 +247,8 @@ def build_calendar_qualification_plan(
         raise ContractError("profile calendar successor is already qualified")
     repository = _calendar_repository_binding(root)
     accepted_root = root / str(calendar["accepted_root"])
-    old_directory = accepted_root / str(calendar["strict_release_id"])
-    successor_directory = accepted_root / str(calendar["successor_candidate_release_id"])
+    old_directory = accepted_root / "xnys_sessions" / str(calendar["strict_release_id"])
+    successor_directory = accepted_root / "xnys_sessions" / str(calendar["successor_candidate_release_id"])
     old = verify_accepted_release(old_directory, accepted_root=accepted_root)
     successor = verify_accepted_release(successor_directory, accepted_root=accepted_root)
     loaded = load_xnys_calendar_release(
@@ -360,7 +360,10 @@ def load_qualified_profile_calendar(*, repository_root: Path):
     calendar = profile["calendar"]
     if calendar["qualified_release_id"] is None:
         raise ContractError("CALENDAR_NOT_QUALIFIED")
-    release = root / str(calendar["accepted_root"]) / str(calendar["qualified_release_id"])
+    release = (
+        root / str(calendar["accepted_root"]) / "xnys_sessions"
+        / str(calendar["qualified_release_id"])
+    )
     loaded = load_xnys_calendar_release(
         release,
         accepted_release_root=root / str(calendar["accepted_root"]),
@@ -371,7 +374,10 @@ def load_qualified_profile_calendar(*, repository_root: Path):
         or loaded.calendar.release_id != calendar["qualified_release_id"]
     ):
         raise IntegrityError("qualified profile calendar release differs")
-    strict = root / str(calendar["accepted_root"]) / str(calendar["strict_release_id"])
+    strict = (
+        root / str(calendar["accepted_root"]) / "xnys_sessions"
+        / str(calendar["strict_release_id"])
+    )
     if (
         not strict.is_dir()
         or sha256_file(strict / "sessions.parquet") != receipt["old_sessions_sha256"]

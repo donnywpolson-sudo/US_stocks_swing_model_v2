@@ -65,6 +65,7 @@ def test_profile_is_explicit_free_sip_long_short_and_fail_closed() -> None:
         "storage": "ENVIRONMENT_ONLY",
     }
     assert profile["calendar"]["qualified_release_id"] is None
+    assert profile["calendar"]["accepted_root"] == "data/vault/accepted"
     assert profile["prospective_capture"]["soak_required_consecutive_sessions"] == 20
 
 
