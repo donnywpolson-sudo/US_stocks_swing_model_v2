@@ -63,6 +63,13 @@ Documentation of this roadmap is not permission to execute a phase.
 Under the active free-only pathway, steps 2 through 7 remain a conditional
 future route rather than a claim that suitable evidence currently exists.
 
+The versioned `ALPACA_FREE_BOUNDED_V1` profile is the narrower exploratory
+implementation route: reconstructed SIP history, a bounded point-in-time
+common-stock universe candidate, long/short economic outcomes before borrow
+and locate costs, prospective easy-to-borrow gating, and explicit unresolved
+event stress. Its infrastructure and evidence states do not bypass the roadmap
+or authorize outcome research, training, evaluation, sealing, or trading.
+
 ## Document roles
 
 | Need | Source |

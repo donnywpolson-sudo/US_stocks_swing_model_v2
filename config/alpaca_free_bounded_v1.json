@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "profile_id": "ALPACA_FREE_BOUNDED_V1",
+  "project": "US_stocks_swing_model_v2",
+  "selection": "OPT_IN_PROFILE_ONLY",
+  "strict_reference": {
+    "commit": "c29e244174940f76babf75bcf91bbd11ca470c46",
+    "tag": "frozen-strict-contract-c29e244",
+    "preserved_outside_profile": true
+  },
+  "data_budget": "COMPLETELY_FREE_ONLY",
+  "requested_raw_data_start": "2016-01-01",
+  "actual_source_start": null,
+  "effective_research_start": null,
+  "evidence_classes": [
+    "HISTORICAL_RECONSTRUCTED",
+    "PROSPECTIVE_AS_OBSERVED"
+  ],
+  "bars": {
+    "provider": "alpaca",
+    "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
+    "required_feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "sort": "asc",
+    "asof": null,
+    "minimum_end_lag_minutes": 20,
+    "documented_free_history_start": "2016-01-01",
+    "documented_basic_requests_per_minute": 200,
+    "mixing_iex_and_sip": "PROHIBITED",
+    "completed_sessions_only": true,
+    "pagination_must_be_terminal": true,
+    "deterministic_batch_size": 100,
+    "maximum_pages_per_unit": 100,
+    "maximum_response_bytes_per_page": 16777216
+  },
+  "historical_universe_candidate": {
+    "provider": "alpha_vantage",
+    "endpoint": "https://www.alphavantage.co/query",
+    "function": "LISTING_STATUS",
+    "states": ["active", "delisted"],
+    "explicit_date_required": true,
+    "response_format": "csv",
+    "status": "CANDIDATE_PENDING_LIVE_SEMANTICS_VALIDATION",
+    "rate_limit_source": "CONFIG_AND_OBSERVED_PROVIDER_HEADERS_OR_MESSAGES",
+    "forbid_current_list_substitution": true,
+    "forbid_approximate_snapshot_substitution": true
+  },
+  "prospective_identity": {
+    "nasdaq_files": [
+      {
+        "name": "nasdaqlisted.txt",
+        "url": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+      },
+      {
+        "name": "otherlisted.txt",
+        "url": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+      }
+    ],
+    "alpaca_assets_endpoint": "https://paper-api.alpaca.markets/v2/assets",
+    "alpaca_asset_class": "us_equity",
+    "preserve_complete_raw_snapshot": true,
+    "canonical_borrow_field": "borrow_status",
+    "legacy_borrow_field": "easy_to_borrow",
+    "contradictions_fail_closed": true
+  },
+  "corporate_actions": {
+    "rest_endpoint": "https://data.alpaca.markets/v1/corporate-actions",
+    "optional_stream_endpoint": "https://stream.data.alpaca.markets/v1beta1/events/corporate-actions",
+    "stream_is_optional_capability": true,
+    "mutation_types": ["insert", "update", "delete"],
+    "known_groups": [
+      "reverse_splits",
+      "forward_splits",
+      "unit_splits",
+      "cash_dividends",
+      "stock_dividends",
+      "spin_offs",
+      "cash_mergers",
+      "stock_mergers",
+      "stock_and_cash_mergers",
+      "redemptions",
+      "name_changes",
+      "worthless_removals",
+      "rights_distributions",
+      "partial_calls",
+      "reorganizations"
+    ],
+    "unknown_groups": "PRESERVE_AS_UNKNOWN",
+    "historical_knowledge_time": "NOT_INFERRED_FROM_CURRENT_RETRIEVAL"
+  },
+  "universe": {
+    "information_cutoff": "THROUGH_T_MINUS_1",
+    "primary_size": 500,
+    "sensitivity_profile_id": "ALPACA_FREE_BOUNDED_V1_TOP_1000_SENSITIVITY",
+    "sensitivity_size": 1000,
+    "permitted_primary_exchanges": ["NASDAQ", "NYSE", "NYSE_AMERICAN"],
+    "minimum_previous_close": 5.0,
+    "lookback_sessions": 60,
+    "ranking": "TRAILING_60_SESSION_MEDIAN_DOLLAR_VOLUME",
+    "affirmative_security_type": "US_PRIMARY_LISTED_COMMON_STOCK",
+    "unknown_security_type_status": "UNKNOWN_SECURITY_TYPE",
+    "complete_candidate_snapshot_required": true
+  },
+  "outcome": {
+    "name": "ALPACA_SIP_5_SESSION_LONG_SHORT_GROSS_RETURN_EX_BORROW_COSTS",
+    "human_estimand": "Alpaca SIP five-session gross long/short trading return before stock-borrow and locate costs, using a bounded provider-reconstructed universe of affirmatively verified U.S. primary-listed common stocks, prospective easy-to-borrow short gating, and explicit unresolved-event reporting.",
+    "entry": "D1_REGULAR_SESSION_OPEN",
+    "exit": "D5_REGULAR_SESSION_CLOSE",
+    "supported_sides": ["LONG", "SHORT"],
+    "fixed_horizon_layer": "FIXED_HORIZON_SIGNAL_RETURN",
+    "executed_layer": "BORROW_AWARE_EXECUTED_RETURN_EX_BORROW_COSTS",
+    "stock_borrow_fee": 0.0,
+    "locate_fee": 0.0,
+    "cost_label": "GROSS OF STOCK-BORROW AND LOCATE COSTS",
+    "historical_shortability": "UNVERIFIED",
+    "prospective_shortability": "EASY_TO_BORROW_ONLY",
+    "unresolved_long_stress_return": -1.0,
+    "unresolved_short_buy_in_multiples": [2.0, 3.0, 5.0],
+    "not_complete_total_return": true,
+    "not_net_trading_return": true,
+    "not_complete_terminal_economic_return": true,
+    "not_borrow_cost_adjusted": true,
+    "not_proof_of_historical_borrowability": true
+  },
+  "historical_short_labels": [
+    "SHORTABILITY_UNVERIFIED_HISTORICAL",
+    "SHORT_EXECUTION_APPROXIMATE",
+    "BORROW_COST_ASSUMPTION_ZERO"
+  ],
+  "prospective_short_gate": {
+    "required_status": "active",
+    "tradable": true,
+    "marginable": true,
+    "shortable": true,
+    "required_borrow_status": "easy_to_borrow",
+    "whole_shares_only": true,
+    "round_up": false,
+    "snapshot_must_precede_order": true
+  },
+  "readiness": {
+    "states": [
+      "DATA_INFRASTRUCTURE_READY",
+      "LIVE_SOURCE_VALIDATION_PENDING",
+      "HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS",
+      "HISTORICAL_RESEARCH_READY",
+      "PROSPECTIVE_CAPTURE_READY",
+      "PROSPECTIVE_RESEARCH_READY",
+      "TRAINING_BLOCKED",
+      "EVALUATION_BLOCKED"
+    ],
+    "historical_universe_initial_status": "CANDIDATE",
+    "training": "BLOCKED",
+    "evaluation": "BLOCKED",
+    "source_activation": "BLOCKED_PENDING_PROFILE_READINESS"
+  },
+  "credentials": {
+    "alpaca": ["APCA_API_KEY_ID", "APCA_API_SECRET_KEY"],
+    "alpha_vantage": ["ALPHA_VANTAGE_API_KEY"],
+    "storage": "ENVIRONMENT_ONLY"
+  },
+  "prohibitions": [
+    "paid_provider_or_endpoint",
+    "silent_iex_fallback",
+    "silent_current_membership_fallback",
+    "training",
+    "model_tuning",
+    "model_ranking",
+    "strategy_performance_backtest",
+    "outcome_inspection_for_model_selection",
+    "historical_trial_registration",
+    "live_orders",
+    "fabricated_fills",
+    "automatic_full_backfill"
+  ]
+}

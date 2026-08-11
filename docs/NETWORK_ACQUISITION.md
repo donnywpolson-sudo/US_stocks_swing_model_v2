@@ -19,3 +19,11 @@ contracts; absent evidence remains unresolved.
 Publication, source activation, release construction, registry operations,
 training, and evaluation are distinct gates. Retained historical Alpaca
 payloads are caveated legacy evidence and cannot qualify the active lane.
+
+The opt-in `ALPACA_FREE_BOUNDED_V1` profile adds separately registered Alpaca
+assets/bars/corporate-actions, Nasdaq listed/other-listed, and redacted Alpha
+Vantage listing-status request plans. Its CLI remains plan-only by default.
+Execution is one page/attempt per invocation, preserves provider errors, and
+uses durable receipt lineage; a retryable response produces a bounded next
+attempt for a fresh invocation. These profile captures do not publish, activate
+a source, authorize outcome research, or weaken the strict lane.

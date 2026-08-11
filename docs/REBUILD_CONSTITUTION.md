@@ -1,11 +1,18 @@
 # Rebuild Constitution
 
-Version: `1.2.0`
+Version: `1.3.0`
 
 This project evaluates daily US stock and ETF forecasts only after a completed
-session. The fixed target is entry at the D1 regular-session open and exit at
-the D5 regular-session close, using split-normalized price return. Options,
-borrow assumptions, and live-trading claims are outside scope.
+session. The strict reference target is entry at the D1 regular-session open
+and exit at the D5 regular-session close, using split-normalized price return.
+Options and live-trading claims are outside scope.
+
+The opt-in `ALPACA_FREE_BOUNDED_V1` profile extends the same session timing to
+explicit long and short gross economic outcomes. It fixes stock-borrow and
+locate costs at zero, labels all historical shortability unverified, permits
+only prospectively observed easy-to-borrow shorts, models distribution and
+corporate-action obligations, and retains unresolved observations and stress
+scenarios. It does not change the frozen strict reference contract.
 
 ## Evidence boundary
 
@@ -30,9 +37,13 @@ safe headers, receipt time, request parameters, pagination lineage, hashes,
 and identity binding are retained. A source or methodology change creates a new
 epoch.
 
-Nasdaq `nasdaqtraded.txt` is the contracted membership input; Alpaca assets
-supplement identity. Complete accepted snapshots emit absence tombstones;
-symbols never inherit eligibility after disappearance or reuse.
+Nasdaq `nasdaqtraded.txt` remains the strict contract's membership input;
+Alpaca assets supplement identity. Under `ALPACA_FREE_BOUNDED_V1` only,
+prospectively captured `nasdaqlisted.txt` and `otherlisted.txt` supplement the
+complete Alpaca asset master, while dated Alpha Vantage `LISTING_STATUS` is a
+historical-universe candidate pending live semantics validation. Complete
+accepted snapshots emit absence tombstones; symbols never inherit eligibility
+after disappearance or reuse.
 
 ## Research gates
 

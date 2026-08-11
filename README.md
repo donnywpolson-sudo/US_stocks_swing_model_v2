@@ -14,6 +14,12 @@ the repository is a discovery and prospective-mechanics system: production
 inputs, outcomes, real-trial registration, training, evaluation, activation,
 candidate sealing, and readiness claims remain fail-closed.
 
+The opt-in [`ALPACA_FREE_BOUNDED_V1`](docs/ALPACA_FREE_BOUNDED_V1.md)
+profile adds a bounded reconstructed-history and prospective-as-observed path
+for Alpaca SIP long/short data research. It preserves the frozen strict
+contract, keeps training and evaluation blocked, and does not claim complete
+total return or verified historical borrowability.
+
 ## Five-session contract
 
 ```text
@@ -46,6 +52,10 @@ operational rules.
 | Alpaca corporate actions | Raw provider-process-date evidence only; not complete effective-event or delisting evidence |
 | Alpha Vantage and options data | Excluded |
 
+The table describes the strict/default contract. Under the opt-in bounded
+profile only, dated Alpha Vantage `LISTING_STATUS` is a candidate historical
+membership source and options remain excluded.
+
 ## Key documents
 
 - [`AGENTS.md`](AGENTS.md): binding repository-operation, safety, and task
@@ -55,6 +65,8 @@ operational rules.
 - [`PROJECT_OUTLINE.md`](PROJECT_OUTLINE.md): enduring objective and roadmap.
 - [`docs/REBUILD_CONSTITUTION.md`](docs/REBUILD_CONSTITUTION.md): binding
   scientific and design contract.
+- [`docs/ALPACA_FREE_BOUNDED_V1.md`](docs/ALPACA_FREE_BOUNDED_V1.md): opt-in
+  free Alpaca long/short data profile, commands, and readiness boundary.
 
 For provider/publication work, read
 [`docs/NETWORK_ACQUISITION.md`](docs/NETWORK_ACQUISITION.md). For historical

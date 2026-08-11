@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "status": "ACTIVE",
+  "allowed_sources": {
+    "alpaca_free_bounded_assets": {
+      "origin_path": "https://paper-api.alpaca.markets/v2/assets",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_free_bounded_bars": {
+      "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_free_bounded_corporate_actions": {
+      "origin_path": "https://data.alpaca.markets/v1/corporate-actions",
+      "accepted_http_statuses": [200]
+    },
+    "alpha_vantage_listing_status": {
+      "origin_path": "https://www.alphavantage.co/query",
+      "accepted_http_statuses": [200]
+    },
+    "nasdaq_free_bounded_listed": {
+      "origin_path": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+      "accepted_http_statuses": [200]
+    },
+    "nasdaq_free_bounded_otherlisted": {
+      "origin_path": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt",
+      "accepted_http_statuses": [200]
+    }
+  }
+}

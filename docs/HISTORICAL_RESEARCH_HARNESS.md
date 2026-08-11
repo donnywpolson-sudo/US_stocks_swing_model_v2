@@ -6,6 +6,14 @@ point-in-time membership, survivorship safety, complete delisting treatment,
 or a complete market universe. Existing historical and proxy release manifests
 remain immutable and are not relabeled.
 
+The opt-in `ALPACA_FREE_BOUNDED_V1` lane may acquire a new reconstructed SIP
+corpus beginning with requested date `2016-01-01` and dated Alpha Vantage
+membership candidates. It remains `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`
+unless bounded live probes establish exact membership semantics and all profile
+readiness checks pass. Historical shortability is always unverified, with
+borrow and locate costs explicitly zero. This implementation does not grant
+outcome research, training, or evaluation authority.
+
 The harness fails closed: legacy releases cannot enter the trusted
 eligible-universe, feature, outcome, registration, training, or evaluation
 routes. Prospective releases must be materialized separately from accepted

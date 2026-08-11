@@ -201,7 +201,14 @@ without weakening them.
   republished only as separately authorized, PIT-unresolved legacy discovery
   evidence. They are not original HTTP bytes; derived Parquet must be
   regenerated, and no rehabilitation plan authorizes training or research.
-- Alpha Vantage and options data are excluded.
+- Alpha Vantage and options data are excluded from the strict/default
+  contract. On branch `alpaca-free-bounded-long-short`, the explicitly selected
+  `ALPACA_FREE_BOUNDED_V1` profile may use dated Alpha Vantage
+  `LISTING_STATUS` only as a historical-universe candidate and may capture
+  `nasdaqlisted.txt` plus `otherlisted.txt` prospectively. These profile inputs
+  remain fail closed, preserve their evidence-class limitations, never become
+  strict-contract fallbacks, and do not authorize research, training,
+  evaluation, publication, activation, or trading. Options remain excluded.
 
 ## Safety And Approval Gates
 
