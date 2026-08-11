@@ -11,6 +11,7 @@ import pytest
 from us_stocks_swing_model_v2.alpaca_free_bounded import EvidenceClass
 from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.free_source_evidence import RawEvidenceStore
+from us_stocks_swing_model_v2.errors import ContractError
 from us_stocks_swing_model_v2 import prospective_liquidity_warmup as warmup
 
 
@@ -84,6 +85,7 @@ def test_new_soak_generation_starts_at_zero_and_preserves_failed_run(monkeypatch
         "validate_capture_ledger",
         lambda **_kwargs: {"soak": {"state": "PROSPECTIVE_CAPTURE_SOAK_FAILED"}},
     )
+    monkeypatch.setattr(warmup, "_git_commit_exists", lambda *_args: True)
     data = tmp_path / "data"
     data.mkdir()
     result = warmup.start_soak_generation(
@@ -101,3 +103,20 @@ def test_new_soak_generation_starts_at_zero_and_preserves_failed_run(monkeypatch
     assert result["inherited_completed_session_credit"] == 0
     assert result["original_failed_soak_state"] == "PROSPECTIVE_CAPTURE_SOAK_FAILED"
     assert warmup.validate_soak_generations(data / "generations.jsonl")["generation_count"] == 1
+
+
+def test_soak_generation_rejects_nonexistent_remediation_commit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(warmup, "_git_commit_exists", lambda *_args: False)
+    with pytest.raises(ContractError, match="does not identify"):
+        warmup.start_soak_generation(
+            repository_root=tmp_path,
+            original_ledger_path=tmp_path / "old.jsonl",
+            generation_ledger_path=tmp_path / "data" / "generations.jsonl",
+            remediation_commit="b" * 40,
+            sip_availability_rule="RFC3339",
+            warmup_checkpoint_id="c" * 64,
+            universe_snapshot_id="d" * 64,
+            started_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+        )

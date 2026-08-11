@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import statistics
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -345,6 +346,18 @@ def _load_soak_generations(path: Path) -> list[dict[str, object]]:
     return generations
 
 
+def _git_commit_exists(repository_root: Path, commit: str) -> bool:
+    completed = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=repository_root,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def start_soak_generation(
     *, repository_root: Path, original_ledger_path: Path, generation_ledger_path: Path,
     remediation_commit: str, sip_availability_rule: str, warmup_checkpoint_id: str,
@@ -352,22 +365,31 @@ def start_soak_generation(
 ) -> dict[str, object]:
     if len(remediation_commit) != 40 or any(ch not in "0123456789abcdef" for ch in remediation_commit):
         raise ContractError("soak remediation commit must be a lowercase Git object ID")
+    root = Path(repository_root).resolve(strict=True)
+    if not _git_commit_exists(root, remediation_commit):
+        raise ContractError("soak remediation commit does not identify a repository commit")
     require_sha256(warmup_checkpoint_id, "warm-up checkpoint ID")
     require_sha256(universe_snapshot_id, "universe snapshot ID")
     started = require_aware_utc(started_at, "soak generation start")
     original = validate_capture_ledger(ledger_path=original_ledger_path)
     if original["soak"]["state"] != "PROSPECTIVE_CAPTURE_SOAK_FAILED":
         raise ContractError("new soak generation requires preserved failed original evidence")
-    loaded = load_qualified_profile_calendar(repository_root=repository_root)
+    loaded = load_qualified_profile_calendar(repository_root=root)
     generation_path = Path(generation_ledger_path).resolve()
-    with ExclusiveFileLock(generation_path.with_suffix(generation_path.suffix + ".lock"), allowed_root=Path(repository_root).resolve() / "data"):
+    with ExclusiveFileLock(generation_path.with_suffix(generation_path.suffix + ".lock"), allowed_root=root / "data"):
         prior = _load_soak_generations(generation_path)
+        invalid_predecessor = (
+            prior[-1]["soak_run_id"]
+            if prior and not _git_commit_exists(root, str(prior[-1]["remediation_commit"]))
+            else None
+        )
         generation_number = len(prior) + 1
         session_ledger = generation_path.parent / f"prospective_capture_soak_{generation_number:04d}.jsonl"
         unsigned = {
             "schema_version": 1,
             "generation_number": generation_number,
             "predecessor_soak_run_id": prior[-1]["soak_run_id"] if prior else None,
+            "supersedes_invalid_soak_run_id": invalid_predecessor,
             "started_at": iso_z(started),
             "state": "PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED",
             "completed_consecutive_sessions": 0,
@@ -396,12 +418,22 @@ def start_soak_generation(
     return payload
 
 
-def validate_soak_generations(path: Path) -> dict[str, object]:
+def validate_soak_generations(path: Path, *, repository_root: Path | None = None) -> dict[str, object]:
     generations = _load_soak_generations(path)
+    invalid = (
+        [
+            row["soak_run_id"]
+            for row in generations
+            if not _git_commit_exists(Path(repository_root), str(row["remediation_commit"]))
+        ]
+        if repository_root is not None
+        else []
+    )
     return {
-        "state": "PASS",
+        "state": "PASS_WITH_INVALID_GENERATION_PRESERVED" if invalid else "PASS",
         "generation_count": len(generations),
         "current": generations[-1] if generations else None,
+        "invalid_generation_ids": invalid,
         "prospective_research_ready": False,
         "training_authorized": False,
         "evaluation_authorized": False,

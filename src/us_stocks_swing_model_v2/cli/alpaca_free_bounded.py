@@ -621,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
         ))
         return 0
     if args.command == "validate-soak-generations":
-        _print(validate_soak_generations(args.generation_ledger.resolve()))
+        _print(validate_soak_generations(args.generation_ledger.resolve(), repository_root=root))
         return 0
     if args.command == "coverage-report":
         payload = json.loads(args.input.read_text(encoding="utf-8"))
