@@ -31,7 +31,7 @@ from .locking import ExclusiveFileLock
 from .providers.snapshots import normalize_response_headers
 
 
-ADAPTER_VERSION = "alpaca_free_bounded_sources_v2"
+ADAPTER_VERSION = "alpaca_free_bounded_sources_v3"
 REDACTED = "REDACTED"
 
 
@@ -237,14 +237,21 @@ def alpaca_bars_plan(
     if not canonical or start < date(2016, 1, 1) or end_exclusive <= start:
         raise ContractError("Alpaca bars plan date range or symbols are invalid")
     bars = profile["bars"]
+    eastern = ZoneInfo("America/New_York")
+    start_at = datetime.combine(start, datetime.min.time(), eastern).astimezone(timezone.utc)
+    final_session = end_exclusive - timedelta(days=1)
+    end_at = (
+        datetime.combine(final_session, datetime.min.time(), eastern).astimezone(timezone.utc)
+        + timedelta(seconds=1)
+    )
     return SourceRequestPlan.create(
         source="alpaca_free_bounded_bars",
         provider="alpaca",
         endpoint=str(bars["endpoint"]),
         query=(
             ("symbols", ",".join(canonical)),
-            ("start", start.isoformat()),
-            ("end", (end_exclusive - timedelta(days=1)).isoformat()),
+            ("start", iso_z(start_at)),
+            ("end", iso_z(end_at)),
             ("timeframe", "1Day"),
             ("adjustment", "raw"),
             ("feed", "sip"),
@@ -254,6 +261,47 @@ def alpaca_bars_plan(
         evidence_class=evidence_class,
         maximum_pages=int(bars["maximum_pages_per_unit"]),
         maximum_response_bytes=int(bars["maximum_response_bytes_per_page"]),
+    )
+
+
+def alpaca_sip_access_plan(
+    *,
+    repository_root: Path,
+    start_at: datetime,
+    end_at: datetime,
+    endpoint_form: str,
+) -> SourceRequestPlan:
+    """Plan one AAPL-only RFC3339 SIP diagnostic without changing the profile feed."""
+    start_at = require_aware_utc(start_at, "start_at")
+    end_at = require_aware_utc(end_at, "end_at")
+    if end_at <= start_at or endpoint_form not in {"single", "multi"}:
+        raise ContractError("SIP access diagnostic interval or endpoint form is invalid")
+    profile = load_profile(repository_root)
+    multi_endpoint = str(profile["bars"]["endpoint"])
+    if endpoint_form == "single":
+        source = "alpaca_free_bounded_bars_single_rfc3339"
+        endpoint = "https://data.alpaca.markets/v2/stocks/AAPL/bars"
+        leading_query: tuple[tuple[str, str], ...] = ()
+    else:
+        source = "alpaca_free_bounded_bars_multi_rfc3339"
+        endpoint = multi_endpoint
+        leading_query = (("symbols", "AAPL"),)
+    return SourceRequestPlan.create(
+        source=source,
+        provider="alpaca",
+        endpoint=endpoint,
+        query=leading_query + (
+            ("start", iso_z(start_at)),
+            ("end", iso_z(end_at)),
+            ("timeframe", "1Day"),
+            ("adjustment", "raw"),
+            ("feed", "sip"),
+            ("sort", "asc"),
+            ("limit", "10000"),
+        ),
+        evidence_class=EvidenceClass.HISTORICAL_RECONSTRUCTED,
+        maximum_pages=1,
+        maximum_response_bytes=int(profile["bars"]["maximum_response_bytes_per_page"]),
     )
 
 
@@ -416,6 +464,56 @@ def build_daily_capture_plan(
         calendar_release_id=loaded.calendar.release_id,
         source_plans=plans,
     )
+
+
+def build_t_minus_one_operational_schedule(
+    *, repository_root: Path, signal_session: date
+) -> dict[str, object]:
+    """Bind the owner-operated T-1 capture order to the qualified XNYS calendar."""
+    root = Path(repository_root).resolve(strict=True)
+    profile = load_profile(root)
+    loaded = load_qualified_profile_calendar(repository_root=root)
+    rows = loaded.schedule.to_pylist()
+    positions = {row["session"]: index for index, row in enumerate(rows)}
+    index = positions.get(signal_session)
+    if index is None or index == 0:
+        raise ContractError("operational session is outside the qualified XNYS calendar")
+    signal = rows[index]
+    prior = rows[index - 1]
+    open_at = require_aware_utc(signal["open_at"], "signal open")
+    prior_close = require_aware_utc(prior["close_at"], "prior close")
+    provider_minimum = prior_close + timedelta(minutes=int(profile["bars"]["minimum_end_lag_minutes"]))
+    completed_capture = max(provider_minimum, open_at - timedelta(minutes=120))
+    validation_deadline = open_at - timedelta(minutes=90)
+    pre_decision_capture = open_at - timedelta(minutes=60)
+    final_ledger_cutoff = open_at - timedelta(minutes=15)
+    if not completed_capture < validation_deadline < pre_decision_capture < final_ledger_cutoff < open_at:
+        raise ContractError("qualified calendar cannot support the T-1 operational schedule")
+    return {
+        "schema_version": 1,
+        "profile_id": PROFILE_ID,
+        "calendar_release_id": loaded.calendar.release_id,
+        "signal_session": signal_session.isoformat(),
+        "information_cutoff_session": prior["session"].isoformat(),
+        "signal_open_at": iso_z(open_at),
+        "completed_session_capture_not_before": iso_z(completed_capture),
+        "completed_session_receipt_validation_deadline": iso_z(validation_deadline),
+        "pre_decision_capture_at": iso_z(pre_decision_capture),
+        "final_pre_decision_ledger_cutoff": iso_z(final_ledger_cutoff),
+        "ordered_steps": [
+            "CAPTURE_T_MINUS_1_SIP_AND_CORPORATE_ACTIONS",
+            "VALIDATE_RECEIPTS_AND_PAGINATION",
+            "CAPTURE_T_ASSETS_AND_NASDAQ",
+            "RECONSTRUCT_T_UNIVERSE_THROUGH_T_MINUS_1",
+            "FINALIZE_PRE_DECISION_LEDGER_BEFORE_T_OPEN",
+        ],
+        "feed": "sip",
+        "timeframe": "1Day",
+        "adjustment": "raw",
+        "iex_fallback": False,
+        "training_authorized": False,
+        "evaluation_authorized": False,
+    }
 
 
 @dataclass(frozen=True)

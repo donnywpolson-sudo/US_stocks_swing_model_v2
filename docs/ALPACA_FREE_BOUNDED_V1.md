@@ -163,6 +163,32 @@ python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --sour
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --source bars --as-of 2026-08-10 --end-exclusive 2026-08-11 --symbol AAPL --prospective --approved-plan-id PLAN_SHA256 --execute-network
 ```
 
+Daily-bar plans encode exact RFC 3339 bar-timestamp bounds: New York midnight
+for the first session through one second after New York midnight for the final
+session. Date-only bounds are prohibited because live free-account evidence
+showed that they can be interpreted as recent SIP data after a session is
+complete. Both official historical endpoint forms returned the same completed
+AAPL bars with the corrected interval; deterministic acquisition continues to
+use the multi-symbol form.
+
+Plan the calendar-bound T-1 operating order and bounded liquidity warm-up:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-operational-capture --session 2026-08-11
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-liquidity-warmup --source-snapshot data/w/alpaca_free_bounded_v1/prospective_universe/SNAPSHOT.json --pilot-symbol-count 5
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-liquidity-warmup --source-snapshot data/w/alpaca_free_bounded_v1/prospective_universe/SNAPSHOT.json --pilot-symbol-count 5 --checkpoint data/w/alpaca_free_bounded_v1/liquidity_warmup_pilot_checkpoint.json --approved-plan-id PLAN_SHA256 --execute-network
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-liquidity-warmup --source-snapshot data/w/alpaca_free_bounded_v1/prospective_universe/SNAPSHOT.json
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded validate-warmup-checkpoint --source-snapshot data/w/alpaca_free_bounded_v1/prospective_universe/SNAPSHOT.json --checkpoint data/w/alpaca_free_bounded_v1/liquidity_warmup_checkpoint.json
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded build-liquidity-universe --source-snapshot data/w/alpaca_free_bounded_v1/prospective_universe/SNAPSHOT.json --checkpoint data/w/alpaca_free_bounded_v1/liquidity_warmup_checkpoint.json
+```
+
+The warm-up is limited to 90 completed qualified XNYS sessions and the
+prospectively observed inventory. Bars remain `HISTORICAL_RECONSTRUCTED`;
+membership and identity remain `PROSPECTIVE_AS_OBSERVED`. It computes only
+previous close, valid-session count, and trailing 60-session median dollar
+volume. It cannot produce strategy features, outcomes, predictions,
+performance, training, or evaluation.
+
 Validate receipts, rebuild the universe, report, and check readiness:
 
 ```powershell
@@ -223,12 +249,24 @@ The first daily-orchestration cycle captured the 2026-08-11 pre-decision asset
 and directory phase before the XNYS open and deterministically retained 13,117
 directory candidates, including all exclusion reasons; 5,016 were eligible for
 later T-1 liquidity inputs. The 2026-08-10 completed-session corporate-action
-snapshot passed, but Alpaca returned HTTP 403 with a free-subscription recent
-SIP restriction for that session. The raw failure receipt remains visible as
-`PARTIAL_FAIL_CLOSED`; no retry or IEX fallback occurred. Consequently the
-current soak state is `PROSPECTIVE_CAPTURE_SOAK_FAILED` with zero completed
-sessions. A later valid cycle may record `COMPLETE_AFTER_RETRY`, but it cannot
-erase this failed occurrence.
+snapshot passed. The original date-only AAPL request returned HTTP 403 and
+remains visible as `PARTIAL_FAIL_CLOSED`. A six-request diagnostic matrix then
+used exact RFC 3339 intervals for the 2026-08-10, 2026-08-07, and 2026-08-03
+daily bars on both official historical endpoint forms. All six returned HTTP
+200 with one accepted SIP/raw/1Day bar and terminal pagination. The result is
+`END_INTERVAL_CONSTRUCTION_DEFECT`, not a permanent account entitlement
+failure. The earliest live receipt established here was approximately 6 hours
+49 minutes after the 2026-08-10 close and before the next XNYS open; earlier
+delay cells had already passed and were not fabricated.
+
+The complete 90-session warm-up covered all 5,016 prospectively eligible
+candidates in 51 deterministic resumable units. It produced 3,754
+liquidity-ready securities and a deterministic 500-security selection with
+snapshot ID
+`e96b4f5aaa0d5ee88587d5bebc63cffa4cab76c07a4788672a13ff3a29bdcff3`.
+The original soak remains `PROSPECTIVE_CAPTURE_SOAK_FAILED`. A separate
+post-remediation generation starts from zero and cannot inherit credit from
+the failed attempt.
 
 Alpha Vantage returned canonical CSV responses for seven bounded date/state
 requests, but the data used current identity names retroactively for known

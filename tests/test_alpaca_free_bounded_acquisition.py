@@ -25,6 +25,7 @@ from us_stocks_swing_model_v2.free_source_evidence import (
     alpha_vantage_listing_plan,
     alpaca_bars_plan,
     build_daily_capture_plan,
+    build_t_minus_one_operational_schedule,
     build_prospective_universe_snapshot,
     capture_soak_state,
     parse_alpha_vantage_listing_csv,
@@ -152,6 +153,26 @@ def test_daily_capture_phases_are_separate_t_minus_1_and_explicit_sip(
     assert query["timeframe"] == "1Day"
     assert query["adjustment"] == "raw"
     assert "iex" not in completed.source_plans[0].sanitized_url.lower()
+
+
+def test_operational_schedule_orders_t_minus_one_before_predecision_from_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        free_source_evidence,
+        "load_qualified_profile_calendar",
+        lambda **_kwargs: _qualified_calendar(),
+    )
+    schedule = build_t_minus_one_operational_schedule(
+        repository_root=REPO, signal_session=date(2026, 8, 11)
+    )
+    assert schedule["information_cutoff_session"] == "2026-08-10"
+    assert schedule["signal_open_at"] == "2026-08-11T13:30:00Z"
+    assert schedule["completed_session_capture_not_before"] == "2026-08-11T11:30:00Z"
+    assert schedule["pre_decision_capture_at"] == "2026-08-11T12:30:00Z"
+    assert schedule["final_pre_decision_ledger_cutoff"] == "2026-08-11T13:15:00Z"
+    assert schedule["ordered_steps"][0] == "CAPTURE_T_MINUS_1_SIP_AND_CORPORATE_ACTIONS"
+    assert schedule["iex_fallback"] is False
 
 
 def test_prospective_universe_ledger_and_soak_are_deterministic_and_fail_closed(
@@ -414,7 +435,7 @@ def test_source_plans_redact_credentials_and_pin_explicit_provider_contracts() -
     )
     query = dict(bars.canonical_query)
     assert query == {
-        "symbols": "AAPL", "start": "2020-01-02", "end": "2020-01-02",
+        "symbols": "AAPL", "start": "2020-01-02T05:00:00Z", "end": "2020-01-02T05:00:01Z",
         "timeframe": "1Day", "adjustment": "raw", "feed": "sip", "sort": "asc", "limit": "10000",
     }
     assert {plan.source for plan in prospective_source_plans(repository_root=REPO, observed_for=date(2026, 8, 10))} == {

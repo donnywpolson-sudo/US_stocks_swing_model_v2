@@ -11,6 +11,14 @@
       "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
       "accepted_http_statuses": [200]
     },
+    "alpaca_free_bounded_bars_multi_rfc3339": {
+      "origin_path": "https://data.alpaca.markets/v2/stocks/bars",
+      "accepted_http_statuses": [200]
+    },
+    "alpaca_free_bounded_bars_single_rfc3339": {
+      "origin_path": "https://data.alpaca.markets/v2/stocks/AAPL/bars",
+      "accepted_http_statuses": [200]
+    },
     "alpaca_free_bounded_corporate_actions": {
       "origin_path": "https://data.alpaca.markets/v1/corporate-actions",
       "accepted_http_statuses": [200]

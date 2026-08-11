@@ -37,6 +37,17 @@ def _historical_pending_source(
     }
 
 
+def _deterministic_strict_calendar(
+    _root: Path, directory: Path, sessions: list[str]
+) -> dict[str, object]:
+    """Unit-test the strict plan shape without blessing the host environment."""
+    return {
+        "release_id": "strict-fixture-calendar-release",
+        "directory": str(directory.resolve()),
+        "sessions": sessions,
+    }
+
+
 def test_policy_is_exactly_one_sip_request_and_no_iex() -> None:
     policy, _ = qualification.load_policy(ROOT)
     assert policy["symbols"] == ["AAPL", "SPY"]
@@ -64,6 +75,7 @@ def test_policy_is_exactly_one_sip_request_and_no_iex() -> None:
 def test_plan_binds_calendar_registry_closure_and_one_page(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(qualification, "_repository_binding", _clean_binding)
     monkeypatch.setattr(qualification, "_source_binding", _historical_pending_source)
+    monkeypatch.setattr(qualification, "_calendar_binding", _deterministic_strict_calendar)
     plan = qualification.build_qualification_plan(repo_root=ROOT, clock=TrustedClock.production())
     assert plan["network_request_plan"]["source"] == "alpaca_sip_qualification"
     assert plan["network_request_plan"]["max_pages"] == 1
@@ -79,11 +91,22 @@ def test_plan_binds_calendar_registry_closure_and_one_page(monkeypatch: pytest.M
 def test_altered_plan_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(qualification, "_repository_binding", _clean_binding)
     monkeypatch.setattr(qualification, "_source_binding", _historical_pending_source)
+    monkeypatch.setattr(qualification, "_calendar_binding", _deterministic_strict_calendar)
     plan = qualification.build_qualification_plan(repo_root=ROOT, clock=TrustedClock.production())
     altered = json.loads(json.dumps(plan))
     altered["request"]["feed"] = "iex"
     with pytest.raises(IntegrityError, match="plan ID"):
         qualification._validate_plan(altered)
+
+
+def test_strict_calendar_still_fails_closed_on_stale_environment() -> None:
+    sources = json.loads((ROOT / "config/sources.json").read_text(encoding="utf-8"))
+    with pytest.raises(IntegrityError, match="manifest closure differs"):
+        qualification._calendar_binding(
+            ROOT,
+            Path(sources["qualification_calendar_release"]),
+            ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31"],
+        )
 
 
 def test_synthetic_clock_cannot_plan_production_qualification(monkeypatch: pytest.MonkeyPatch) -> None:

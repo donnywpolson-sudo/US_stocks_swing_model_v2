@@ -34,7 +34,9 @@ from ..free_source_evidence import (
     append_capture_ledger_entry,
     alpha_vantage_listing_plan,
     alpaca_bars_plan,
+    alpaca_sip_access_plan,
     build_daily_capture_plan,
+    build_t_minus_one_operational_schedule,
     build_prospective_universe_snapshot,
     prospective_source_plans,
     validate_capture_ledger,
@@ -42,6 +44,14 @@ from ..free_source_evidence import (
 from ..long_short import PositionOutcome
 from ..local_credentials import load_local_api_env
 from ..providers.snapshots import NetworkAcquisitionRegistry
+from ..prospective_liquidity_warmup import (
+    build_liquidity_universe_snapshot,
+    build_liquidity_warmup_plan,
+    execute_liquidity_warmup,
+    load_warmup_checkpoint,
+    start_soak_generation,
+    validate_soak_generations,
+)
 
 
 def _root() -> Path:
@@ -164,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         "--phase", choices=("pre-decision", "completed-session"), required=True
     )
     daily.add_argument("--symbol", action="append", default=[])
+    operational = subparsers.add_parser("plan-operational-capture")
+    operational.add_argument("--session", type=date.fromisoformat, required=True)
     probe = subparsers.add_parser("probe-capabilities")
     probe.add_argument("--as-of", type=date.fromisoformat, required=True)
 
@@ -188,15 +200,22 @@ def main(argv: list[str] | None = None) -> int:
     completed.add_argument("--session", type=date.fromisoformat, required=True)
     completed.add_argument("--symbol", action="append", required=True)
 
+    sip_access = subparsers.add_parser("plan-sip-access")
+    sip_access.add_argument("--start-at", type=_utc, required=True)
+    sip_access.add_argument("--end-at", type=_utc, required=True)
+    sip_access.add_argument("--endpoint-form", choices=("single", "multi"), required=True)
+
     execute = subparsers.add_parser("execute-source")
     execute.add_argument(
         "--source",
-        choices=("bars", "alpha-active", "alpha-delisted", "assets", "corporate-actions", "nasdaq-listed", "nasdaq-other"),
+        choices=("bars", "sip-single", "sip-multi", "alpha-active", "alpha-delisted", "assets", "corporate-actions", "nasdaq-listed", "nasdaq-other"),
         required=True,
     )
     execute.add_argument("--as-of", type=date.fromisoformat, required=True)
     execute.add_argument("--symbol", action="append", default=[])
     execute.add_argument("--end-exclusive", type=date.fromisoformat)
+    execute.add_argument("--start-at", type=_utc)
+    execute.add_argument("--end-at", type=_utc)
     execute.add_argument("--approved-plan-id", required=True)
     execute.add_argument("--execute-network", action="store_true", required=True)
     execute.add_argument("--page-index", type=int, default=0)
@@ -260,9 +279,47 @@ def main(argv: list[str] | None = None) -> int:
         default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_capture_ledger.jsonl",
     )
 
+    for command in ("plan-liquidity-warmup", "execute-liquidity-warmup", "validate-warmup-checkpoint", "build-liquidity-universe"):
+        warmup = subparsers.add_parser(command)
+        warmup.add_argument("--source-snapshot", type=Path, required=True)
+        warmup.add_argument("--pilot-symbol-count", type=int)
+        warmup.add_argument(
+            "--checkpoint",
+            type=Path,
+            default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "liquidity_warmup_checkpoint.json",
+        )
+        if command == "execute-liquidity-warmup":
+            warmup.add_argument("--approved-plan-id", required=True)
+            warmup.add_argument("--execute-network", action="store_true", required=True)
+        if command == "build-liquidity-universe":
+            warmup.add_argument(
+                "--output-root",
+                type=Path,
+                default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "liquidity_universe",
+            )
+
     universe = subparsers.add_parser("rebuild-universe")
     universe.add_argument("--input", type=Path, required=True)
     universe.add_argument("--profile", choices=(PROFILE_ID, SENSITIVITY_PROFILE), default=PROFILE_ID)
+
+    soak_start = subparsers.add_parser("start-soak-generation")
+    soak_start.add_argument("--remediation-commit", required=True)
+    soak_start.add_argument("--sip-availability-rule", required=True)
+    soak_start.add_argument("--warmup-checkpoint-id", required=True)
+    soak_start.add_argument("--universe-snapshot-id", required=True)
+    soak_start.add_argument(
+        "--original-ledger", type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_capture_ledger.jsonl",
+    )
+    soak_start.add_argument(
+        "--generation-ledger", type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_soak_generations.jsonl",
+    )
+    soak_validate = subparsers.add_parser("validate-soak-generations")
+    soak_validate.add_argument(
+        "--generation-ledger", type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_soak_generations.jsonl",
+    )
 
     coverage = subparsers.add_parser("coverage-report")
     coverage.add_argument("--input", type=Path, required=True)
@@ -315,6 +372,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         _print({"state": "PLAN_ONLY_NO_NETWORK", **plan.as_dict()})
         return 0
+    if args.command == "plan-operational-capture":
+        _print({"state": "PLAN_ONLY_NO_NETWORK", **build_t_minus_one_operational_schedule(
+            repository_root=root, signal_session=args.session
+        )})
+        return 0
     if args.command == "probe-capabilities":
         plans = list(prospective_source_plans(repository_root=root, observed_for=args.as_of))
         plans.extend(
@@ -359,9 +421,27 @@ def main(argv: list[str] | None = None) -> int:
         actions = _prospective_plan(root, "corporate-actions", args.session)
         _print({"state": "PLAN_ONLY_NO_NETWORK", "ordered_plans": [plan.as_dict(), actions.as_dict()]})
         return 0
+    if args.command == "plan-sip-access":
+        plan = alpaca_sip_access_plan(
+            repository_root=root,
+            start_at=args.start_at,
+            end_at=args.end_at,
+            endpoint_form=args.endpoint_form,
+        )
+        _print({"state": "PLAN_ONLY_NO_NETWORK", **plan.as_dict()})
+        return 0
     if args.command == "execute-source":
         load_local_api_env(root)
-        if args.source == "bars":
+        if args.source in {"sip-single", "sip-multi"}:
+            if args.start_at is None or args.end_at is None:
+                parser.error("SIP access execution requires --start-at and --end-at")
+            plan = alpaca_sip_access_plan(
+                repository_root=root,
+                start_at=args.start_at,
+                end_at=args.end_at,
+                endpoint_form=args.source.removeprefix("sip-"),
+            )
+        elif args.source == "bars":
             if not args.symbol or args.end_exclusive is None:
                 parser.error("bars execution requires --symbol and --end-exclusive")
             plan = alpaca_bars_plan(
@@ -452,6 +532,71 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate-capture-ledger":
         _print(validate_capture_ledger(ledger_path=args.ledger_path.resolve()))
         return 0
+    if args.command in {"plan-liquidity-warmup", "execute-liquidity-warmup", "validate-warmup-checkpoint", "build-liquidity-universe"}:
+        plan = build_liquidity_warmup_plan(
+            repository_root=root,
+            source_snapshot_path=args.source_snapshot,
+            pilot_symbol_count=args.pilot_symbol_count,
+        )
+        if args.command == "plan-liquidity-warmup":
+            _print({
+                "state": "PLAN_ONLY_NO_NETWORK",
+                "warmup_plan_id": plan.warmup_plan_id,
+                "source_snapshot_id": plan.source_snapshot_id,
+                "session_count": len(plan.sessions),
+                "symbol_count": sum(len(unit.symbols) for unit in plan.units),
+                "unit_count": len(plan.units),
+                "pilot_symbol_count": plan.pilot_symbol_count,
+                "units": [unit.as_dict() for unit in plan.units],
+            })
+            return 0
+        if args.command == "validate-warmup-checkpoint":
+            checkpoint = load_warmup_checkpoint(args.checkpoint.resolve(), plan)
+            _print({
+                "state": "PASS",
+                "checkpoint_id": checkpoint["checkpoint_id"],
+                "complete": checkpoint["complete"],
+                "completed_unit_count": len(checkpoint["completed_units"]),
+                "unit_count": len(plan.units),
+            })
+            return 0
+        store = RawEvidenceStore(
+            (root / "data" / "vault" / "qualification" / "as_received" / "alpaca_free_bounded_v1").resolve(),
+            allowed_root=(root / "data").resolve(),
+        )
+        if args.command == "execute-liquidity-warmup":
+            load_local_api_env(root)
+            registry = NetworkAcquisitionRegistry.load(
+                root / "config/alpaca_free_bounded_network_registry.json", allowed_root=root
+            )
+            _print(execute_liquidity_warmup(
+                plan=plan,
+                approved_plan_id=args.approved_plan_id,
+                checkpoint_path=args.checkpoint.resolve(),
+                evidence_store=store,
+                network_registry=registry,
+                clock=TrustedClock.production(),
+                network_enabled=args.execute_network,
+                alpaca_key_id=os.environ.get("APCA_API_KEY_ID"),
+                alpaca_secret_key=os.environ.get("APCA_API_SECRET_KEY"),
+            ))
+            return 0
+        payload = build_liquidity_universe_snapshot(
+            plan=plan,
+            checkpoint_path=args.checkpoint.resolve(),
+            evidence_store=store,
+            output_root=args.output_root.resolve(),
+        )
+        _print({
+            "state": "PASS",
+            "universe_snapshot_id": payload["universe_snapshot_id"],
+            "candidate_count": payload["candidate_count"],
+            "liquidity_ready_count": payload["liquidity_ready_count"],
+            "selected_count": payload["selected_count"],
+            "rank_cutoff": payload["rank_cutoff"],
+            "evidence_class_composition": payload["evidence_class_composition"],
+        })
+        return 0
     if args.command == "rebuild-universe":
         payload = json.loads(args.input.read_text(encoding="utf-8"))
         snapshot = build_universe_snapshot(
@@ -462,6 +607,21 @@ def main(argv: list[str] | None = None) -> int:
             candidates=(_candidate(dict(item)) for item in payload["candidates"]),
         )
         _print(snapshot.as_dict())
+        return 0
+    if args.command == "start-soak-generation":
+        _print(start_soak_generation(
+            repository_root=root,
+            original_ledger_path=args.original_ledger.resolve(),
+            generation_ledger_path=args.generation_ledger.resolve(),
+            remediation_commit=args.remediation_commit,
+            sip_availability_rule=args.sip_availability_rule,
+            warmup_checkpoint_id=args.warmup_checkpoint_id,
+            universe_snapshot_id=args.universe_snapshot_id,
+            started_at=TrustedClock.production().now(),
+        ))
+        return 0
+    if args.command == "validate-soak-generations":
+        _print(validate_soak_generations(args.generation_ledger.resolve()))
         return 0
     if args.command == "coverage-report":
         payload = json.loads(args.input.read_text(encoding="utf-8"))

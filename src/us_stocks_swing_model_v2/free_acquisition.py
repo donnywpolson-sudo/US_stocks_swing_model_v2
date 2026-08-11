@@ -70,12 +70,26 @@ def _parse_success(
     *,
     retrieved_at: datetime,
 ) -> tuple[str, str, str | None, int, datetime | None]:
-    if plan.source == "alpaca_free_bounded_bars":
+    if plan.source in {
+        "alpaca_free_bounded_bars",
+        "alpaca_free_bounded_bars_multi_rfc3339",
+        "alpaca_free_bounded_bars_single_rfc3339",
+    }:
         payload = json.loads(raw)
         query = dict(plan.canonical_query)
+        if plan.source == "alpaca_free_bounded_bars_single_rfc3339":
+            if not isinstance(payload, dict) or not isinstance(payload.get("bars"), list):
+                raise ContractError("Alpaca single-symbol bars response schema is invalid")
+            payload = {
+                "bars": {"AAPL": payload["bars"]},
+                "next_page_token": payload.get("next_page_token"),
+            }
+            expected_symbols = ("AAPL",)
+        else:
+            expected_symbols = tuple(query["symbols"].split(","))
         validation = validate_bars_payload(
             payload,
-            expected_symbols=tuple(query["symbols"].split(",")),
+            expected_symbols=expected_symbols,
         )
         if not validation["accepted"]:
             return (
@@ -186,10 +200,17 @@ def execute_one_source_request(
         headers = {}
         transport_url = plan.transport_url(page_token=requested_page_token)
     requested_at = trusted_clock.now()
-    if plan.source == "alpaca_free_bounded_bars":
+    if plan.source in {
+        "alpaca_free_bounded_bars",
+        "alpaca_free_bounded_bars_multi_rfc3339",
+        "alpaca_free_bounded_bars_single_rfc3339",
+    }:
         query = dict(plan.canonical_query)
         try:
-            requested_end = datetime.fromisoformat(query["end"]).replace(tzinfo=timezone.utc)
+            requested_end = datetime.fromisoformat(query["end"].replace("Z", "+00:00"))
+            if requested_end.tzinfo is None:
+                requested_end = requested_end.replace(tzinfo=timezone.utc)
+            requested_end = requested_end.astimezone(timezone.utc)
         except (KeyError, ValueError) as exc:
             raise ContractError("Alpaca bars end is invalid") from exc
         if requested_end > requested_at - timedelta(minutes=20):
