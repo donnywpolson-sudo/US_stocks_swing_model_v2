@@ -125,7 +125,7 @@
     "atomic_content_addressed_publication": true,
     "idempotent_same_release_only": true
   },
-  "environment_id": "b29d931d14116b14fbef32212709f43dc1b820026acadcfd09a46c1bfdab7034",
+  "environment_id": "71b5b37304309adc89f5f4e376ea36e07f1cb7402f5a6f29afbb75778a44bc69",
   "network_registry_id": "2f0272f1bb0a3e633bdb30c139ea1eb357bb4fee8e29d5a281cb62c47808e68f",
-  "policy_id": "70f022985d7355a930f9e2f42198298b9bef13a667b7dd6029e77021e1f82980"
+  "policy_id": "cbe307258bb6e8a134222a6b5a1994dd6fd7eb675e34f37f245e2839f61eac71"
 }
