@@ -238,6 +238,64 @@ def test_structural_failure_pauses_without_successor_or_network_promotion(
     assert paused["prospective_research_ready"] is False
 
 
+def test_structural_recovery_is_hash_bound_zero_credit_and_append_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _initialize(monkeypatch, tmp_path)
+    paused = automation.record_acceptance_result(
+        repository_root=tmp_path, session=date(2026, 3, 9), complete=False,
+        failure_classification="RECEIPT_CHAIN_CORRUPTION",
+        recorded_at=datetime(2026, 3, 9, 13, tzinfo=UTC),
+    )
+    remediation_commit = "b" * 40
+    plan = automation.build_structural_recovery_plan(
+        repository_root=tmp_path,
+        remediation_commit=remediation_commit,
+    )
+    assert plan["paused_event_id"] == paused["event_id"]
+    assert plan["inherited_completed_session_credit"] == 0
+    assert plan["network_requests"] == 0
+    ledger_path = tmp_path / _policy()["paths"]["acceptance_ledger"]
+    before = ledger_path.read_bytes()
+    with pytest.raises(PermissionError, match="plan differs"):
+        automation.execute_structural_recovery(
+            repository_root=tmp_path,
+            remediation_commit=remediation_commit,
+            approved_recovery_plan_id="0" * 64,
+            recorded_at=datetime(2026, 3, 9, 14, tzinfo=UTC),
+        )
+    assert ledger_path.read_bytes() == before
+
+    def fake_git(_root: Path, *args: str) -> str:
+        if args == ("rev-parse", "HEAD"):
+            return remediation_commit
+        if args == ("status", "--porcelain"):
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(automation, "_git", fake_git)
+    recovered = automation.execute_structural_recovery(
+        repository_root=tmp_path,
+        remediation_commit=remediation_commit,
+        approved_recovery_plan_id=plan["recovery_plan_id"],
+        recorded_at=datetime(2026, 3, 9, 14, tzinfo=UTC),
+    )
+    rows = automation._canonical_ledger(ledger_path, id_field="event_id")
+    assert rows[-2]["event_id"] == paused["event_id"]
+    assert rows[-1]["predecessor_event_id"] == paused["event_id"]
+    assert recovered["state"] == "TWO_SESSION_AUTOMATION_ACCEPTANCE_NOT_STARTED"
+    assert recovered["completed_consecutive_sessions"] == 0
+    assert recovered["inherited_completed_session_credit"] == 0
+    assert recovered["recovered_failure_event_id"] == paused["event_id"]
+    assert recovered["status"]["network_requests"] == 0
+    assert recovered["status"]["structural_pause"] is False
+    with pytest.raises(automation.ContractError, match="requires a paused"):
+        automation.build_structural_recovery_plan(
+            repository_root=tmp_path,
+            remediation_commit=remediation_commit,
+        )
+
+
 def test_background_monitor_is_telemetry_and_does_not_revoke_completed_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
@@ -266,7 +324,10 @@ def test_daily_liquidity_plans_cover_full_candidate_pool_and_pin_sip_raw_daily(t
     candidates = [
         {"stable_asset_id": f"{index:064x}", "symbol": f"S{index:03d}", "candidate_eligible": True}
         for index in range(205)
-    ] + [{"stable_asset_id": "f" * 64, "symbol": "OTCX", "candidate_eligible": False}]
+    ] + [
+        {"stable_asset_id": "e" * 64, "symbol": "IEX", "candidate_eligible": True},
+        {"stable_asset_id": "f" * 64, "symbol": "OTCX", "candidate_eligible": False},
+    ]
     unsigned = {
         "schema_version": 1,
         "evidence_class": "PROSPECTIVE_AS_OBSERVED",
@@ -280,7 +341,8 @@ def test_daily_liquidity_plans_cover_full_candidate_pool_and_pin_sip_raw_daily(t
     )
     symbols = [symbol for plan in plans for symbol in dict(plan.canonical_query)["symbols"].split(",")]
     assert len(plans) == 3
-    assert len(symbols) == 205
+    assert len(symbols) == 206
+    assert "IEX" in symbols
     assert "OTCX" not in symbols
     for plan in plans:
         query = dict(plan.canonical_query)
@@ -288,7 +350,97 @@ def test_daily_liquidity_plans_cover_full_candidate_pool_and_pin_sip_raw_daily(t
         assert query["timeframe"] == "1Day"
         assert query["adjustment"] == "raw"
         assert query["start"].endswith("Z") and query["end"].endswith("Z")
-        assert "iex" not in plan.transport_url().lower()
+
+
+def test_rolling_bars_accepts_sip_request_containing_ticker_iex(tmp_path: Path) -> None:
+    store = automation.RawEvidenceStore(tmp_path / "evidence", allowed_root=tmp_path)
+    historical_plan = automation.alpaca_bars_plan(
+        repository_root=ROOT,
+        symbols=["IEX"],
+        start=date(2026, 3, 6),
+        end_exclusive=date(2026, 3, 7),
+        evidence_class=automation.EvidenceClass.HISTORICAL_RECONSTRUCTED,
+    )
+    prospective_plan = automation.alpaca_bars_plan(
+        repository_root=ROOT,
+        symbols=["IEX"],
+        start=date(2026, 3, 6),
+        end_exclusive=date(2026, 3, 7),
+        evidence_class=automation.EvidenceClass.PROSPECTIVE_AS_OBSERVED,
+    )
+    assert dict(prospective_plan.canonical_query)["feed"] == "sip"
+    assert "IEX" in prospective_plan.sanitized_url
+    historical = store.append(
+        plan=historical_plan,
+        raw=json.dumps({
+            "bars": {"IEX": [{"t": "2026-03-06T05:00:00Z", "c": 205.5, "v": 12000}]},
+            "next_page_token": None,
+        }).encode(),
+        requested_at=datetime(2026, 3, 9, 10, 30, tzinfo=UTC),
+        retrieved_at=datetime(2026, 3, 9, 10, 30, 1, tzinfo=UTC),
+        response_headers={},
+        http_status=200,
+        page_index=0,
+        requested_page_token=None,
+        next_page_token=None,
+        retry_attempt=1,
+        parent_request_id=None,
+        parsing_status="PARSED",
+        validation_status="PASS",
+    )
+    prospective = store.append(
+        plan=prospective_plan,
+        raw=json.dumps({
+            "bars": {"IEX": [{"t": "2026-03-06T05:00:00Z", "c": 205.5, "v": 12345}]},
+            "next_page_token": None,
+        }).encode(),
+        requested_at=datetime(2026, 3, 9, 11, 30, tzinfo=UTC),
+        retrieved_at=datetime(2026, 3, 9, 11, 30, 1, tzinfo=UTC),
+        response_headers={},
+        http_status=200,
+        page_index=0,
+        requested_page_token=None,
+        next_page_token=None,
+        retry_attempt=1,
+        parent_request_id=None,
+        parsing_status="PARSED",
+        validation_status="PASS",
+    )
+    observations, hashes = automation._collect_bars(
+        store,
+        [historical.receipt_id, prospective.receipt_id],
+        {date(2026, 3, 6)},
+    )
+    assert observations["IEX"] == [
+        {"session": date(2026, 3, 6), "close": 205.5, "volume": 12345.0},
+    ]
+    assert hashes["IEX"] == {historical.raw_sha256, prospective.raw_sha256}
+
+    conflicting = store.append(
+        plan=prospective_plan,
+        raw=json.dumps({
+            "bars": {"IEX": [{"t": "2026-03-06T05:00:00Z", "c": 205.5, "v": 12346}]},
+            "next_page_token": None,
+        }).encode(),
+        requested_at=datetime(2026, 3, 9, 11, 31, tzinfo=UTC),
+        retrieved_at=datetime(2026, 3, 9, 11, 31, 1, tzinfo=UTC),
+        response_headers={},
+        http_status=200,
+        page_index=0,
+        requested_page_token=None,
+        next_page_token=None,
+        retry_attempt=1,
+        parent_request_id=None,
+        parsing_status="PARSED",
+        validation_status="PASS",
+    )
+    with pytest.raises(automation.AutomationFailure, match="same-class") as caught:
+        automation._collect_bars(
+            store,
+            [prospective.receipt_id, conflicting.receipt_id],
+            {date(2026, 3, 6)},
+        )
+    assert caught.value.classification == "INCONSISTENT_UNIVERSE_RECONSTRUCTION"
 
 
 def test_status_and_logs_redact_secret_values(tmp_path: Path) -> None:

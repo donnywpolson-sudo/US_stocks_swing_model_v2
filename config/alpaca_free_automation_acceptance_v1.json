@@ -36,7 +36,19 @@
     "required_feed": "sip",
     "timeframe": "1Day",
     "adjustment": "raw",
-    "iex_fallback": false
+    "iex_fallback": false,
+    "cross_class_overlap_precedence": "PROSPECTIVE_AS_OBSERVED_OVER_HISTORICAL_RECONSTRUCTED",
+    "same_class_disagreement": "FAIL_CLOSED"
+  },
+  "structural_recovery": {
+    "operation": "RECOVER_AUTOMATION_STRUCTURAL_FAILURE_V1",
+    "requires_clean_tree": true,
+    "requires_exact_remediation_commit": true,
+    "requires_approved_plan_id": true,
+    "required_consecutive_sessions_after_recovery": 2,
+    "inherited_completed_session_credit": 0,
+    "preserve_failed_evidence": true,
+    "network_requests": 0
   },
   "paths": {
     "evidence_root": "data/vault/qualification/as_received/alpaca_free_bounded_v1",

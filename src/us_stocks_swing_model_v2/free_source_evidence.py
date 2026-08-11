@@ -1071,8 +1071,6 @@ def validate_accepted_bars_receipts(receipts: Iterable[RawEvidenceReceipt]) -> d
             or "asof" in query
         ):
             raise IntegrityError("accepted bars receipt violates the explicit SIP/raw contract")
-        if "iex" in receipt.sanitized_url.lower():
-            raise IntegrityError("accepted bars receipts mix or reference IEX")
         evidence_classes.add(receipt.evidence_class.value)
     if len(evidence_classes) != 1:
         raise IntegrityError("accepted bars receipt set mixes evidence classes")

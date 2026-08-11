@@ -222,7 +222,11 @@ when their local receipt times precede the session open. Its deterministic
 candidate-universe snapshot retains every directory symbol and every inclusion
 or exclusion reason; top-500 selection remains pending until T-1 liquidity
 inputs exist. Phase B accepts only completed-session Alpaca `sip`/`1Day`/`raw`
-bars and the corporate-action REST snapshot after the configured delay.
+bars and the corporate-action REST snapshot after the configured delay. When
+the rolling warm-up and Phase B contain the same symbol/session,
+`PROSPECTIVE_AS_OBSERVED` takes precedence over
+`HISTORICAL_RECONSTRUCTED`; both content hashes remain in lineage. A
+disagreement within the same evidence class still fails closed.
 
 `TWO_SESSION_AUTOMATION_ACCEPTANCE_V1` is the mandatory operational gate. It
 requires two consecutive fully successful scheduled XNYS sessions with zero
@@ -242,6 +246,16 @@ creates a zero-credit successor for the next eligible XNYS session. A
 structural calendar, schema, credential-safety, receipt-chain, ledger,
 universe-determinism, code-binding, or Git-exposure failure pauses later network
 activity until remediation. No failed occurrence is overwritten.
+
+Structural recovery is a separate, hash-bound local operation. First commit the
+reviewed remediation, then generate a no-write recovery plan with
+`plan-structural-recovery --remediation-commit COMMIT`. Execution requires that
+exact commit at `HEAD`, a clean tree, and the matching plan ID supplied to
+`recover-structural-failure --remediation-commit COMMIT
+--approved-recovery-plan-id PLAN_ID`. Recovery appends one atomic acceptance
+review event, preserves every failed receipt, checkpoint, snapshot, and ledger entry,
+performs zero provider requests, and starts a new two-session generation with
+zero inherited credit. Planning does not authorize execution.
 
 After acceptance, `NONBLOCKING_BACKGROUND_RELIABILITY_MONITOR` continues as a
 rolling 20-session operational report. It records expected, complete, partial,

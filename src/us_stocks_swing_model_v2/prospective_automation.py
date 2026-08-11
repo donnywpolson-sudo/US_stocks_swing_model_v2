@@ -34,6 +34,7 @@ from .prospective_liquidity_warmup import _git_commit_exists, _load_snapshot
 
 POLICY_PATH = "config/alpaca_free_automation_acceptance_v1.json"
 POLICY_ID = "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1"
+STRUCTURAL_RECOVERY_OPERATION = "RECOVER_AUTOMATION_STRUCTURAL_FAILURE_V1"
 TASK_NAME = "USStocksSwingV2-Alpaca-Free-Daily-Capture"
 STRICT_REFERENCE = "c29e244174940f76babf75bcf91bbd11ca470c46"
 QUALIFIED_CALENDAR = "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7"
@@ -95,6 +96,19 @@ def load_automation_policy(repository_root: Path) -> dict[str, object]:
         or payload.get("rolling_liquidity", {}).get("timeframe") != "1Day"
         or payload.get("rolling_liquidity", {}).get("adjustment") != "raw"
         or payload.get("rolling_liquidity", {}).get("iex_fallback") is not False
+        or payload.get("rolling_liquidity", {}).get("cross_class_overlap_precedence")
+        != "PROSPECTIVE_AS_OBSERVED_OVER_HISTORICAL_RECONSTRUCTED"
+        or payload.get("rolling_liquidity", {}).get("same_class_disagreement") != "FAIL_CLOSED"
+        or payload.get("structural_recovery") != {
+            "operation": STRUCTURAL_RECOVERY_OPERATION,
+            "requires_clean_tree": True,
+            "requires_exact_remediation_commit": True,
+            "requires_approved_plan_id": True,
+            "required_consecutive_sessions_after_recovery": 2,
+            "inherited_completed_session_credit": 0,
+            "preserve_failed_evidence": True,
+            "network_requests": 0,
+        }
         or set(payload.get("structural_failures", [])) != STRUCTURAL_FAILURES
         or set(payload.get("transient_failures", [])) != TRANSIENT_FAILURES
         or any(payload.get("authorities", {}).values())
@@ -259,6 +273,141 @@ def acceptance_status(*, repository_root: Path) -> dict[str, object]:
     current = dict(rows[-1])
     current["initialized"] = True
     return current
+
+
+def build_structural_recovery_plan(
+    *, repository_root: Path, remediation_commit: str,
+) -> dict[str, object]:
+    root = Path(repository_root).resolve(strict=True)
+    policy = load_automation_policy(root)
+    current = acceptance_status(repository_root=root)
+    if current.get("state") != "AUTOMATION_PAUSED_STRUCTURAL_FAILURE":
+        raise ContractError("automation structural recovery requires a paused acceptance generation")
+    if not _git_commit_exists(root, remediation_commit):
+        raise ContractError("automation recovery commit does not identify a repository commit")
+    loaded = load_qualified_profile_calendar(repository_root=root)
+    if loaded.calendar.release_id != QUALIFIED_CALENDAR:
+        raise IntegrityError("automation recovery calendar differs from the qualified profile release")
+    paths = _paths(root, policy)
+    unsigned = {
+        "schema_version": 1,
+        "operation": STRUCTURAL_RECOVERY_OPERATION,
+        "policy_id": POLICY_ID,
+        "profile_id": PROFILE_ID,
+        "paused_event_id": require_sha256(current.get("event_id"), "paused acceptance event ID"),
+        "paused_acceptance_run_id": require_sha256(
+            current.get("acceptance_run_id"), "paused acceptance run ID",
+        ),
+        "paused_session": str(current.get("session")),
+        "failure_classification": str(current.get("failure_classification")),
+        "remediation_commit": remediation_commit,
+        "calendar_release_id": loaded.calendar.release_id,
+        "required_consecutive_sessions_after_recovery": 2,
+        "inherited_completed_session_credit": 0,
+        "preserve_failed_evidence": True,
+        "network_requests": 0,
+        "append_only_outputs": [
+            str(paths["acceptance_ledger"].relative_to(root)).replace("\\", "/"),
+        ],
+        "replaceable_status_output": str(paths["latest_status"].relative_to(root)).replace("\\", "/"),
+    }
+    return {
+        **unsigned,
+        "recovery_plan_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        "execution_authorized": False,
+    }
+
+
+def execute_structural_recovery(
+    *, repository_root: Path, remediation_commit: str,
+    approved_recovery_plan_id: str, recorded_at: datetime,
+) -> dict[str, object]:
+    root = Path(repository_root).resolve(strict=True)
+    plan = build_structural_recovery_plan(
+        repository_root=root,
+        remediation_commit=remediation_commit,
+    )
+    approved = require_sha256(approved_recovery_plan_id, "approved automation recovery plan ID")
+    if approved != plan["recovery_plan_id"]:
+        raise PermissionError("approved automation structural-recovery plan differs")
+    if _git(root, "rev-parse", "HEAD") != remediation_commit:
+        raise IntegrityError("automation recovery requires the exact remediation commit at HEAD")
+    if _git(root, "status", "--porcelain"):
+        raise IntegrityError("automation recovery requires a clean tree")
+    recorded = require_aware_utc(recorded_at, "automation structural-recovery time")
+    policy = load_automation_policy(root)
+    paths = _paths(root, policy)
+    recovery_review = {
+            "operation": STRUCTURAL_RECOVERY_OPERATION,
+            "recovery_plan_id": plan["recovery_plan_id"],
+            "paused_event_id": plan["paused_event_id"],
+            "paused_acceptance_run_id": plan["paused_acceptance_run_id"],
+            "paused_session": plan["paused_session"],
+            "failure_classification": plan["failure_classification"],
+            "remediation_commit": remediation_commit,
+            "calendar_release_id": plan["calendar_release_id"],
+            "failed_evidence_deleted": False,
+            "inherited_completed_session_credit": 0,
+            "network_requests": 0,
+    }
+    run_unsigned = {
+        "policy_id": POLICY_ID,
+        "predecessor_acceptance_run_id": plan["paused_acceptance_run_id"],
+        "recovered_failure_event_id": plan["paused_event_id"],
+        "recovery_plan_id": plan["recovery_plan_id"],
+        "recovery_review": recovery_review,
+        "remediation_commit": remediation_commit,
+        "calendar_release_id": plan["calendar_release_id"],
+        "started_after_failed_session": plan["paused_session"],
+        "started_at": iso_z(recorded),
+        "required_consecutive_sessions": 2,
+        "inherited_completed_session_credit": 0,
+    }
+    run_id = sha256_bytes(canonical_json_bytes(run_unsigned))
+    recovered = _append_event(
+        paths["acceptance_ledger"],
+        {
+            "schema_version": 1,
+            "event_type": "ACCEPTANCE_STRUCTURAL_RECOVERY_STARTED",
+            "recorded_at": iso_z(recorded),
+            "acceptance_run_id": run_id,
+            **run_unsigned,
+            "state": "TWO_SESSION_AUTOMATION_ACCEPTANCE_NOT_STARTED",
+            "completed_consecutive_sessions": 0,
+            "latest_completed_session": None,
+            "failure_classification": None,
+            "prospective_capture_automation_accepted": False,
+            "prospective_capture_operational": False,
+            "background_reliability_monitoring_active": False,
+            "next_phase_historical_exploratory_development_eligible": False,
+            "prospective_research_ready": False,
+            "training_authorized": False,
+            "evaluation_authorized": False,
+        },
+        id_field="event_id",
+        allowed_root=root / "data",
+    )
+    status = {
+        "task_name": TASK_NAME,
+        "state": recovered["state"],
+        "acceptance_run_id": recovered["acceptance_run_id"],
+        "acceptance_credit": 0,
+        "recovery_plan_id": plan["recovery_plan_id"],
+        "recovered_failure_event_id": plan["paused_event_id"],
+        "structural_pause": False,
+        "network_requests": 0,
+        "orders": 0,
+        "predictions": 0,
+        "training": False,
+        "evaluation": False,
+    }
+    _write_status(root, policy, status)
+    _log(
+        root,
+        policy,
+        f"RECOVERED plan={plan['recovery_plan_id']} failed_event={plan['paused_event_id']}",
+    )
+    return {**recovered, "status": status}
 
 
 def _calendar_sessions(root: Path) -> tuple[object, list[dict[str, object]]]:
@@ -640,8 +789,12 @@ def _collect_bars(
     store: RawEvidenceStore, receipt_ids: Iterable[str], sessions: set[date]
 ) -> tuple[dict[str, list[dict[str, object]]], dict[str, set[str]]]:
     eastern = ZoneInfo("America/New_York")
-    values: dict[tuple[str, date], tuple[float, float]] = {}
+    values: dict[tuple[str, date], tuple[float, float, EvidenceClass]] = {}
     hashes: dict[str, set[str]] = {}
+    evidence_precedence = {
+        EvidenceClass.HISTORICAL_RECONSTRUCTED: 0,
+        EvidenceClass.PROSPECTIVE_AS_OBSERVED: 1,
+    }
     for receipt_id in receipt_ids:
         receipt = store.receipt(receipt_id)
         if (
@@ -652,7 +805,7 @@ def _collect_bars(
         ):
             raise AutomationFailure("RECEIPT_CHAIN_CORRUPTION", "rolling receipt is not an accepted bars receipt", structural=True)
         query = dict(receipt.canonical_query)
-        if query.get("feed") != "sip" or query.get("timeframe") != "1Day" or query.get("adjustment") != "raw" or "iex" in receipt.sanitized_url.lower():
+        if query.get("feed") != "sip" or query.get("timeframe") != "1Day" or query.get("adjustment") != "raw":
             raise AutomationFailure("RECEIPT_CHAIN_CORRUPTION", "rolling bars receipt contract differs", structural=True)
         payload = json.loads(store.read_raw(receipt))
         for symbol, rows in payload["bars"].items():
@@ -662,12 +815,18 @@ def _collect_bars(
                     continue
                 key = (str(symbol), observed_session)
                 observed = (float(row["c"]), float(row["v"]))
-                if key in values and values[key] != observed:
-                    raise AutomationFailure("INCONSISTENT_UNIVERSE_RECONSTRUCTION", "duplicate bars disagree", structural=True)
-                values[key] = observed
+                if key in values:
+                    prior_close, prior_volume, prior_class = values[key]
+                    prior = (prior_close, prior_volume)
+                    if prior != observed and prior_class == receipt.evidence_class:
+                        raise AutomationFailure("INCONSISTENT_UNIVERSE_RECONSTRUCTION", "same-class duplicate bars disagree", structural=True)
+                    if evidence_precedence[receipt.evidence_class] < evidence_precedence[prior_class]:
+                        hashes.setdefault(str(symbol), set()).add(receipt.raw_sha256)
+                        continue
+                values[key] = (*observed, receipt.evidence_class)
                 hashes.setdefault(str(symbol), set()).add(receipt.raw_sha256)
     observations: dict[str, list[dict[str, object]]] = {}
-    for (symbol, session), (close, volume) in values.items():
+    for (symbol, session), (close, volume, _) in values.items():
         observations.setdefault(symbol, []).append({"session": session, "close": close, "volume": volume})
     for rows in observations.values():
         rows.sort(key=lambda row: row["session"])

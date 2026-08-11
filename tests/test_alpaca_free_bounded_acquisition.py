@@ -156,7 +156,6 @@ def test_daily_capture_phases_are_separate_t_minus_1_and_explicit_sip(
     assert query["feed"] == "sip"
     assert query["timeframe"] == "1Day"
     assert query["adjustment"] == "raw"
-    assert "iex" not in completed.source_plans[0].sanitized_url.lower()
 
 
 def test_operational_schedule_orders_t_minus_one_before_predecision_from_calendar(
@@ -310,7 +309,6 @@ def test_backfill_plan_pins_sip_raw_order_and_is_deterministic() -> None:
     assert all(unit.symbols == ("AAPL", "META") for unit in first.units)
     assert all(("feed", "sip") in unit.canonical_query for unit in first.units)
     assert all(("adjustment", "raw") in unit.canonical_query for unit in first.units)
-    assert all("iex" not in unit.sanitized_url.lower() for unit in first.units)
     assert [dict(unit.canonical_query)["end"] for unit in first.units] == [
         "2016-12-31",
         "2017-01-02",
@@ -480,9 +478,11 @@ def test_append_only_store_hashes_receipts_deduplicates_bytes_and_retains_change
 def test_receipt_tampering_and_incomplete_pagination_fail_closed(tmp_path: Path) -> None:
     store = RawEvidenceStore(tmp_path / "evidence", allowed_root=tmp_path)
     plan = alpaca_bars_plan(
-        repository_root=REPO, symbols=["AAPL"], start=date(2020, 1, 1),
+        repository_root=REPO, symbols=["IEX"], start=date(2020, 1, 1),
         end_exclusive=date(2020, 1, 2), evidence_class=EvidenceClass.HISTORICAL_RECONSTRUCTED,
     )
+    assert dict(plan.canonical_query)["feed"] == "sip"
+    assert "IEX" in plan.sanitized_url
     first = store.append(
         plan=plan, raw=b"p1", requested_at=NOW, retrieved_at=NOW + timedelta(seconds=1),
         response_headers={}, http_status=200, page_index=0, requested_page_token=None,

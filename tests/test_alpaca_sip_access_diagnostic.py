@@ -29,7 +29,6 @@ def test_sip_access_plans_pin_rfc3339_sip_raw_daily_and_endpoint_form() -> None:
         assert query["feed"] == "sip"
         assert query["timeframe"] == "1Day"
         assert query["adjustment"] == "raw"
-        assert "iex" not in plan.sanitized_url
         assert ("symbols" in query) is (endpoint_form == "multi")
 
 
