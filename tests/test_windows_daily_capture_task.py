@@ -24,7 +24,7 @@ def test_task_installer_binds_exact_wrapper_and_fail_closed_settings() -> None:
     assert "-RestartInterval (New-TimeSpan -Minutes 5)" in text
     assert "-WorkingDirectory $repositoryRoot" in text
     assert "-DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '04:15'" in text
-    assert "-LogonType InteractiveToken -RunLevel Limited" in text
+    assert "-LogonType Interactive -RunLevel Limited" in text
 
 
 def test_task_action_contains_no_secret_or_trading_arguments() -> None:

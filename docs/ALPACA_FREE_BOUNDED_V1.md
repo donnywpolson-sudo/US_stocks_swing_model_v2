@@ -301,7 +301,7 @@ Enable-ScheduledTask -TaskName 'USStocksSwingV2-Alpaca-Free-Daily-Capture'
 The installer validates the exact repository, branch ancestry, clean tree,
 qualified calendar, ignored/untracked `api.env`, canonical credential presence,
 verified Python path, wrapper, and a no-network dry-run. The least-privileged
-current-user interactive-token registration stores no provider credential or
+current-user interactive registration stores no provider credential or
 Windows password in the task. The computer must be powered on or sleeping, not
 shut down. `WakeToRun` depends on Windows, firmware, and hardware support; a
 missed pre-decision cutoff remains a failed prospective session.

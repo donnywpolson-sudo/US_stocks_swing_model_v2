@@ -70,7 +70,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 $principalId = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
-$principal = New-ScheduledTaskPrincipal -UserId $principalId -LogonType InteractiveToken -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $principalId -LogonType Interactive -RunLevel Limited
 $definition = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Fail-closed ALPACA_FREE_BOUNDED_V1 prospective capture. No trading or order action.'
 
 if (-not $DryRun) {
@@ -85,7 +85,7 @@ $info = if ($registered) { Get-ScheduledTaskInfo -TaskName $taskName } else { $n
     registered = [bool]$registered
     enabled = if ($registered) { $registered.State -ne 'Disabled' } else { $false }
     principal = $principalId
-    logon_type = 'InteractiveToken'
+    logon_type = 'Interactive'
     trigger = 'WEEKDAYS_04:15_AMERICA_LOS_ANGELES_WITH_XNYS_RUNTIME_GATE'
     action = $wrapper
     working_directory = $repositoryRoot
