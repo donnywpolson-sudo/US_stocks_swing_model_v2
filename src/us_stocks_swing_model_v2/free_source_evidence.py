@@ -3,14 +3,20 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Sequence
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from .alpaca_free_bounded import EvidenceClass, PROFILE_ID, load_profile
+from .alpaca_free_bounded import (
+    EvidenceClass,
+    PROFILE_ID,
+    load_profile,
+    load_qualified_profile_calendar,
+)
 from .common import (
     atomic_write_new,
     canonical_json_bytes,
@@ -302,6 +308,116 @@ def prospective_source_plans(
     return tuple(plans)
 
 
+CAPTURE_PHASES = ("PRE_DECISION", "COMPLETED_SESSION")
+
+
+@dataclass(frozen=True)
+class DailyCapturePlan:
+    capture_plan_id: str
+    session: date
+    phase: str
+    information_cutoff_session: date
+    pre_decision_cutoff: datetime
+    completed_session_available_at: datetime
+    calendar_release_id: str
+    source_plans: tuple[SourceRequestPlan, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "profile_id": PROFILE_ID,
+            "capture_plan_id": self.capture_plan_id,
+            "session": self.session.isoformat(),
+            "phase": self.phase,
+            "information_cutoff_session": self.information_cutoff_session.isoformat(),
+            "pre_decision_cutoff": iso_z(self.pre_decision_cutoff),
+            "completed_session_available_at": iso_z(self.completed_session_available_at),
+            "calendar_release_id": self.calendar_release_id,
+            "source_plans": [plan.as_dict() for plan in self.source_plans],
+            "execution_authorized": False,
+            "training_authorized": False,
+            "evaluation_authorized": False,
+            "prospective_research_authorized": False,
+        }
+
+
+def build_daily_capture_plan(
+    *,
+    repository_root: Path,
+    session: date,
+    phase: str,
+    symbols: Iterable[str] = (),
+) -> DailyCapturePlan:
+    if phase not in CAPTURE_PHASES:
+        raise ContractError("prospective capture phase is invalid")
+    root = Path(repository_root).resolve(strict=True)
+    profile = load_profile(root)
+    loaded = load_qualified_profile_calendar(repository_root=root)
+    rows = loaded.schedule.to_pylist()
+    positions = {row["session"]: index for index, row in enumerate(rows)}
+    index = positions.get(session)
+    if index is None or index == 0:
+        raise ContractError("prospective capture session is outside the qualified XNYS calendar")
+    row = rows[index]
+    prior_session = rows[index - 1]["session"]
+    pre_decision_cutoff = require_aware_utc(row["open_at"], "pre-decision cutoff")
+    completed_at = require_aware_utc(row["close_at"], "session close") + timedelta(
+        minutes=int(profile["bars"]["minimum_end_lag_minutes"])
+    )
+    prospective = prospective_source_plans(repository_root=root, observed_for=session)
+    if phase == "PRE_DECISION":
+        required = set(profile["prospective_capture"]["pre_decision_phase_sources"])
+        plans = tuple(plan for plan in prospective if plan.source in required)
+    else:
+        canonical_symbols = tuple(
+            sorted({str(value).strip().upper() for value in symbols if str(value).strip()})
+        )
+        if not canonical_symbols:
+            raise ContractError("completed-session capture requires a bounded symbol set")
+        plans = (
+            alpaca_bars_plan(
+                repository_root=root,
+                symbols=canonical_symbols,
+                start=session,
+                end_exclusive=session + timedelta(days=1),
+                evidence_class=EvidenceClass.PROSPECTIVE_AS_OBSERVED,
+            ),
+            next(
+                plan
+                for plan in prospective
+                if plan.source == "alpaca_free_bounded_corporate_actions"
+            ),
+        )
+    expected_sources = (
+        profile["prospective_capture"]["pre_decision_phase_sources"]
+        if phase == "PRE_DECISION"
+        else profile["prospective_capture"]["completed_session_phase_sources"]
+    )
+    if [plan.source for plan in plans] != list(expected_sources):
+        raise IntegrityError("prospective capture phase source order differs")
+    unsigned = {
+        "schema_version": 1,
+        "profile_id": PROFILE_ID,
+        "session": session.isoformat(),
+        "phase": phase,
+        "information_cutoff_session": prior_session.isoformat(),
+        "pre_decision_cutoff": iso_z(pre_decision_cutoff),
+        "completed_session_available_at": iso_z(completed_at),
+        "calendar_release_id": loaded.calendar.release_id,
+        "source_plan_ids": [plan.plan_id for plan in plans],
+        "capture_policy": profile["prospective_capture"],
+    }
+    return DailyCapturePlan(
+        capture_plan_id=sha256_bytes(canonical_json_bytes(unsigned)),
+        session=session,
+        phase=phase,
+        information_cutoff_session=prior_session,
+        pre_decision_cutoff=pre_decision_cutoff,
+        completed_session_available_at=completed_at,
+        calendar_release_id=loaded.calendar.release_id,
+        source_plans=plans,
+    )
+
+
 @dataclass(frozen=True)
 class RawEvidenceReceipt:
     receipt_id: str
@@ -571,6 +687,36 @@ class RawEvidenceStore:
             prior_id = receipt_id
         return tuple(receipts)
 
+    def receipts(self, source: str | None = None) -> tuple[RawEvidenceReceipt, ...]:
+        if source is not None:
+            if not source or Path(source).name != source:
+                raise ContractError("raw evidence source name is invalid")
+            return self._ordered_receipts(self.root / source / "receipts")
+        if not self.root.exists():
+            return ()
+        collected: list[RawEvidenceReceipt] = []
+        for source_root in sorted(path for path in self.root.iterdir() if path.is_dir()):
+            collected.extend(self._ordered_receipts(source_root / "receipts"))
+        return tuple(collected)
+
+    def receipt(self, receipt_id: str) -> RawEvidenceReceipt:
+        expected = require_sha256(receipt_id, "receipt_id")
+        matches = [receipt for receipt in self.receipts() if receipt.receipt_id == expected]
+        if len(matches) != 1:
+            raise ContractError("raw evidence receipt ID is missing or ambiguous")
+        return matches[0]
+
+    def read_raw(self, receipt: RawEvidenceReceipt) -> bytes:
+        raw_path = self.root / receipt.source / "objects" / receipt.raw_sha256 / "raw.bin"
+        require_contained_path(raw_path, self.allowed_root)
+        try:
+            raw = raw_path.read_bytes()
+        except OSError as exc:
+            raise IntegrityError("raw evidence object is unreadable") from exc
+        if sha256_bytes(raw) != receipt.raw_sha256 or len(raw) != receipt.raw_bytes:
+            raise IntegrityError("raw evidence object differs from its receipt")
+        return raw
+
     def validate(self) -> dict[str, object]:
         source_reports: dict[str, object] = {}
         if not self.root.exists():
@@ -839,4 +985,464 @@ def validate_accepted_bars_receipts(receipts: Iterable[RawEvidenceReceipt]) -> d
         "terminal_page": True,
         "receipt_count": len(ordered),
         "evidence_class": next(iter(evidence_classes)),
+    }
+
+
+_COMMON_STOCK_TOKENS = (
+    "COMMON STOCK",
+    "COMMON SHARES",
+    "ORDINARY SHARES",
+    "ORDINARY SHARE",
+)
+_NONSTANDARD_SECURITY_TOKENS = (
+    "WARRANT",
+    " WTS",
+    " UNIT",
+    " RIGHT",
+    "PREFERRED",
+    "DEPOSITARY",
+    " NOTE",
+    " BOND",
+    "DEBENTURE",
+)
+_OTHER_EXCHANGE_MAP = {
+    "A": "NYSE_AMERICAN",
+    "N": "NYSE",
+    "P": "NYSE_ARCA",
+    "Z": "CBOE_BZX",
+    "V": "IEX",
+}
+
+
+def _receipt_matches_plan(receipt: RawEvidenceReceipt, plan: SourceRequestPlan) -> bool:
+    return (
+        receipt.source == plan.source
+        and receipt.provider == plan.provider
+        and receipt.endpoint == plan.endpoint
+        and receipt.method == plan.method
+        and receipt.canonical_query == plan.canonical_query
+        and receipt.evidence_class is EvidenceClass.PROSPECTIVE_AS_OBSERVED
+    )
+
+
+def _selected_receipts(
+    *,
+    plan: DailyCapturePlan,
+    store: RawEvidenceStore,
+    receipt_ids: Iterable[str],
+) -> dict[str, tuple[RawEvidenceReceipt, ...]]:
+    selected = tuple(store.receipt(value) for value in receipt_ids)
+    if len({receipt.receipt_id for receipt in selected}) != len(selected):
+        raise ContractError("capture receipt IDs must be unique")
+    grouped: dict[str, tuple[RawEvidenceReceipt, ...]] = {}
+    for source_plan in plan.source_plans:
+        rows = tuple(
+            sorted(
+                (receipt for receipt in selected if receipt.source == source_plan.source),
+                key=lambda receipt: receipt.page_index,
+            )
+        )
+        if not rows or any(not _receipt_matches_plan(row, source_plan) for row in rows):
+            raise IntegrityError(f"capture receipt set differs for source: {source_plan.source}")
+        validate_complete_pagination(rows)
+        grouped[source_plan.source] = rows
+    if {receipt.source for receipt in selected} != set(grouped):
+        raise IntegrityError("capture receipt set includes an unplanned source")
+    return grouped
+
+
+def build_prospective_universe_snapshot(
+    *,
+    plan: DailyCapturePlan,
+    evidence_store: RawEvidenceStore,
+    receipt_ids: Iterable[str],
+    output_root: Path,
+) -> dict[str, object]:
+    if plan.phase != "PRE_DECISION":
+        raise ContractError("prospective universe requires the pre-decision capture phase")
+    grouped = _selected_receipts(plan=plan, store=evidence_store, receipt_ids=receipt_ids)
+    if any(
+        receipt.retrieved_at > plan.pre_decision_cutoff
+        for rows in grouped.values()
+        for receipt in rows
+    ):
+        raise ContractError("post-cutoff evidence cannot enter the pre-decision universe")
+    assets_receipt = grouped["alpaca_free_bounded_assets"][-1]
+    assets = {
+        asset.symbol: asset
+        for asset in parse_alpaca_asset_master(evidence_store.read_raw(assets_receipt))
+    }
+    directory_rows: list[tuple[str, dict[str, str], RawEvidenceReceipt]] = []
+    for source, filename in (
+        ("nasdaq_free_bounded_listed", "nasdaqlisted.txt"),
+        ("nasdaq_free_bounded_otherlisted", "otherlisted.txt"),
+    ):
+        receipt = grouped[source][-1]
+        parsed = parse_nasdaq_symbol_directory(
+            evidence_store.read_raw(receipt),
+            source_name=filename,
+            retrieved_at=receipt.retrieved_at,
+        )
+        directory_rows.extend((source, dict(row), receipt) for row in parsed["rows"])
+    candidates: list[dict[str, object]] = []
+    seen_symbols: set[str] = set()
+    for source, row, directory_receipt in directory_rows:
+        symbol = row.get("Symbol") or row.get("ACT Symbol")
+        if not symbol or symbol in seen_symbols:
+            raise IntegrityError("prospective directories contain a missing or duplicate symbol")
+        seen_symbols.add(symbol)
+        name = row.get("Security Name", "")
+        upper_name = name.upper()
+        etf = row.get("ETF", "")
+        test_issue = row.get("Test Issue", "")
+        financial = row.get("Financial Status", "")
+        exchange = (
+            "NASDAQ"
+            if source == "nasdaq_free_bounded_listed"
+            else _OTHER_EXCHANGE_MAP.get(row.get("Exchange", ""), "UNKNOWN")
+        )
+        asset = assets.get(symbol)
+        reasons: list[str] = []
+        if etf != "N":
+            reasons.append("ETF_OR_UNKNOWN_ETF_STATUS_EXCLUDED")
+        if test_issue != "N":
+            reasons.append("TEST_OR_UNKNOWN_ISSUE_EXCLUDED")
+        if financial not in {"", "N"}:
+            reasons.append("FINANCIAL_STATUS_NOT_NORMAL")
+        if any(token in upper_name for token in _NONSTANDARD_SECURITY_TOKENS):
+            reasons.append("NONSTANDARD_SECURITY_TYPE_EXCLUDED")
+        if not any(token in upper_name for token in _COMMON_STOCK_TOKENS):
+            reasons.append("COMMON_STOCK_CLASSIFICATION_NOT_AFFIRMATIVE")
+        if exchange not in {"NASDAQ", "NYSE", "NYSE_AMERICAN"}:
+            reasons.append("PRIMARY_EXCHANGE_EXCLUDED")
+        if asset is None:
+            reasons.append("ALPACA_STABLE_IDENTITY_MISSING")
+            provider_asset_id = None
+            stable_asset_id = sha256_bytes(
+                canonical_json_bytes({"unresolved_symbol": symbol, "source": source})
+            )
+        else:
+            provider_asset_id = asset.provider_asset_id
+            stable_asset_id = sha256_bytes(
+                canonical_json_bytes(
+                    {"provider": "alpaca", "provider_asset_id": asset.provider_asset_id}
+                )
+            )
+            if asset.status != "active":
+                reasons.append("ALPACA_ASSET_INACTIVE")
+        candidates.append(
+            {
+                "stable_asset_id": stable_asset_id,
+                "provider_asset_id": provider_asset_id,
+                "symbol": symbol,
+                "security_name": name,
+                "exchange": exchange,
+                "source_membership": source,
+                "candidate_eligible": not reasons,
+                "inclusion_or_exclusion_reasons": (
+                    ["ELIGIBLE_FOR_T_MINUS_1_LIQUIDITY_INPUT"]
+                    if not reasons else sorted(set(reasons))
+                ),
+                "asset_status": asset.status if asset else None,
+                "tradable": asset.tradable if asset else None,
+                "marginable": asset.marginable if asset else None,
+                "shortable": asset.shortable if asset else None,
+                "borrow_status": asset.borrow_status if asset else None,
+                "easy_to_borrow_legacy": asset.easy_to_borrow if asset else None,
+                "evidence_class": EvidenceClass.PROSPECTIVE_AS_OBSERVED.value,
+                "directory_receipt_id": directory_receipt.receipt_id,
+                "asset_receipt_id": assets_receipt.receipt_id,
+            }
+        )
+    candidates.sort(key=lambda row: (str(row["stable_asset_id"]), str(row["symbol"])))
+    unsigned = {
+        "schema_version": 1,
+        "profile_id": PROFILE_ID,
+        "snapshot_type": "COMPLETE_PRE_DECISION_CANDIDATE_UNIVERSE",
+        "session": plan.session.isoformat(),
+        "information_cutoff_session": plan.information_cutoff_session.isoformat(),
+        "pre_decision_cutoff": iso_z(plan.pre_decision_cutoff),
+        "capture_plan_id": plan.capture_plan_id,
+        "calendar_release_id": plan.calendar_release_id,
+        "source_receipts": [
+            {
+                "source": source,
+                "receipt_ids": [receipt.receipt_id for receipt in rows],
+                "content_hashes": [receipt.raw_sha256 for receipt in rows],
+            }
+            for source, rows in sorted(grouped.items())
+        ],
+        "candidate_count": len(candidates),
+        "eligible_for_t_minus_1_liquidity_count": sum(
+            bool(row["candidate_eligible"]) for row in candidates
+        ),
+        "selected_top_500_count": 0,
+        "selection_state": "PENDING_T_MINUS_1_LIQUIDITY_INPUTS",
+        "evidence_class": EvidenceClass.PROSPECTIVE_AS_OBSERVED.value,
+        "candidates": candidates,
+    }
+    snapshot_id = sha256_bytes(canonical_json_bytes(unsigned))
+    payload = {**unsigned, "universe_snapshot_id": snapshot_id}
+    resolved_output_root = Path(output_root).resolve()
+    require_contained_path(
+        resolved_output_root,
+        evidence_store.allowed_root,
+        must_exist=resolved_output_root.exists(),
+    )
+    resolved_output_root.mkdir(parents=True, exist_ok=True)
+    destination = resolved_output_root / f"{snapshot_id}.json"
+    require_contained_path(destination, resolved_output_root, must_exist=False)
+    if destination.exists():
+        if destination.read_bytes() != canonical_json_bytes(payload):
+            raise IntegrityError("prospective universe snapshot ID collision")
+    else:
+        atomic_write_new(destination, canonical_json_bytes(payload))
+    return payload
+
+
+def _load_capture_ledger(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    entries: list[dict[str, object]] = []
+    predecessor: str | None = None
+    try:
+        lines = path.read_bytes().splitlines()
+    except OSError as exc:
+        raise IntegrityError("prospective capture ledger is unreadable") from exc
+    for line in lines:
+        if not line:
+            raise IntegrityError("prospective capture ledger contains a blank record")
+        try:
+            payload = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise IntegrityError("prospective capture ledger record is invalid") from exc
+        if not isinstance(payload, dict) or payload.get("predecessor_entry_id") != predecessor:
+            raise IntegrityError("prospective capture ledger predecessor chain is broken")
+        entry_id = require_sha256(payload.get("ledger_entry_id"), "capture ledger entry ID")
+        unsigned = {key: value for key, value in payload.items() if key != "ledger_entry_id"}
+        if sha256_bytes(canonical_json_bytes(unsigned)) != entry_id:
+            raise IntegrityError("prospective capture ledger entry differs from canonical content")
+        entries.append(payload)
+        predecessor = entry_id
+    return entries
+
+
+def capture_soak_state(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    required_consecutive_sessions: int = 20,
+) -> dict[str, object]:
+    if not entries:
+        return {
+            "state": "PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED",
+            "required_consecutive_sessions": required_consecutive_sessions,
+            "completed_consecutive_sessions": 0,
+        }
+    latest: dict[str, Mapping[str, object]] = {}
+    for entry in entries:
+        latest[str(entry["session_date"])] = entry
+    completed_entries = sorted(
+        (
+            entry
+            for entry in latest.values()
+            if entry.get("final_session_capture_status") in {"COMPLETE", "COMPLETE_AFTER_RETRY"}
+        ),
+        key=lambda entry: str(entry["session_date"]),
+    )
+    consecutive = 0
+    previous_session: str | None = None
+    for entry in completed_entries:
+        if previous_session is None or entry.get("information_cutoff_session") == previous_session:
+            consecutive += 1
+        else:
+            consecutive = 1
+        previous_session = str(entry["session_date"])
+    failed = any(
+        entry.get("final_session_capture_status")
+        in {
+            "PARTIAL_FAIL_CLOSED", "MISSING_SOURCE", "PROVIDER_RATE_LIMIT",
+            "PROVIDER_UNAVAILABLE", "SCHEMA_DRIFT", "CREDENTIAL_UNAVAILABLE",
+            "CALENDAR_NOT_QUALIFIED",
+        }
+        for entry in latest.values()
+    )
+    if failed:
+        state = "PROSPECTIVE_CAPTURE_SOAK_FAILED"
+    elif consecutive >= required_consecutive_sessions:
+        state = "PROSPECTIVE_CAPTURE_SOAK_COMPLETE"
+    else:
+        state = "PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS"
+    return {
+        "state": state,
+        "required_consecutive_sessions": required_consecutive_sessions,
+        "completed_consecutive_sessions": min(consecutive, required_consecutive_sessions),
+        "represented_sessions": len(latest),
+        "prospective_research_ready": False,
+        "training_authorized": False,
+        "evaluation_authorized": False,
+    }
+
+
+def append_capture_ledger_entry(
+    *,
+    plan: DailyCapturePlan,
+    evidence_store: RawEvidenceStore,
+    receipt_ids: Iterable[str],
+    ledger_path: Path,
+    universe_snapshot_id: str | None,
+    appended_at: datetime,
+) -> dict[str, object]:
+    appended = require_aware_utc(appended_at, "capture ledger append time")
+    selected = tuple(evidence_store.receipt(value) for value in receipt_ids)
+    if len({receipt.receipt_id for receipt in selected}) != len(selected):
+        raise ContractError("capture receipt IDs must be unique")
+    planned_sources = {source_plan.source for source_plan in plan.source_plans}
+    if any(receipt.source not in planned_sources for receipt in selected):
+        raise IntegrityError("capture ledger receipt set includes an unplanned source")
+    grouped: dict[str, tuple[RawEvidenceReceipt, ...]] = {}
+    for source_plan in plan.source_plans:
+        rows = tuple(
+            sorted(
+                (receipt for receipt in selected if receipt.source == source_plan.source),
+                key=lambda receipt: receipt.page_index,
+            )
+        )
+        if rows:
+            if any(not _receipt_matches_plan(row, source_plan) for row in rows):
+                raise IntegrityError(f"capture receipt set differs for source: {source_plan.source}")
+            validate_complete_pagination(rows)
+        grouped[source_plan.source] = rows
+    source_entries: list[dict[str, object]] = []
+    phase_valid = True
+    retried = False
+    missing_source = False
+    for source_plan in plan.source_plans:
+        receipts = grouped[source_plan.source]
+        if not receipts:
+            phase_valid = False
+            missing_source = True
+            source_entries.append(
+                {
+                    "source": source_plan.source,
+                    "plan_id": source_plan.plan_id,
+                    "request_time": None,
+                    "receipt_time": None,
+                    "receipt_ids": [],
+                    "content_hashes": [],
+                    "parsing_state": "NOT_PARSED",
+                    "validation_state": "MISSING_SOURCE",
+                    "pagination_state": "NOT_STARTED",
+                    "evidence_class": EvidenceClass.PROSPECTIVE_AS_OBSERVED.value,
+                    "missing_source_reason": "MISSING_SOURCE",
+                    "retry_state": "NOT_STARTED",
+                    "changed_response_predecessor": None,
+                    "source_file_created_at": None,
+                }
+            )
+            continue
+        if any(
+            receipt.http_status != 200
+            or receipt.parsing_status != "PARSED"
+            or not receipt.validation_status.startswith("PASS")
+            for receipt in receipts
+        ):
+            phase_valid = False
+        if plan.phase == "PRE_DECISION" and any(
+            receipt.retrieved_at > plan.pre_decision_cutoff for receipt in receipts
+        ):
+            phase_valid = False
+        if plan.phase == "COMPLETED_SESSION" and any(
+            receipt.requested_at < plan.completed_session_available_at for receipt in receipts
+        ):
+            phase_valid = False
+        retried = retried or any(receipt.retry_attempt > 1 for receipt in receipts)
+        source_entries.append(
+            {
+                "source": source_plan.source,
+                "plan_id": source_plan.plan_id,
+                "request_time": iso_z(receipts[0].requested_at),
+                "receipt_time": iso_z(receipts[-1].retrieved_at),
+                "receipt_ids": [receipt.receipt_id for receipt in receipts],
+                "content_hashes": [receipt.raw_sha256 for receipt in receipts],
+                "parsing_state": receipts[-1].parsing_status,
+                "validation_state": receipts[-1].validation_status,
+                "pagination_state": "COMPLETE",
+                "evidence_class": receipts[-1].evidence_class.value,
+                "missing_source_reason": None,
+                "retry_state": "RETRIED" if any(r.retry_attempt > 1 for r in receipts) else "NOT_RETRIED",
+                "changed_response_predecessor": receipts[-1].prior_receipt_id,
+                "source_file_created_at": (
+                    iso_z(receipts[-1].source_file_created_at)
+                    if receipts[-1].source_file_created_at else None
+                ),
+            }
+        )
+    if plan.phase == "PRE_DECISION" and universe_snapshot_id is None:
+        phase_valid = False
+    if universe_snapshot_id is not None:
+        require_sha256(universe_snapshot_id, "universe snapshot ID")
+    ledger = Path(ledger_path).resolve()
+    require_contained_path(ledger, evidence_store.allowed_root, must_exist=ledger.exists())
+    with ExclusiveFileLock(ledger.with_suffix(ledger.suffix + ".lock"), allowed_root=evidence_store.allowed_root):
+        prior_entries = _load_capture_ledger(ledger)
+        prior_phase = {
+            str(entry["phase"]): entry
+            for entry in prior_entries
+            if entry.get("session_date") == plan.session.isoformat()
+        }
+        if missing_source:
+            final_status = "MISSING_SOURCE"
+        elif not phase_valid:
+            final_status = "PARTIAL_FAIL_CLOSED"
+        elif plan.phase == "PRE_DECISION":
+            final_status = "AWAITING_COMPLETED_SESSION_PHASE"
+        elif "PRE_DECISION" not in prior_phase:
+            final_status = "PARTIAL_FAIL_CLOSED"
+        else:
+            final_status = "COMPLETE_AFTER_RETRY" if retried else "COMPLETE"
+        predecessor = prior_entries[-1]["ledger_entry_id"] if prior_entries else None
+        unsigned = {
+            "schema_version": 1,
+            "session_date": plan.session.isoformat(),
+            "phase": plan.phase,
+            "pre_decision_cutoff": iso_z(plan.pre_decision_cutoff),
+            "information_cutoff_session": plan.information_cutoff_session.isoformat(),
+            "calendar_release_id": plan.calendar_release_id,
+            "capture_plan_id": plan.capture_plan_id,
+            "appended_at": iso_z(appended),
+            "required_sources": source_entries,
+            "universe_snapshot_id": universe_snapshot_id,
+            "predecessor_entry_id": predecessor,
+            "final_session_capture_status": final_status,
+            "prospective_research_ready": False,
+            "training_authorized": False,
+            "evaluation_authorized": False,
+        }
+        entry = {
+            **unsigned,
+            "ledger_entry_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        }
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(ledger, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.write(descriptor, canonical_json_bytes(entry))
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    entries = _load_capture_ledger(ledger)
+    return {
+        "entry": entry,
+        "soak": capture_soak_state(entries),
+    }
+
+
+def validate_capture_ledger(*, ledger_path: Path) -> dict[str, object]:
+    entries = _load_capture_ledger(Path(ledger_path))
+    return {
+        "state": "PASS",
+        "entry_count": len(entries),
+        "soak": capture_soak_state(entries),
+        "prospective_research_ready": False,
+        "training_authorized": False,
+        "evaluation_authorized": False,
     }

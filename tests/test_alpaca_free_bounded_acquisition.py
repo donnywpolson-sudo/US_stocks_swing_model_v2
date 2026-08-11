@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
+import pyarrow as pa
 import pytest
 
 from us_stocks_swing_model_v2.alpaca_free_bounded import (
     EvidenceClass,
+    _validate_calendar_config,
     build_historical_backfill_plan,
+    load_qualified_profile_calendar,
     load_profile,
     retry_disposition,
     validate_bars_payload,
@@ -17,8 +21,12 @@ from us_stocks_swing_model_v2.errors import ContractError, IntegrityError, Netwo
 from us_stocks_swing_model_v2.free_acquisition import _parse_success, execute_one_source_request
 from us_stocks_swing_model_v2.free_source_evidence import (
     RawEvidenceStore,
+    append_capture_ledger_entry,
     alpha_vantage_listing_plan,
     alpaca_bars_plan,
+    build_daily_capture_plan,
+    build_prospective_universe_snapshot,
+    capture_soak_state,
     parse_alpha_vantage_listing_csv,
     parse_alpaca_asset_master,
     parse_corporate_action_groups,
@@ -26,7 +34,10 @@ from us_stocks_swing_model_v2.free_source_evidence import (
     prospective_source_plans,
     validate_accepted_bars_receipts,
     validate_complete_pagination,
+    validate_capture_ledger,
 )
+from us_stocks_swing_model_v2 import free_source_evidence
+from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.local_credentials import (
     CANONICAL_CREDENTIAL_VARIABLES,
     load_local_api_env,
@@ -53,6 +64,201 @@ def test_profile_is_explicit_free_sip_long_short_and_fail_closed() -> None:
         "alpha_vantage": ["ALPHA_VANTAGE_API_KEY"],
         "storage": "ENVIRONMENT_ONLY",
     }
+    assert profile["calendar"]["qualified_release_id"] is None
+    assert profile["prospective_capture"]["soak_required_consecutive_sessions"] == 20
+
+
+def test_calendar_successor_requires_governed_qualification_and_manual_hash_edits_fail() -> None:
+    with pytest.raises(ContractError, match="CALENDAR_NOT_QUALIFIED"):
+        load_qualified_profile_calendar(repository_root=REPO)
+    calendar = dict(load_profile(REPO)["calendar"])
+    receipt_unsigned = {
+        "status": "QUALIFIED_BYTE_IDENTICAL_SUCCESSOR",
+        "old_release_id": calendar["strict_release_id"],
+        "successor_release_id": calendar["successor_candidate_release_id"],
+        "old_sessions_sha256": "1" * 64,
+        "successor_sessions_sha256": "1" * 64,
+        "session_payload_comparison": "BYTE_IDENTICAL",
+        "session_difference_count": 0,
+        "strict_binding_unchanged": True,
+        "source_activation": False,
+        "research_authorized": False,
+    }
+    calendar["qualified_release_id"] = calendar["successor_candidate_release_id"]
+    calendar["qualification"] = {
+        **receipt_unsigned,
+        "qualification_id": sha256_bytes(canonical_json_bytes(receipt_unsigned)),
+    }
+    _validate_calendar_config(calendar)
+    calendar["qualification"]["successor_sessions_sha256"] = "2" * 64
+    with pytest.raises(IntegrityError, match="canonical content"):
+        _validate_calendar_config(calendar)
+
+
+def _qualified_calendar() -> SimpleNamespace:
+    schedule = pa.Table.from_pylist([
+        {
+            "session": date(2026, 8, 10),
+            "open_at": datetime(2026, 8, 10, 13, 30, tzinfo=timezone.utc),
+            "close_at": datetime(2026, 8, 10, 20, 0, tzinfo=timezone.utc),
+        },
+        {
+            "session": date(2026, 8, 11),
+            "open_at": datetime(2026, 8, 11, 13, 30, tzinfo=timezone.utc),
+            "close_at": datetime(2026, 8, 11, 20, 0, tzinfo=timezone.utc),
+        },
+    ])
+    return SimpleNamespace(
+        schedule=schedule,
+        calendar=SimpleNamespace(release_id="8" * 64),
+    )
+
+
+def test_daily_capture_phases_are_separate_t_minus_1_and_explicit_sip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        free_source_evidence,
+        "load_qualified_profile_calendar",
+        lambda **_kwargs: _qualified_calendar(),
+    )
+    pre = build_daily_capture_plan(
+        repository_root=REPO,
+        session=date(2026, 8, 11),
+        phase="PRE_DECISION",
+    )
+    assert pre.information_cutoff_session == date(2026, 8, 10)
+    assert [plan.source for plan in pre.source_plans] == [
+        "alpaca_free_bounded_assets",
+        "nasdaq_free_bounded_listed",
+        "nasdaq_free_bounded_otherlisted",
+    ]
+    completed = build_daily_capture_plan(
+        repository_root=REPO,
+        session=date(2026, 8, 11),
+        phase="COMPLETED_SESSION",
+        symbols=["AAPL"],
+    )
+    assert [plan.source for plan in completed.source_plans] == [
+        "alpaca_free_bounded_bars",
+        "alpaca_free_bounded_corporate_actions",
+    ]
+    query = dict(completed.source_plans[0].canonical_query)
+    assert query["feed"] == "sip"
+    assert query["timeframe"] == "1Day"
+    assert query["adjustment"] == "raw"
+    assert "iex" not in completed.source_plans[0].sanitized_url.lower()
+
+
+def test_prospective_universe_ledger_and_soak_are_deterministic_and_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        free_source_evidence,
+        "load_qualified_profile_calendar",
+        lambda **_kwargs: _qualified_calendar(),
+    )
+    plan = build_daily_capture_plan(
+        repository_root=REPO,
+        session=date(2026, 8, 11),
+        phase="PRE_DECISION",
+    )
+    store = RawEvidenceStore(tmp_path / "evidence", allowed_root=tmp_path)
+    raw_by_source = {
+        "alpaca_free_bounded_assets": json.dumps([{
+            "id": "asset-abc", "class": "us_equity", "exchange": "NASDAQ",
+            "symbol": "ABC", "name": "ABC Common Stock", "status": "active",
+            "tradable": True, "marginable": True, "shortable": True,
+            "borrow_status": "easy_to_borrow", "easy_to_borrow": True,
+            "fractionable": True, "attributes": [],
+        }]).encode(),
+        "nasdaq_free_bounded_listed": (
+            b"Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF\n"
+            b"ABC|ABC Common Stock|Q|N|N|100|N\n"
+            b"File Creation Time: 0810202620:00||||||\n"
+        ),
+        "nasdaq_free_bounded_otherlisted": (
+            b"ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol\n"
+            b"DEF|DEF Common Stock|N|DEF|N|100|N|DEF\n"
+            b"File Creation Time: 0810202620:00|||||||\n"
+        ),
+    }
+    receipt_ids = []
+    for source_plan in plan.source_plans:
+        receipt = store.append(
+            plan=source_plan,
+            raw=raw_by_source[source_plan.source],
+            requested_at=datetime(2026, 8, 11, 1, 0, tzinfo=timezone.utc),
+            retrieved_at=datetime(2026, 8, 11, 1, 1, tzinfo=timezone.utc),
+            response_headers={},
+            http_status=200,
+            page_index=0,
+            requested_page_token=None,
+            next_page_token=None,
+            retry_attempt=1,
+            parent_request_id=None,
+            parsing_status="PARSED",
+            validation_status="PASS",
+            source_file_created_at=(
+                datetime(2026, 8, 11, 0, 0, tzinfo=timezone.utc)
+                if source_plan.provider == "nasdaq_trader" else None
+            ),
+        )
+        receipt_ids.append(receipt.receipt_id)
+    first = build_prospective_universe_snapshot(
+        plan=plan,
+        evidence_store=store,
+        receipt_ids=receipt_ids,
+        output_root=tmp_path / "universe",
+    )
+    second = build_prospective_universe_snapshot(
+        plan=plan,
+        evidence_store=store,
+        receipt_ids=receipt_ids,
+        output_root=tmp_path / "universe",
+    )
+    assert first["universe_snapshot_id"] == second["universe_snapshot_id"]
+    assert first["candidate_count"] == 2
+    recorded = append_capture_ledger_entry(
+        plan=plan,
+        evidence_store=store,
+        receipt_ids=receipt_ids,
+        ledger_path=tmp_path / "prospective_capture_ledger.jsonl",
+        universe_snapshot_id=first["universe_snapshot_id"],
+        appended_at=datetime(2026, 8, 11, 1, 2, tzinfo=timezone.utc),
+    )
+    assert recorded["entry"]["final_session_capture_status"] == "AWAITING_COMPLETED_SESSION_PHASE"
+    assert recorded["soak"]["state"] == "PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS"
+    assert validate_capture_ledger(
+        ledger_path=tmp_path / "prospective_capture_ledger.jsonl"
+    )["state"] == "PASS"
+    missing = append_capture_ledger_entry(
+        plan=plan,
+        evidence_store=store,
+        receipt_ids=receipt_ids[:1],
+        ledger_path=tmp_path / "missing.jsonl",
+        universe_snapshot_id=None,
+        appended_at=datetime(2026, 8, 11, 1, 3, tzinfo=timezone.utc),
+    )
+    assert missing["entry"]["final_session_capture_status"] == "MISSING_SOURCE"
+    assert missing["soak"]["state"] == "PROSPECTIVE_CAPTURE_SOAK_FAILED"
+    assert capture_soak_state([])["state"] == "PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED"
+    completed_entries = [
+        {
+            "session_date": (date(2026, 9, 1) + timedelta(days=index)).isoformat(),
+            "information_cutoff_session": (
+                date(2026, 8, 31) + timedelta(days=index)
+            ).isoformat(),
+            "final_session_capture_status": "COMPLETE",
+        }
+        for index in range(20)
+    ]
+    soak = capture_soak_state(completed_entries)
+    assert soak["state"] == "PROSPECTIVE_CAPTURE_SOAK_COMPLETE"
+    assert soak["prospective_research_ready"] is False
+    assert soak["training_authorized"] is False
+    assert soak["evaluation_authorized"] is False
 
 
 def test_backfill_plan_pins_sip_raw_order_and_is_deterministic() -> None:

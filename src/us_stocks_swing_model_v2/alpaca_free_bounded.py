@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
@@ -10,14 +11,28 @@ from typing import Iterable, Mapping, Sequence
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from .common import canonical_json_bytes, iso_z, require_aware_utc, sha256_bytes
+import pyarrow.parquet as pq
+
+from .clock import TrustedClock, require_trusted_clock
+from .common import (
+    atomic_write,
+    canonical_json_bytes,
+    iso_z,
+    require_aware_utc,
+    require_sha256,
+    sha256_bytes,
+    sha256_file,
+)
 from .errors import ContractError, IntegrityError
+from .exchange_calendar import load_xnys_calendar_release
+from .releases import verify_accepted_release
 
 
 PROFILE_ID = "ALPACA_FREE_BOUNDED_V1"
 PROFILE_PATH = "config/alpaca_free_bounded_v1.json"
 REGISTRY_PATH = "config/alpaca_free_bounded_network_registry.json"
 REQUESTED_START = date(2016, 1, 1)
+CALENDAR_CUTOVER_CONFIRMATION = "YES"
 
 
 class EvidenceClass(str, Enum):
@@ -49,6 +64,7 @@ def load_profile(repository_root: Path) -> dict[str, object]:
         "actual_source_start",
         "effective_research_start",
         "evidence_classes",
+        "calendar",
         "bars",
         "historical_universe_candidate",
         "prospective_identity",
@@ -57,6 +73,7 @@ def load_profile(repository_root: Path) -> dict[str, object]:
         "outcome",
         "historical_short_labels",
         "prospective_short_gate",
+        "prospective_capture",
         "readiness",
         "credentials",
         "prohibitions",
@@ -78,7 +95,9 @@ def load_profile(repository_root: Path) -> dict[str, object]:
     short_gate = payload["prospective_short_gate"]
     strict = payload["strict_reference"]
     credentials = payload["credentials"]
-    if not all(isinstance(item, dict) for item in (bars, universe, outcome, short_gate, strict)):
+    calendar = payload["calendar"]
+    capture = payload["prospective_capture"]
+    if not all(isinstance(item, dict) for item in (bars, universe, outcome, short_gate, strict, calendar, capture)):
         raise ContractError("ALPACA_FREE_BOUNDED_V1 sections must be objects")
     if bars != {
         **bars,
@@ -129,7 +148,236 @@ def load_profile(repository_root: Path) -> dict[str, object]:
         "storage": "ENVIRONMENT_ONLY",
     }:
         raise ContractError("free bounded credential variable contract drifted")
+    _validate_calendar_config(calendar)
+    if (
+        capture.get("schema_version") != 1
+        or capture.get("pre_decision_phase_sources") != [
+            "alpaca_free_bounded_assets",
+            "nasdaq_free_bounded_listed",
+            "nasdaq_free_bounded_otherlisted",
+        ]
+        or capture.get("completed_session_phase_sources") != [
+            "alpaca_free_bounded_bars",
+            "alpaca_free_bounded_corporate_actions",
+        ]
+        or capture.get("soak_required_consecutive_sessions") != 20
+        or capture.get("prospective_research_promotion") is not False
+        or capture.get("training_promotion") is not False
+        or capture.get("evaluation_promotion") is not False
+    ):
+        raise ContractError("prospective capture policy drifted")
     return payload
+
+
+def _validate_calendar_config(calendar: Mapping[str, object]) -> None:
+    expected = {
+        "name", "accepted_root", "strict_release_id",
+        "successor_candidate_release_id", "qualified_release_id",
+        "qualification", "strict_binding_unchanged",
+    }
+    if (
+        set(calendar) != expected
+        or calendar.get("name") != "XNYS"
+        or calendar.get("accepted_root") != "data/vault/accepted/xnys_sessions"
+        or calendar.get("strict_binding_unchanged") is not True
+    ):
+        raise ContractError("profile calendar configuration drifted")
+    strict_id = require_sha256(calendar.get("strict_release_id"), "strict calendar release ID")
+    successor_id = require_sha256(
+        calendar.get("successor_candidate_release_id"),
+        "successor calendar release ID",
+    )
+    if strict_id == successor_id:
+        raise ContractError("calendar successor must differ from the strict release")
+    qualified = calendar.get("qualified_release_id")
+    receipt = calendar.get("qualification")
+    if qualified is None and receipt is None:
+        return
+    if require_sha256(qualified, "qualified calendar release ID") != successor_id:
+        raise ContractError("profile selected an unqualified calendar successor")
+    if not isinstance(receipt, dict):
+        raise ContractError("profile calendar qualification receipt is missing")
+    receipt_id = require_sha256(receipt.get("qualification_id"), "calendar qualification ID")
+    unsigned = {key: value for key, value in receipt.items() if key != "qualification_id"}
+    if sha256_bytes(canonical_json_bytes(unsigned)) != receipt_id:
+        raise IntegrityError("calendar qualification ID differs from canonical content")
+    if (
+        receipt.get("status") != "QUALIFIED_BYTE_IDENTICAL_SUCCESSOR"
+        or receipt.get("old_release_id") != strict_id
+        or receipt.get("successor_release_id") != successor_id
+        or receipt.get("session_payload_comparison") != "BYTE_IDENTICAL"
+        or receipt.get("session_difference_count") != 0
+        or receipt.get("old_sessions_sha256") != receipt.get("successor_sessions_sha256")
+        or receipt.get("strict_binding_unchanged") is not True
+        or receipt.get("source_activation") is not False
+        or receipt.get("research_authorized") is not False
+    ):
+        raise IntegrityError("calendar qualification receipt does not authorize this profile cutover")
+
+
+def _calendar_repository_binding(root: Path) -> dict[str, str]:
+    def run(*args: str) -> str:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(root), *args], check=True, capture_output=True,
+                text=True, encoding="utf-8", timeout=30,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise IntegrityError("calendar qualification requires a valid Git closure") from exc
+    if Path(run("rev-parse", "--show-toplevel")).resolve(strict=True) != root:
+        raise IntegrityError("calendar qualification Git root differs")
+    if run("branch", "--show-current") != "alpaca-free-bounded-long-short":
+        raise IntegrityError("calendar qualification requires the bounded profile branch")
+    if run("status", "--porcelain=v1", "--untracked-files=all"):
+        raise IntegrityError("calendar qualification requires a clean committed tree")
+    return {
+        "branch": "alpaca-free-bounded-long-short",
+        "commit": run("rev-parse", "HEAD"),
+        "tree": run("rev-parse", "HEAD^{tree}"),
+    }
+
+
+def build_calendar_qualification_plan(
+    *, repository_root: Path,
+) -> dict[str, object]:
+    root = Path(repository_root).resolve(strict=True)
+    profile = load_profile(root)
+    calendar = profile["calendar"]
+    if calendar["qualified_release_id"] is not None:
+        raise ContractError("profile calendar successor is already qualified")
+    repository = _calendar_repository_binding(root)
+    accepted_root = root / str(calendar["accepted_root"])
+    old_directory = accepted_root / str(calendar["strict_release_id"])
+    successor_directory = accepted_root / str(calendar["successor_candidate_release_id"])
+    old = verify_accepted_release(old_directory, accepted_root=accepted_root)
+    successor = verify_accepted_release(successor_directory, accepted_root=accepted_root)
+    loaded = load_xnys_calendar_release(
+        successor_directory,
+        accepted_release_root=accepted_root,
+    )
+    old_sessions = old_directory / "sessions.parquet"
+    successor_sessions = successor_directory / "sessions.parquet"
+    old_hash = sha256_file(old_sessions)
+    successor_hash = sha256_file(successor_sessions)
+    old_table = pq.read_table(old_sessions)
+    successor_table = pq.read_table(successor_sessions)
+    difference_count = 0 if old_table.equals(successor_table) else max(
+        old_table.num_rows, successor_table.num_rows
+    )
+    byte_identical = old_sessions.read_bytes() == successor_sessions.read_bytes()
+    if (
+        old.release_id != calendar["strict_release_id"]
+        or successor.release_id != calendar["successor_candidate_release_id"]
+        or not byte_identical
+        or difference_count != 0
+        or old_hash != successor_hash
+        or old.row_count != successor.row_count
+        or loaded.calendar.release_id != successor.release_id
+    ):
+        raise IntegrityError("calendar successor is not a byte-identical canonical successor")
+    unsigned = {
+        "schema_version": 1,
+        "mode": "ALPACA_FREE_BOUNDED_XNYS_QUALIFICATION_AND_CUTOVER_PLAN",
+        "repository": repository,
+        "profile_path": PROFILE_PATH,
+        "profile_sha256": sha256_file(root / PROFILE_PATH),
+        "accepted_root": str(accepted_root),
+        "old_release_id": old.release_id,
+        "successor_release_id": successor.release_id,
+        "old_environment_sha256": old.environment_hash,
+        "successor_environment_sha256": successor.environment_hash,
+        "old_sessions_sha256": old_hash,
+        "successor_sessions_sha256": successor_hash,
+        "old_session_count": old.row_count,
+        "successor_session_count": successor.row_count,
+        "first_session": successor.event_start,
+        "last_session": successor.event_end,
+        "session_payload_comparison": "BYTE_IDENTICAL",
+        "session_difference_count": 0,
+        "original_release_recoverable": old_directory.is_dir(),
+        "strict_binding_unchanged": True,
+        "source_activation": False,
+        "research_authorized": False,
+    }
+    return {
+        **unsigned,
+        "qualification_plan_id": sha256_bytes(canonical_json_bytes(unsigned)),
+    }
+
+
+def execute_calendar_qualification_cutover(
+    *,
+    repository_root: Path,
+    approved_plan_id: str,
+    owner_confirmation: str,
+    clock: TrustedClock,
+) -> dict[str, object]:
+    if owner_confirmation != CALENDAR_CUTOVER_CONFIRMATION:
+        raise PermissionError("calendar qualification owner confirmation differs")
+    trusted = require_trusted_clock(clock)
+    if not trusted.trust_eligible:
+        raise PermissionError("calendar qualification requires production system UTC")
+    root = Path(repository_root).resolve(strict=True)
+    plan = build_calendar_qualification_plan(repository_root=root)
+    if plan["qualification_plan_id"] != approved_plan_id:
+        raise PermissionError("approved calendar qualification plan differs")
+    receipt_unsigned = {
+        "schema_version": 1,
+        "status": "QUALIFIED_BYTE_IDENTICAL_SUCCESSOR",
+        "qualified_at": iso_z(trusted.now()),
+        "qualification_plan_id": approved_plan_id,
+        "old_release_id": plan["old_release_id"],
+        "successor_release_id": plan["successor_release_id"],
+        "old_environment_sha256": plan["old_environment_sha256"],
+        "successor_environment_sha256": plan["successor_environment_sha256"],
+        "old_sessions_sha256": plan["old_sessions_sha256"],
+        "successor_sessions_sha256": plan["successor_sessions_sha256"],
+        "session_count": plan["successor_session_count"],
+        "first_session": plan["first_session"],
+        "last_session": plan["last_session"],
+        "session_payload_comparison": "BYTE_IDENTICAL",
+        "session_difference_count": 0,
+        "original_release_recoverable": True,
+        "strict_binding_unchanged": True,
+        "source_activation": False,
+        "research_authorized": False,
+    }
+    receipt = {
+        **receipt_unsigned,
+        "qualification_id": sha256_bytes(canonical_json_bytes(receipt_unsigned)),
+    }
+    profile = load_profile(root)
+    profile["calendar"]["qualified_release_id"] = plan["successor_release_id"]
+    profile["calendar"]["qualification"] = receipt
+    atomic_write(root / PROFILE_PATH, json.dumps(profile, indent=2).encode("utf-8") + b"\n")
+    load_profile(root)
+    return receipt
+
+
+def load_qualified_profile_calendar(*, repository_root: Path):
+    root = Path(repository_root).resolve(strict=True)
+    profile = load_profile(root)
+    calendar = profile["calendar"]
+    if calendar["qualified_release_id"] is None:
+        raise ContractError("CALENDAR_NOT_QUALIFIED")
+    release = root / str(calendar["accepted_root"]) / str(calendar["qualified_release_id"])
+    loaded = load_xnys_calendar_release(
+        release,
+        accepted_release_root=root / str(calendar["accepted_root"]),
+    )
+    receipt = calendar["qualification"]
+    if (
+        sha256_file(release / "sessions.parquet") != receipt["successor_sessions_sha256"]
+        or loaded.calendar.release_id != calendar["qualified_release_id"]
+    ):
+        raise IntegrityError("qualified profile calendar release differs")
+    strict = root / str(calendar["accepted_root"]) / str(calendar["strict_release_id"])
+    if (
+        not strict.is_dir()
+        or sha256_file(strict / "sessions.parquet") != receipt["old_sessions_sha256"]
+    ):
+        raise IntegrityError("original strict calendar release is not recoverable")
+    return loaded
 
 
 @dataclass(frozen=True)

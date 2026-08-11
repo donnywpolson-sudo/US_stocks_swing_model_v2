@@ -16,6 +16,15 @@
     "HISTORICAL_RECONSTRUCTED",
     "PROSPECTIVE_AS_OBSERVED"
   ],
+  "calendar": {
+    "name": "XNYS",
+    "accepted_root": "data/vault/accepted/xnys_sessions",
+    "strict_release_id": "71a5620bc4a02b13a915a76f5ce5028eac0f9ac64eab8dd4c4bd021c15a31c7d",
+    "successor_candidate_release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+    "qualified_release_id": null,
+    "qualification": null,
+    "strict_binding_unchanged": true
+  },
   "bars": {
     "provider": "alpaca",
     "endpoint": "https://data.alpaca.markets/v2/stocks/bars",
@@ -137,6 +146,43 @@
     "whole_shares_only": true,
     "round_up": false,
     "snapshot_must_precede_order": true
+  },
+  "prospective_capture": {
+    "schema_version": 1,
+    "evidence_root": "data/vault/qualification/as_received/alpaca_free_bounded_v1",
+    "ledger_path": "data/w/alpaca_free_bounded_v1/prospective_capture_ledger.jsonl",
+    "universe_snapshot_root": "data/w/alpaca_free_bounded_v1/prospective_universe",
+    "pre_decision_phase_sources": [
+      "alpaca_free_bounded_assets",
+      "nasdaq_free_bounded_listed",
+      "nasdaq_free_bounded_otherlisted"
+    ],
+    "completed_session_phase_sources": [
+      "alpaca_free_bounded_bars",
+      "alpaca_free_bounded_corporate_actions"
+    ],
+    "soak_required_consecutive_sessions": 20,
+    "session_statuses": [
+      "AWAITING_COMPLETED_SESSION_PHASE",
+      "COMPLETE",
+      "COMPLETE_AFTER_RETRY",
+      "PARTIAL_FAIL_CLOSED",
+      "MISSING_SOURCE",
+      "PROVIDER_RATE_LIMIT",
+      "PROVIDER_UNAVAILABLE",
+      "SCHEMA_DRIFT",
+      "CREDENTIAL_UNAVAILABLE",
+      "CALENDAR_NOT_QUALIFIED"
+    ],
+    "soak_states": [
+      "PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED",
+      "PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS",
+      "PROSPECTIVE_CAPTURE_SOAK_FAILED",
+      "PROSPECTIVE_CAPTURE_SOAK_COMPLETE"
+    ],
+    "prospective_research_promotion": false,
+    "training_promotion": false,
+    "evaluation_promotion": false
   },
   "readiness": {
     "states": [

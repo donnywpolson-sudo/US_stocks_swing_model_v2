@@ -130,6 +130,24 @@ python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded capture-premarket --a
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded capture-completed-session --session 2026-08-07 --symbol AAPL --symbol META
 ```
 
+The governed calendar qualification and the deterministic two-phase daily
+interface are:
+
+```powershell
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-calendar-qualification
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded qualify-calendar-successor --approved-plan-id PLAN_SHA256 --owner-confirmation YES
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-daily-capture --session 2026-08-11 --phase pre-decision
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded plan-daily-capture --session 2026-08-10 --phase completed-session --symbol AAPL
+```
+
+Calendar qualification validates both accepted releases, the locked
+`exchange-calendars` runtime, the complete session tables, the original and
+successor content hashes, and exact byte equality before it can bind the
+successor to this opt-in profile. It does not alter the strict/default calendar
+binding, activate a source, or authorize research. A changed record ID, changed
+session hash, nonzero session difference, missing predecessor release, or
+unqualified successor fails closed.
+
 Network execution is owner-operated and one page/attempt per invocation. It
 requires the exact plan ID printed by the matching plan, the explicit flag,
 `FREE_SOURCE_QUALIFICATION_APPROVED=YES`, and applicable environment-only
@@ -142,12 +160,16 @@ must not be stored in the project.
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --source assets --as-of 2026-08-10 --approved-plan-id PLAN_SHA256 --execute-network
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --source alpha-active --as-of 2020-08-28 --approved-plan-id PLAN_SHA256 --execute-network
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --source bars --as-of 2020-08-24 --end-exclusive 2020-09-05 --symbol AAPL --approved-plan-id PLAN_SHA256 --execute-network
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded execute-source --source bars --as-of 2026-08-10 --end-exclusive 2026-08-11 --symbol AAPL --prospective --approved-plan-id PLAN_SHA256 --execute-network
 ```
 
 Validate receipts, rebuild the universe, report, and check readiness:
 
 ```powershell
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded validate-receipts
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded rebuild-prospective-universe --session 2026-08-11 --receipt-id ASSET_RECEIPT --receipt-id NASDAQ_LISTED_RECEIPT --receipt-id NASDAQ_OTHER_RECEIPT
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded record-daily-capture --session 2026-08-11 --phase pre-decision --receipt-id ASSET_RECEIPT --receipt-id NASDAQ_LISTED_RECEIPT --receipt-id NASDAQ_OTHER_RECEIPT --universe-snapshot-id SNAPSHOT_SHA256
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded validate-capture-ledger
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded rebuild-universe --input data/w/alpaca_free_bounded/universe_input.json --profile ALPACA_FREE_BOUNDED_V1
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded coverage-report --input data/w/alpaca_free_bounded/coverage_input.json
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded event-status-report --input data/w/alpaca_free_bounded/outcomes.json
@@ -157,6 +179,34 @@ python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded check-readiness --syn
 No command automatically starts a full backfill or creates an operating-system
 scheduled task. Paper trading remains absent/disabled by default; no fill can
 exist without preserved order/fill evidence.
+
+## Prospective capture ledger and soak policy
+
+The ignored append-only JSONL ledger records each session and phase, the T-1
+information cutoff, pre-decision cutoff, qualified calendar, capture and source
+plan IDs, request and receipt times, receipt IDs, content hashes, parser and
+validation state, terminal pagination, evidence class, missing-source reason,
+retry state, changed-response predecessor, universe snapshot ID, and the final
+session status. A later record links to its predecessor; it never overwrites a
+failed or partial occurrence.
+
+Phase A accepts Alpaca assets/borrow fields and both Nasdaq directory files only
+when their local receipt times precede the session open. Its deterministic
+candidate-universe snapshot retains every directory symbol and every inclusion
+or exclusion reason; top-500 selection remains pending until T-1 liquidity
+inputs exist. Phase B accepts only completed-session Alpaca `sip`/`1Day`/`raw`
+bars and the corporate-action REST snapshot after the configured delay.
+
+The preregistered infrastructure soak is 20 consecutive completed XNYS
+sessions. Every expected source must be present or explicitly failed, with no
+IEX, feed mixing, incomplete pagination, post-cutoff borrow evidence, silent
+receipt gap, raw file in Git, or nondeterministic derived snapshot. States are
+`PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED`,
+`PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS`,
+`PROSPECTIVE_CAPTURE_SOAK_FAILED`, and
+`PROSPECTIVE_CAPTURE_SOAK_COMPLETE`. Soak completion can support a later
+readiness review; it never creates `PROSPECTIVE_RESEARCH_READY`, training, or
+evaluation authority.
 
 ## Validated state on 2026-08-10
 

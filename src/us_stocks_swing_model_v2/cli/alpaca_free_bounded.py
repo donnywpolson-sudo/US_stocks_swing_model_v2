@@ -9,7 +9,9 @@ from pathlib import Path
 from ..alpaca_free_bounded import (
     EvidenceClass,
     PROFILE_ID,
+    build_calendar_qualification_plan,
     build_historical_backfill_plan,
+    execute_calendar_qualification_cutover,
     load_profile,
 )
 from ..bounded_reporting import (
@@ -29,9 +31,13 @@ from ..clock import TrustedClock
 from ..free_acquisition import execute_one_source_request
 from ..free_source_evidence import (
     RawEvidenceStore,
+    append_capture_ledger_entry,
     alpha_vantage_listing_plan,
     alpaca_bars_plan,
+    build_daily_capture_plan,
+    build_prospective_universe_snapshot,
     prospective_source_plans,
+    validate_capture_ledger,
 )
 from ..long_short import PositionOutcome
 from ..local_credentials import load_local_api_env
@@ -90,6 +96,17 @@ def _identity(payload: dict[str, object]) -> IdentityEvidence:
     )
 
 
+def _capture_phase(value: str) -> str:
+    mapping = {
+        "pre-decision": "PRE_DECISION",
+        "completed-session": "COMPLETED_SESSION",
+    }
+    try:
+        return mapping[value]
+    except KeyError as exc:
+        raise argparse.ArgumentTypeError("capture phase is invalid") from exc
+
+
 def _candidate(payload: dict[str, object]) -> UniverseCandidate:
     flags = {
         name: bool(payload.get(name, False))
@@ -136,6 +153,17 @@ def main(argv: list[str] | None = None) -> int:
         "validate-credentials",
         help="report canonical credential names and presence only; never display values",
     )
+    subparsers.add_parser("plan-calendar-qualification")
+    qualify_calendar = subparsers.add_parser("qualify-calendar-successor")
+    qualify_calendar.add_argument("--approved-plan-id", required=True)
+    qualify_calendar.add_argument("--owner-confirmation", required=True)
+
+    daily = subparsers.add_parser("plan-daily-capture")
+    daily.add_argument("--session", type=date.fromisoformat, required=True)
+    daily.add_argument(
+        "--phase", choices=("pre-decision", "completed-session"), required=True
+    )
+    daily.add_argument("--symbol", action="append", default=[])
     probe = subparsers.add_parser("probe-capabilities")
     probe.add_argument("--as-of", type=date.fromisoformat, required=True)
 
@@ -176,6 +204,11 @@ def main(argv: list[str] | None = None) -> int:
     execute.add_argument("--retry-attempt", type=int, default=1)
     execute.add_argument("--parent-request-id")
     execute.add_argument(
+        "--prospective",
+        action="store_true",
+        help="classify a current completed-session bars request as prospectively observed",
+    )
+    execute.add_argument(
         "--evidence-root",
         type=Path,
         default=_root() / "data" / "vault" / "qualification" / "as_received" / "alpaca_free_bounded_v1",
@@ -186,6 +219,45 @@ def main(argv: list[str] | None = None) -> int:
         "--evidence-root",
         type=Path,
         default=_root() / "data" / "vault" / "qualification" / "as_received" / "alpaca_free_bounded_v1",
+    )
+
+    prospective_universe = subparsers.add_parser("rebuild-prospective-universe")
+    prospective_universe.add_argument("--session", type=date.fromisoformat, required=True)
+    prospective_universe.add_argument("--receipt-id", action="append", required=True)
+    prospective_universe.add_argument(
+        "--evidence-root",
+        type=Path,
+        default=_root() / "data" / "vault" / "qualification" / "as_received" / "alpaca_free_bounded_v1",
+    )
+    prospective_universe.add_argument(
+        "--output-root",
+        type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_universe",
+    )
+
+    ledger = subparsers.add_parser("record-daily-capture")
+    ledger.add_argument("--session", type=date.fromisoformat, required=True)
+    ledger.add_argument(
+        "--phase", choices=("pre-decision", "completed-session"), required=True
+    )
+    ledger.add_argument("--symbol", action="append", default=[])
+    ledger.add_argument("--receipt-id", action="append", required=True)
+    ledger.add_argument("--universe-snapshot-id")
+    ledger.add_argument(
+        "--evidence-root",
+        type=Path,
+        default=_root() / "data" / "vault" / "qualification" / "as_received" / "alpaca_free_bounded_v1",
+    )
+    ledger.add_argument(
+        "--ledger-path",
+        type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_capture_ledger.jsonl",
+    )
+    validate_ledger = subparsers.add_parser("validate-capture-ledger")
+    validate_ledger.add_argument(
+        "--ledger-path",
+        type=Path,
+        default=_root() / "data" / "w" / "alpaca_free_bounded_v1" / "prospective_capture_ledger.jsonl",
     )
 
     universe = subparsers.add_parser("rebuild-universe")
@@ -220,6 +292,28 @@ def main(argv: list[str] | None = None) -> int:
             "presence": result["presence"],
             "loader_state": result["state"],
         })
+        return 0
+    if args.command == "plan-calendar-qualification":
+        _print(build_calendar_qualification_plan(repository_root=root))
+        return 0
+    if args.command == "qualify-calendar-successor":
+        receipt = execute_calendar_qualification_cutover(
+            repository_root=root,
+            approved_plan_id=args.approved_plan_id,
+            owner_confirmation=args.owner_confirmation,
+            clock=TrustedClock.production(),
+        )
+        _print(receipt)
+        return 0
+    if args.command == "plan-daily-capture":
+        phase = _capture_phase(args.phase)
+        plan = build_daily_capture_plan(
+            repository_root=root,
+            session=args.session,
+            phase=phase,
+            symbols=args.symbol,
+        )
+        _print({"state": "PLAN_ONLY_NO_NETWORK", **plan.as_dict()})
         return 0
     if args.command == "probe-capabilities":
         plans = list(prospective_source_plans(repository_root=root, observed_for=args.as_of))
@@ -275,7 +369,11 @@ def main(argv: list[str] | None = None) -> int:
                 symbols=args.symbol,
                 start=args.as_of,
                 end_exclusive=args.end_exclusive,
-                evidence_class=EvidenceClass.HISTORICAL_RECONSTRUCTED,
+                evidence_class=(
+                    EvidenceClass.PROSPECTIVE_AS_OBSERVED
+                    if args.prospective
+                    else EvidenceClass.HISTORICAL_RECONSTRUCTED
+                ),
             )
         elif args.source.startswith("alpha-"):
             plan = alpha_vantage_listing_plan(
@@ -312,6 +410,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate-receipts":
         store = RawEvidenceStore(args.evidence_root.resolve(), allowed_root=(root / "data").resolve())
         _print(store.validate())
+        return 0
+    if args.command == "rebuild-prospective-universe":
+        store = RawEvidenceStore(args.evidence_root.resolve(), allowed_root=(root / "data").resolve())
+        plan = build_daily_capture_plan(
+            repository_root=root,
+            session=args.session,
+            phase="PRE_DECISION",
+        )
+        payload = build_prospective_universe_snapshot(
+            plan=plan,
+            evidence_store=store,
+            receipt_ids=args.receipt_id,
+            output_root=args.output_root.resolve(),
+        )
+        _print({
+            "state": "PASS",
+            "universe_snapshot_id": payload["universe_snapshot_id"],
+            "candidate_count": payload["candidate_count"],
+            "eligible_for_t_minus_1_liquidity_count": payload["eligible_for_t_minus_1_liquidity_count"],
+            "selection_state": payload["selection_state"],
+        })
+        return 0
+    if args.command == "record-daily-capture":
+        store = RawEvidenceStore(args.evidence_root.resolve(), allowed_root=(root / "data").resolve())
+        plan = build_daily_capture_plan(
+            repository_root=root,
+            session=args.session,
+            phase=_capture_phase(args.phase),
+            symbols=args.symbol,
+        )
+        _print(append_capture_ledger_entry(
+            plan=plan,
+            evidence_store=store,
+            receipt_ids=args.receipt_id,
+            ledger_path=args.ledger_path.resolve(),
+            universe_snapshot_id=args.universe_snapshot_id,
+            appended_at=TrustedClock.production().now(),
+        ))
+        return 0
+    if args.command == "validate-capture-ledger":
+        _print(validate_capture_ledger(ledger_path=args.ledger_path.resolve()))
         return 0
     if args.command == "rebuild-universe":
         payload = json.loads(args.input.read_text(encoding="utf-8"))
