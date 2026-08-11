@@ -132,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("validate-config")
+    subparsers.add_parser(
+        "validate-credentials",
+        help="report canonical credential names and presence only; never display values",
+    )
     probe = subparsers.add_parser("probe-capabilities")
     probe.add_argument("--as-of", type=date.fromisoformat, required=True)
 
@@ -207,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
         profile = load_profile(root)
         registry = NetworkAcquisitionRegistry.load(root / "config/alpaca_free_bounded_network_registry.json", allowed_root=root)
         _print({"state": "PASS", "profile_id": profile["profile_id"], "network_registry_id": registry.registry_id})
+        return 0
+    if args.command == "validate-credentials":
+        result = load_local_api_env(root)
+        _print({
+            "state": "PASS" if all(result["presence"].values()) else "MISSING_CREDENTIALS",
+            "canonical_variables": list(result["presence"]),
+            "presence": result["presence"],
+            "loader_state": result["state"],
+        })
         return 0
     if args.command == "probe-capabilities":
         plans = list(prospective_source_plans(repository_root=root, observed_for=args.as_of))
@@ -352,9 +365,9 @@ def main(argv: list[str] | None = None) -> int:
             ("BBBY/BBBYQ", "2023", "ZERO_ONLY_WITH_EXPLICIT_ZERO_CONSIDERATION"),
         ]
         _print({
-            "state": "NOT_RUN_NO_ACTION_SPECIFIC_NETWORK_AUTHORIZATION",
+            "state": "LIVE_EVIDENCE_REQUIRES_RECEIPT_REVIEW",
             "cases": [
-                {"case": case, "period": period, "required_principle": principle, "live_result": "NOT_RUN"}
+                {"case": case, "period": period, "required_principle": principle, "live_result": "NOT_IN_OFFLINE_COMMAND"}
                 for case, period, principle in cases
             ],
             "synthetic_mechanics_available": True,

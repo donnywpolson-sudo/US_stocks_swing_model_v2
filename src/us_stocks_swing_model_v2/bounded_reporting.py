@@ -168,22 +168,25 @@ def assess_readiness(inputs: ReadinessInputs) -> dict[str, object]:
         states.append("DATA_INFRASTRUCTURE_READY")
     if not inputs.alpaca_live_validated or not inputs.alpha_vantage_semantics_validated:
         states.append("LIVE_SOURCE_VALIDATION_PENDING")
-    historical_universe_status = (
-        "established" if inputs.alpha_vantage_semantics_validated else "candidate"
-    )
-    if inputs.alpaca_live_validated and not inputs.alpha_vantage_semantics_validated:
+    if inputs.alpha_vantage_semantics_validated:
+        historical_universe_status = (
+            "HISTORICAL_UNIVERSE_CANDIDATE_VALIDATED_PARTIALLY"
+        )
+    elif inputs.alpaca_live_validated:
+        historical_universe_status = "HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS"
+    else:
+        historical_universe_status = "HISTORICAL_UNIVERSE_CANDIDATE"
+    if inputs.alpaca_live_validated:
         states.append("HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS")
-    historical_research_ready = (
-        infrastructure_ready
-        and inputs.alpaca_live_validated
-        and inputs.alpha_vantage_semantics_validated
-    )
-    if historical_research_ready:
-        states.append("HISTORICAL_RESEARCH_READY")
+    # Bounded provider diagnostics cannot establish exact point-in-time daily
+    # membership or authorize outcome access. A separate accepted historical
+    # universe and research gate is required before this state may become true.
+    historical_research_ready = False
     if inputs.prospective_daily_capture_validated:
         states.append("PROSPECTIVE_CAPTURE_READY")
-    if inputs.prospective_daily_capture_validated and inputs.prospective_short_gate_validated_live:
-        states.append("PROSPECTIVE_RESEARCH_READY")
+    # A diagnostic capture and synthetic short-gate checks establish capture
+    # mechanics only, never prospective research readiness.
+    prospective_research_ready = False
     states.extend(("TRAINING_BLOCKED", "EVALUATION_BLOCKED"))
     return {
         "states": states,
@@ -193,7 +196,7 @@ def assess_readiness(inputs: ReadinessInputs) -> dict[str, object]:
         "historical_universe_status": historical_universe_status,
         "historical_research_ready": historical_research_ready,
         "prospective_capture_ready": "PROSPECTIVE_CAPTURE_READY" in states,
-        "prospective_research_ready": "PROSPECTIVE_RESEARCH_READY" in states,
+        "prospective_research_ready": prospective_research_ready,
         "training": "BLOCKED",
         "evaluation": "BLOCKED",
         "implementation_does_not_authorize_research": True,

@@ -94,7 +94,7 @@ def _readiness(**overrides):
 def test_offline_readiness_reaches_infrastructure_only_and_retains_blocks() -> None:
     report = _readiness()
     assert report["data_infrastructure_ready"]
-    assert report["historical_universe_status"] == "candidate"
+    assert report["historical_universe_status"] == "HISTORICAL_UNIVERSE_CANDIDATE"
     assert "DATA_INFRASTRUCTURE_READY" in report["states"]
     assert "LIVE_SOURCE_VALIDATION_PENDING" in report["states"]
     assert "HISTORICAL_RESEARCH_READY" not in report["states"]
@@ -105,15 +105,19 @@ def test_offline_readiness_reaches_infrastructure_only_and_retains_blocks() -> N
 def test_live_readiness_states_remain_distinct_and_training_stays_blocked() -> None:
     limited = _readiness(alpaca_live_validated=True)
     assert "HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS" in limited["states"]
+    assert limited["historical_universe_status"] == "HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS"
     ready = _readiness(
         alpaca_live_validated=True,
         alpha_vantage_semantics_validated=True,
         prospective_daily_capture_validated=True,
         prospective_short_gate_validated_live=True,
     )
-    assert "HISTORICAL_RESEARCH_READY" in ready["states"]
+    assert ready["historical_universe_status"] == "HISTORICAL_UNIVERSE_CANDIDATE_VALIDATED_PARTIALLY"
+    assert "HISTORICAL_RESEARCH_READY" not in ready["states"]
     assert "PROSPECTIVE_CAPTURE_READY" in ready["states"]
-    assert "PROSPECTIVE_RESEARCH_READY" in ready["states"]
+    assert "PROSPECTIVE_RESEARCH_READY" not in ready["states"]
+    assert ready["historical_research_ready"] is False
+    assert ready["prospective_research_ready"] is False
     assert "TRAINING_BLOCKED" in ready["states"]
     assert "EVALUATION_BLOCKED" in ready["states"]
 
@@ -121,6 +125,14 @@ def test_live_readiness_states_remain_distinct_and_training_stays_blocked() -> N
 def test_cli_validate_plan_capture_diagnostics_and_readiness_are_offline(capsys) -> None:
     assert main(["validate-config"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "PASS"
+    assert main(["validate-credentials"]) == 0
+    credential_result = json.loads(capsys.readouterr().out)
+    assert credential_result["canonical_variables"] == [
+        "APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "ALPHA_VANTAGE_API_KEY",
+    ]
+    assert set(credential_result) == {
+        "canonical_variables", "loader_state", "presence", "state",
+    }
     assert main(["probe-capabilities", "--as-of", "2026-08-10"]) == 0
     probe = json.loads(capsys.readouterr().out)
     assert probe["state"] == "PLAN_ONLY_NO_NETWORK"
@@ -139,7 +151,7 @@ def test_cli_validate_plan_capture_diagnostics_and_readiness_are_offline(capsys)
     assert main(["known-case-diagnostics"]) == 0
     diagnostic = json.loads(capsys.readouterr().out)
     assert len(diagnostic["cases"]) == 5
-    assert diagnostic["state"] == "NOT_RUN_NO_ACTION_SPECIFIC_NETWORK_AUTHORIZATION"
+    assert diagnostic["state"] == "LIVE_EVIDENCE_REQUIRES_RECEIPT_REVIEW"
     assert main(["check-readiness", "--synthetic-tests-passed"]) == 0
     readiness = json.loads(capsys.readouterr().out)
     assert "DATA_INFRASTRUCTURE_READY" in readiness["states"]
@@ -168,6 +180,7 @@ def test_documentation_and_entrypoint_cover_required_user_commands() -> None:
     doc = (REPO / "docs/ALPACA_FREE_BOUNDED_V1.md").read_text(encoding="utf-8")
     for command in (
         "validate-config",
+        "validate-credentials",
         "probe-capabilities",
         "known-case-diagnostics",
         "plan-backfill",

@@ -111,6 +111,7 @@ Validate configuration, plan capability probes, and show known-case gates:
 
 ```powershell
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded validate-config
+python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded validate-credentials
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded probe-capabilities --as-of 2026-08-10
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded known-case-diagnostics
 ```
@@ -157,14 +158,52 @@ No command automatically starts a full backfill or creates an operating-system
 scheduled task. Paper trading remains absent/disabled by default; no fill can
 exist without preserved order/fill evidence.
 
+## Validated state on 2026-08-10
+
+Bounded live validation completed for delayed Alpaca SIP raw daily bars,
+Alpaca assets, Alpaca corporate-action REST snapshots, dated Alpha Vantage
+`LISTING_STATUS`, and the two prospective Nasdaq directory files. The ignored
+append-only evidence store contains 27 validated receipt occurrences. Repeated
+logical requests retained distinct occurrence metadata, identical content was
+content-deduplicated, and changed asset bytes were retained as a successor
+revision.
+
+Alpha Vantage returned canonical CSV responses for seven bounded date/state
+requests, but the data used current identity names retroactively for known
+historical cases (including pre-change META and pre-terminal BBBY naming) and
+did not establish exact daily point-in-time membership. The historical-universe
+classification is therefore `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`, not
+established. AAPL, FB/META, and ATVI known cases are partial; LK/LKNCY and
+BBBY/BBBYQ remain unresolved because the available evidence does not prove a
+terminal economic exit.
+
+The strict/default SIP qualification remains fail closed against its original
+calendar release. A canonical successor with the current locked-environment
+hash exists and has byte-identical session data, but the existing qualification
+receipt and cutover policy bind the older release. Rebinding requires a new
+reviewed qualification/cutover; no hash or accepted release was edited here.
+
+Current profile states are:
+
+- `DATA_INFRASTRUCTURE_READY`
+- `LIVE_SOURCE_VALIDATION_PENDING` for exact Alpha Vantage historical-universe semantics
+- `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`
+- `PROSPECTIVE_CAPTURE_READY`
+- `TRAINING_BLOCKED`
+- `EVALUATION_BLOCKED`
+
+`HISTORICAL_RESEARCH_READY` and `PROSPECTIVE_RESEARCH_READY` are false. The
+offline readiness command intentionally cannot promote either state from
+diagnostic flags.
+
 ## Readiness boundary
 
 Offline implementation and synthetic tests can establish
 `DATA_INFRASTRUCTURE_READY`. Until bounded live probes validate Alpaca coverage,
 Alpha Vantage historical membership semantics, and repeatable daily capture,
-the profile also remains `LIVE_SOURCE_VALIDATION_PENDING`; the historical
-universe stays `candidate`. Exact membership gaps downgrade historical evidence
-to `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`, not silently to research-ready.
+the profile remains `LIVE_SOURCE_VALIDATION_PENDING` for Alpha Vantage exact
+historical-universe semantics. Exact membership gaps keep historical evidence
+at `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`, never silently research-ready.
 
 `TRAINING_BLOCKED` and `EVALUATION_BLOCKED` remain present. Provider responses,
 data-infrastructure readiness, or a limited historical reconstruction do not
