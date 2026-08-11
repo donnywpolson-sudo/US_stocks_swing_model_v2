@@ -94,7 +94,13 @@ def _parse_success(
         )
     if plan.source == "alpha_vantage_listing_status":
         parsed = parse_alpha_vantage_listing_csv(raw)
-        return "PARSED", "CANDIDATE_PENDING_LIVE_SEMANTICS_VALIDATION", None, int(parsed["row_count"]), None
+        return (
+            "PARSED",
+            "PASS_CANDIDATE_PENDING_LIVE_SEMANTICS_VALIDATION",
+            None,
+            int(parsed["row_count"]),
+            None,
+        )
     if plan.source == "alpaca_free_bounded_assets":
         assets = parse_alpaca_asset_master(raw)
         return "PARSED", "PASS", None, len(assets), None

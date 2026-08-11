@@ -14,7 +14,7 @@ from us_stocks_swing_model_v2.alpaca_free_bounded import (
     validate_bars_payload,
 )
 from us_stocks_swing_model_v2.errors import ContractError, IntegrityError, NetworkGuardError
-from us_stocks_swing_model_v2.free_acquisition import execute_one_source_request
+from us_stocks_swing_model_v2.free_acquisition import _parse_success, execute_one_source_request
 from us_stocks_swing_model_v2.free_source_evidence import (
     RawEvidenceStore,
     alpha_vantage_listing_plan,
@@ -282,11 +282,25 @@ def test_source_parsers_preserve_candidate_unknown_and_file_metadata() -> None:
         "fractionable": True, "attributes": [], "future_field": {"x": 1},
     }]).encode())
     assert assets[0].unknown_fields == {"future_field": {"x": 1}}
+    placeholder = parse_alpaca_asset_master(json.dumps([{
+        "id": "id-2", "class": "us_equity", "exchange": "", "symbol": "26885b100",
+        "name": "Inactive placeholder", "status": "inactive", "tradable": False,
+        "marginable": False, "shortable": False, "borrow_status": None,
+        "easy_to_borrow": False, "fractionable": False, "attributes": [],
+    }]).encode())
+    assert placeholder[0].symbol == "26885b100"
+    assert placeholder[0].status == "inactive"
     actions = parse_corporate_action_groups(
         b'{"cash_mergers": [{"id": "1"}], "future_events": [{"id": "2"}], "next_page_token": null}',
         known_groups={"cash_mergers"},
     )
     assert actions["unknown_actions"][0]["group"] == "UNKNOWN"
+    nested_actions = parse_corporate_action_groups(
+        b'{"corporate_actions": {"forward_splits": [{"id": "3"}]}, "next_page_token": null}',
+        known_groups={"forward_splits"},
+    )
+    assert nested_actions["envelope_schema"] == "NESTED_CORPORATE_ACTIONS"
+    assert nested_actions["known_actions"][0]["source_group"] == "forward_splits"
     nasdaq = parse_nasdaq_symbol_directory(
         b"Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size\n"
         b"ABC|ABC Inc|Q|N|N|100\nFile Creation Time: 0810202612:00|||||\n",
@@ -294,6 +308,25 @@ def test_source_parsers_preserve_candidate_unknown_and_file_metadata() -> None:
     )
     assert nasdaq["row_count"] == 1
     assert nasdaq["file_created_at"].endswith("Z")
+
+
+def test_alpha_vantage_candidate_parse_is_transport_accepted_without_semantics_promotion() -> None:
+    plan = alpha_vantage_listing_plan(
+        repository_root=REPO,
+        as_of=date(2020, 6, 25),
+        state="active",
+    )
+    result = _parse_success(
+        plan,
+        (
+            b"symbol,name,exchange,assetType,ipoDate,delistingDate,status\n"
+            b"ABC,ABC Inc,NYSE,Stock,2010-01-01,,Active\n"
+        ),
+        retrieved_at=NOW,
+    )
+    assert result[0] == "PARSED"
+    assert result[1] == "PASS_CANDIDATE_PENDING_LIVE_SEMANTICS_VALIDATION"
+    assert result[3] == 1
 
 
 def test_network_execution_requires_explicit_gate_and_exact_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

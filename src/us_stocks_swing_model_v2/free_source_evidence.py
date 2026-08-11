@@ -707,8 +707,13 @@ def parse_alpaca_asset_master(raw: bytes) -> tuple[ProspectiveAsset, ...]:
         symbol = item.get("symbol")
         if not isinstance(asset_id, str) or not asset_id or asset_id in ids:
             raise ContractError("Alpaca asset ID is missing or duplicated")
-        if not isinstance(symbol, str) or not symbol or symbol != symbol.upper():
-            raise ContractError("Alpaca asset symbol is not canonical")
+        if (
+            not isinstance(symbol, str)
+            or not symbol
+            or symbol != symbol.strip()
+            or not symbol.isascii()
+        ):
+            raise ContractError("Alpaca asset symbol is invalid")
         bool_fields = ("tradable", "marginable", "shortable", "fractionable")
         if any(type(item.get(field)) is not bool for field in bool_fields):
             raise ContractError("Alpaca asset eligibility flags must be exact booleans")
@@ -754,9 +759,19 @@ def parse_corporate_action_groups(raw: bytes, *, known_groups: Iterable[str]) ->
     token = payload.get("next_page_token")
     if token is not None and (not isinstance(token, str) or not token):
         raise ContractError("corporate-action pagination token is invalid")
-    for group, values in payload.items():
-        if group == "next_page_token":
-            continue
+    if "corporate_actions" in payload:
+        grouped = payload["corporate_actions"]
+        if not isinstance(grouped, dict):
+            raise ContractError("corporate-action envelope is invalid")
+        envelope_schema = "NESTED_CORPORATE_ACTIONS"
+        unknown_envelope_fields = sorted(
+            key for key in payload if key not in {"corporate_actions", "next_page_token"}
+        )
+    else:
+        grouped = {key: value for key, value in payload.items() if key != "next_page_token"}
+        envelope_schema = "FLAT_GROUPS"
+        unknown_envelope_fields = []
+    for group, values in grouped.items():
         if not isinstance(values, list):
             raise ContractError("corporate-action group must be an array")
         destination = actions if group in known else unknown
@@ -769,6 +784,8 @@ def parse_corporate_action_groups(raw: bytes, *, known_groups: Iterable[str]) ->
         "unknown_actions": unknown,
         "next_page_token": token,
         "terminal_page": token is None,
+        "envelope_schema": envelope_schema,
+        "unknown_envelope_fields": unknown_envelope_fields,
     }
 
 
