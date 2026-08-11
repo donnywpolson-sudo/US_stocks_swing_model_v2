@@ -213,10 +213,22 @@ evaluation authority.
 Bounded live validation completed for delayed Alpaca SIP raw daily bars,
 Alpaca assets, Alpaca corporate-action REST snapshots, dated Alpha Vantage
 `LISTING_STATUS`, and the two prospective Nasdaq directory files. The ignored
-append-only evidence store contains 27 validated receipt occurrences. Repeated
+append-only evidence store contains 32 integrity-validated receipt occurrences,
+including explicit provider failures. Repeated
 logical requests retained distinct occurrence metadata, identical content was
 content-deduplicated, and changed asset bytes were retained as a successor
 revision.
+
+The first daily-orchestration cycle captured the 2026-08-11 pre-decision asset
+and directory phase before the XNYS open and deterministically retained 13,117
+directory candidates, including all exclusion reasons; 5,016 were eligible for
+later T-1 liquidity inputs. The 2026-08-10 completed-session corporate-action
+snapshot passed, but Alpaca returned HTTP 403 with a free-subscription recent
+SIP restriction for that session. The raw failure receipt remains visible as
+`PARTIAL_FAIL_CLOSED`; no retry or IEX fallback occurred. Consequently the
+current soak state is `PROSPECTIVE_CAPTURE_SOAK_FAILED` with zero completed
+sessions. A later valid cycle may record `COMPLETE_AFTER_RETRY`, but it cannot
+erase this failed occurrence.
 
 Alpha Vantage returned canonical CSV responses for seven bounded date/state
 requests, but the data used current identity names retroactively for known
