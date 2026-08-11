@@ -4,7 +4,7 @@ import csv
 import io
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Mapping
 from urllib.parse import urlencode
@@ -25,7 +25,7 @@ from .locking import ExclusiveFileLock
 from .providers.snapshots import normalize_response_headers
 
 
-ADAPTER_VERSION = "alpaca_free_bounded_sources_v1"
+ADAPTER_VERSION = "alpaca_free_bounded_sources_v2"
 REDACTED = "REDACTED"
 
 
@@ -238,7 +238,7 @@ def alpaca_bars_plan(
         query=(
             ("symbols", ",".join(canonical)),
             ("start", start.isoformat()),
-            ("end", end_exclusive.isoformat()),
+            ("end", (end_exclusive - timedelta(days=1)).isoformat()),
             ("timeframe", "1Day"),
             ("adjustment", "raw"),
             ("feed", "sip"),

@@ -246,7 +246,7 @@ def build_historical_backfill_plan(
             query = (
                 ("symbols", ",".join(batch)),
                 ("start", window_start.isoformat()),
-                ("end", (window_end + timedelta(days=1)).isoformat()),
+                ("end", window_end.isoformat()),
                 ("timeframe", "1Day"),
                 ("adjustment", "raw"),
                 ("feed", "sip"),

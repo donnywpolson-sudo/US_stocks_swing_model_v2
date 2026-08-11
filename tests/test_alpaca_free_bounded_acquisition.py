@@ -76,6 +76,10 @@ def test_backfill_plan_pins_sip_raw_order_and_is_deterministic() -> None:
     assert all(("feed", "sip") in unit.canonical_query for unit in first.units)
     assert all(("adjustment", "raw") in unit.canonical_query for unit in first.units)
     assert all("iex" not in unit.sanitized_url.lower() for unit in first.units)
+    assert [dict(unit.canonical_query)["end"] for unit in first.units] == [
+        "2016-12-31",
+        "2017-01-02",
+    ]
 
 
 def test_backfill_boundary_resume_and_unknown_checkpoint_fail_closed() -> None:
@@ -200,7 +204,7 @@ def test_source_plans_redact_credentials_and_pin_explicit_provider_contracts() -
     )
     query = dict(bars.canonical_query)
     assert query == {
-        "symbols": "AAPL", "start": "2020-01-02", "end": "2020-01-03",
+        "symbols": "AAPL", "start": "2020-01-02", "end": "2020-01-02",
         "timeframe": "1Day", "adjustment": "raw", "feed": "sip", "sort": "asc", "limit": "10000",
     }
     assert {plan.source for plan in prospective_source_plans(repository_root=REPO, observed_for=date(2026, 8, 10))} == {
