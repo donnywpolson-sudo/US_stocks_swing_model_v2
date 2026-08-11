@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "profile_id": "ALPACA_FREE_BOUNDED_V1",
+  "policy_id": "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1",
+  "required_consecutive_sessions": 2,
+  "inherited_completed_session_credit": 0,
+  "background_monitor": {
+    "policy_id": "NONBLOCKING_BACKGROUND_RELIABILITY_MONITOR",
+    "rolling_session_window": 20,
+    "blocking": false,
+    "continues_after_acceptance": true
+  },
+  "task": {
+    "name": "USStocksSwingV2-Alpaca-Free-Daily-Capture",
+    "local_start_time": "04:15:00",
+    "local_timezone": "America/Los_Angeles",
+    "weekday_trigger_only": true,
+    "calendar_session_required": true,
+    "execution_time_limit_minutes": 240,
+    "restart_count": 2,
+    "restart_interval_minutes": 5,
+    "multiple_instances": "IgnoreNew"
+  },
+  "phase_offsets_minutes_before_open": {
+    "phase_b_target": 120,
+    "phase_b_validation_deadline": 90,
+    "phase_a_target": 60,
+    "final_cutoff": 15
+  },
+  "rolling_liquidity": {
+    "window_sessions": 90,
+    "minimum_valid_sessions": 60,
+    "daily_batch_size": 100,
+    "new_candidate_queue_limit": 20,
+    "required_feed": "sip",
+    "timeframe": "1Day",
+    "adjustment": "raw",
+    "iex_fallback": false
+  },
+  "paths": {
+    "evidence_root": "data/vault/qualification/as_received/alpaca_free_bounded_v1",
+    "automation_root": "data/w/alpaca_free_bounded/automation",
+    "latest_status": "data/w/alpaca_free_bounded/automation/latest_status.json",
+    "logs": "data/w/alpaca_free_bounded/automation/logs",
+    "acceptance_ledger": "data/w/alpaca_free_bounded/automation/acceptance_events.jsonl",
+    "policy_events": "data/w/alpaca_free_bounded/automation/policy_events.jsonl",
+    "session_ledger": "data/w/alpaca_free_bounded/automation/session_ledger.jsonl",
+    "checkpoints": "data/w/alpaca_free_bounded/automation/checkpoints",
+    "rolling_manifests": "data/w/alpaca_free_bounded/automation/rolling_manifests",
+    "onboarding_queue": "data/w/alpaca_free_bounded/automation/onboarding_queue.json",
+    "universe_snapshots": "data/w/alpaca_free_bounded/automation/universe_snapshots"
+  },
+  "structural_failures": [
+    "SCHEMA_DRIFT",
+    "CREDENTIAL_LEAKAGE_RISK",
+    "RECEIPT_CHAIN_CORRUPTION",
+    "LEDGER_CORRUPTION",
+    "QUALIFIED_CALENDAR_INTEGRITY_FAILURE",
+    "INCONSISTENT_UNIVERSE_RECONSTRUCTION",
+    "CODE_COMMIT_MISMATCH",
+    "SECRET_OR_RAW_DATA_GIT_EXPOSURE",
+    "REPEATED_DETERMINISTIC_PARSER_FAILURE"
+  ],
+  "transient_failures": [
+    "CREDENTIAL_UNAVAILABLE",
+    "PROVIDER_UNAVAILABLE",
+    "PROVIDER_RATE_LIMIT",
+    "MACHINE_WAKE_DELAY",
+    "TEMPORARY_NETWORK_LOSS",
+    "PROVIDER_PARTIAL_RESPONSE",
+    "LATE_CAPTURE"
+  ],
+  "authorities": {
+    "historical_research_ready": false,
+    "prospective_research_ready": false,
+    "production_ready": false,
+    "trading_ready": false,
+    "training": false,
+    "evaluation": false,
+    "prediction": false,
+    "orders": false
+  }
+}

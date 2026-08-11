@@ -160,7 +160,13 @@ def load_profile(repository_root: Path) -> dict[str, object]:
             "alpaca_free_bounded_bars",
             "alpaca_free_bounded_corporate_actions",
         ]
-        or capture.get("soak_required_consecutive_sessions") != 20
+        or capture.get("automation_acceptance_policy_id")
+        != "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1"
+        or capture.get("automation_acceptance_required_consecutive_sessions") != 2
+        or capture.get("background_reliability_monitor_policy_id")
+        != "NONBLOCKING_BACKGROUND_RELIABILITY_MONITOR"
+        or capture.get("background_reliability_monitor_window_sessions") != 20
+        or capture.get("background_reliability_monitor_blocking") is not False
         or capture.get("prospective_research_promotion") is not False
         or capture.get("training_promotion") is not False
         or capture.get("evaluation_promotion") is not False

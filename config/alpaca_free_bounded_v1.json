@@ -200,7 +200,11 @@
       "alpaca_free_bounded_bars",
       "alpaca_free_bounded_corporate_actions"
     ],
-    "soak_required_consecutive_sessions": 20,
+    "automation_acceptance_policy_id": "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1",
+    "automation_acceptance_required_consecutive_sessions": 2,
+    "background_reliability_monitor_policy_id": "NONBLOCKING_BACKGROUND_RELIABILITY_MONITOR",
+    "background_reliability_monitor_window_sessions": 20,
+    "background_reliability_monitor_blocking": false,
     "session_statuses": [
       "AWAITING_COMPLETED_SESSION_PHASE",
       "COMPLETE",
@@ -218,6 +222,13 @@
       "PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS",
       "PROSPECTIVE_CAPTURE_SOAK_FAILED",
       "PROSPECTIVE_CAPTURE_SOAK_COMPLETE"
+    ],
+    "automation_acceptance_states": [
+      "TWO_SESSION_AUTOMATION_ACCEPTANCE_NOT_STARTED",
+      "TWO_SESSION_AUTOMATION_ACCEPTANCE_IN_PROGRESS",
+      "TWO_SESSION_AUTOMATION_ACCEPTANCE_FAILED",
+      "TWO_SESSION_AUTOMATION_ACCEPTANCE_COMPLETE",
+      "AUTOMATION_PAUSED_STRUCTURAL_FAILURE"
     ],
     "prospective_research_promotion": false,
     "training_promotion": false,

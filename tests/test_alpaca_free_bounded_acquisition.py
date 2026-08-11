@@ -67,7 +67,11 @@ def test_profile_is_explicit_free_sip_long_short_and_fail_closed() -> None:
     }
     assert profile["calendar"]["qualified_release_id"] == profile["calendar"]["successor_candidate_release_id"]
     assert profile["calendar"]["accepted_root"] == "data/vault/accepted"
-    assert profile["prospective_capture"]["soak_required_consecutive_sessions"] == 20
+    capture = profile["prospective_capture"]
+    assert capture["automation_acceptance_policy_id"] == "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1"
+    assert capture["automation_acceptance_required_consecutive_sessions"] == 2
+    assert capture["background_reliability_monitor_window_sessions"] == 20
+    assert capture["background_reliability_monitor_blocking"] is False
 
 
 def test_calendar_successor_requires_governed_qualification_and_manual_hash_edits_fail() -> None:

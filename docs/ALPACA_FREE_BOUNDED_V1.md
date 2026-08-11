@@ -202,11 +202,12 @@ python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded event-status-report -
 python -m us_stocks_swing_model_v2.cli.alpaca_free_bounded check-readiness --synthetic-tests-passed
 ```
 
-No command automatically starts a full backfill or creates an operating-system
-scheduled task. Paper trading remains absent/disabled by default; no fill can
-exist without preserved order/fill evidence.
+No command automatically starts a full backfill. The owner-operated installer
+described below creates only the prospective evidence-capture scheduled task;
+it contains no prediction, training, evaluation, paper-order, or live-order
+operation.
 
-## Prospective capture ledger and soak policy
+## Prospective automation acceptance and background monitoring
 
 The ignored append-only JSONL ledger records each session and phase, the T-1
 information cutoff, pre-decision cutoff, qualified calendar, capture and source
@@ -223,16 +224,94 @@ or exclusion reason; top-500 selection remains pending until T-1 liquidity
 inputs exist. Phase B accepts only completed-session Alpaca `sip`/`1Day`/`raw`
 bars and the corporate-action REST snapshot after the configured delay.
 
-The preregistered infrastructure soak is 20 consecutive completed XNYS
-sessions. Every expected source must be present or explicitly failed, with no
-IEX, feed mixing, incomplete pagination, post-cutoff borrow evidence, silent
-receipt gap, raw file in Git, or nondeterministic derived snapshot. States are
-`PROSPECTIVE_CAPTURE_SOAK_NOT_STARTED`,
-`PROSPECTIVE_CAPTURE_SOAK_IN_PROGRESS`,
-`PROSPECTIVE_CAPTURE_SOAK_FAILED`, and
-`PROSPECTIVE_CAPTURE_SOAK_COMPLETE`. Soak completion can support a later
-readiness review; it never creates `PROSPECTIVE_RESEARCH_READY`, training, or
-evaluation authority.
+`TWO_SESSION_AUTOMATION_ACCEPTANCE_V1` is the mandatory operational gate. It
+requires two consecutive fully successful scheduled XNYS sessions with zero
+inherited credit. One session proves only one unattended cycle and is
+insufficient. The second must also prove next-session rollover, checkpoint
+continuation, append-only predecessor chaining, rolling-liquidity advancement,
+and deterministic universe reconstruction. The states are:
+
+- `TWO_SESSION_AUTOMATION_ACCEPTANCE_NOT_STARTED`
+- `TWO_SESSION_AUTOMATION_ACCEPTANCE_IN_PROGRESS`
+- `TWO_SESSION_AUTOMATION_ACCEPTANCE_FAILED`
+- `TWO_SESSION_AUTOMATION_ACCEPTANCE_COMPLETE`
+- `AUTOMATION_PAUSED_STRUCTURAL_FAILURE`
+
+A transient failure preserves the failed generation and its prior credit, then
+creates a zero-credit successor for the next eligible XNYS session. A
+structural calendar, schema, credential-safety, receipt-chain, ledger,
+universe-determinism, code-binding, or Git-exposure failure pauses later network
+activity until remediation. No failed occurrence is overwritten.
+
+After acceptance, `NONBLOCKING_BACKGROUND_RELIABILITY_MONITOR` continues as a
+rolling 20-session operational report. It records expected, complete, partial,
+and late sessions, provider and pagination failures, retries, missing symbols,
+universe determinism, top-500 count, and task timing. It is telemetry, not a
+blocking prerequisite for a later separately authorized historical exploratory
+development phase. An isolated later provider failure does not revoke completed
+two-session acceptance. Structural defects or repeated unresolved failures may
+pause operations. Two sessions do not prove long-term reliability, strategy
+validity, statistical performance, production readiness, trading readiness, or
+that future captures cannot fail.
+
+Completion may report `NEXT_PHASE_HISTORICAL_EXPLORATORY_DEVELOPMENT_ELIGIBLE`
+under `HISTORICAL_RECONSTRUCTED_WITH_LIMITATIONS`, but it never creates
+`HISTORICAL_RESEARCH_READY`, `PROSPECTIVE_RESEARCH_READY`, training, evaluation,
+predictions, backtests, or orders.
+
+## Windows daily capture operation
+
+The tracked master wrapper is
+`scripts/run_alpaca_free_daily_capture.ps1`. The scheduled task is
+`USStocksSwingV2-Alpaca-Free-Daily-Capture`, triggered on weekdays at 4:15 AM
+America/Los_Angeles. The qualified XNYS calendar remains the runtime authority:
+a weekend, holiday, or other non-session weekday records
+`SKIP_NON_XNYS_SESSION`, performs zero provider requests, changes no acceptance
+credit, and exits successfully.
+
+For session T, the wrapper derives all deadlines from the qualified calendar's
+actual open: Phase B targets T open minus two hours and must validate by minus
+90 minutes; Phase A targets minus 60 minutes; the final ledger and universe
+cutoff is minus 15 minutes. T-1 is the immediately previous XNYS session, not
+the previous calendar day. This preserves daylight-saving, holiday, and
+session-order behavior without hard-coded UTC opens.
+
+Phase B acquires SIP/raw/1Day bars for the complete current liquidity-ranking
+candidate population plus the corporate-action REST snapshot. It advances the
+90-session rolling window without forward filling. Phase A acquires the complete
+Alpaca U.S.-equity asset master and both contracted Nasdaq directory inputs.
+The final snapshot retains every inclusion and exclusion reason, requires at
+least 60 valid sessions, and deterministically selects the top 500. A new
+candidate remains visible as `INSUFFICIENT_HISTORY` and enters a bounded
+historical warm-up queue; its prior bars remain `HISTORICAL_RECONSTRUCTED`,
+while prospectively received membership and identity evidence remain
+`PROSPECTIVE_AS_OBSERVED`. IEX fallback is prohibited.
+
+From Windows PowerShell in the repository root:
+
+```powershell
+.\scripts\install_alpaca_free_daily_capture_task.ps1 -DryRun
+.\scripts\install_alpaca_free_daily_capture_task.ps1
+.\scripts\show_alpaca_free_daily_capture_status.ps1
+Disable-ScheduledTask -TaskName 'USStocksSwingV2-Alpaca-Free-Daily-Capture'
+Enable-ScheduledTask -TaskName 'USStocksSwingV2-Alpaca-Free-Daily-Capture'
+.\scripts\remove_alpaca_free_daily_capture_task.ps1
+```
+
+The installer validates the exact repository, branch ancestry, clean tree,
+qualified calendar, ignored/untracked `api.env`, canonical credential presence,
+verified Python path, wrapper, and a no-network dry-run. The least-privileged
+current-user interactive-token registration stores no provider credential or
+Windows password in the task. The computer must be powered on or sleeping, not
+shut down. `WakeToRun` depends on Windows, firmware, and hardware support; a
+missed pre-decision cutoff remains a failed prospective session.
+
+Operational status is stored in ignored
+`data/w/alpaca_free_bounded/automation/latest_status.json`; rotated text logs
+are under `data/w/alpaca_free_bounded/automation/logs`. These contain safe IDs,
+states, and classifications, never credentials, Authorization headers, raw
+provider bodies, or passwords. Raw receipts and append-only ledgers are never
+removed by log rotation or scheduled-task removal.
 
 ## Validated state on 2026-08-10
 
@@ -264,9 +343,11 @@ candidates in 51 deterministic resumable units. It produced 3,754
 liquidity-ready securities and a deterministic 500-security selection with
 snapshot ID
 `e96b4f5aaa0d5ee88587d5bebc63cffa4cab76c07a4788672a13ff3a29bdcff3`.
-The original soak remains `PROSPECTIVE_CAPTURE_SOAK_FAILED`. A separate
-post-remediation generation starts from zero and cannot inherit credit from
-the failed attempt.
+The original failed soak and every later generation remain immutable. The valid
+zero-credit 20-session generation is superseded only as a blocking policy by
+the owner decision above; its evidence remains preserved. The new two-session
+generation starts at zero after the implementation commit exists and cannot
+inherit any prior credit.
 
 Alpha Vantage returned canonical CSV responses for seven bounded date/state
 requests, but the data used current identity names retroactively for known
