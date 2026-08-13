@@ -17,6 +17,14 @@ FOREIGN_PROJECT_IDENTIFIERS = (
 )
 APPROVED_FOREIGN_LITERAL_COUNTS: dict[tuple[str, str, str], int] = {}
 LOCAL_IMPORT_ALLOWLISTS = {
+    "causal_foundation.py": {
+        "bounded_universe",
+        "common",
+        "corporate_actions",
+        "errors",
+        "identity",
+    },
+    "outcome_firewall.py": {"capabilities", "common", "errors"},
     "research/builder.py": {"research.artifacts", "research.contracts"},
     "research/evaluator.py": {"research.artifacts", "research.contracts"},
     "feature_release.py": {"errors", "releases", "schemas"},

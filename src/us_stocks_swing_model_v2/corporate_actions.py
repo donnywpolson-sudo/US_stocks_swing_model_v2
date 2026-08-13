@@ -942,17 +942,41 @@ class BitemporalActionLedger:
         end_session: date,
         as_of: datetime,
     ) -> bool:
-        cutoff = require_aware_utc(as_of, "as_of")
-        return any(
-            coverage.coverage_semantics == EFFECTIVE_EVENT_COMPLETENESS
-            and coverage.effective_start_session <= start_session
-            and coverage.effective_end_session >= end_session
-            and coverage.received_at <= cutoff
-            and (
-                coverage.asset_scope == "ALL_ASSETS"
-                or asset_id in coverage.asset_ids
+        return bool(
+            self.covering_effective_interval(
+                asset_id,
+                start_session,
+                end_session,
+                as_of,
             )
-            for coverage in self._coverage
+        )
+
+    def covering_effective_interval(
+        self,
+        asset_id: str,
+        start_session: date,
+        end_session: date,
+        as_of: datetime,
+    ) -> tuple[CorporateActionCoverage, ...]:
+        """Return exact receipts proving effective-event coverage at ``as_of``."""
+
+        cutoff = require_aware_utc(as_of, "as_of")
+        return tuple(
+            sorted(
+                (
+                    coverage
+                    for coverage in self._coverage
+                    if coverage.coverage_semantics == EFFECTIVE_EVENT_COMPLETENESS
+                    and coverage.effective_start_session <= start_session
+                    and coverage.effective_end_session >= end_session
+                    and coverage.received_at <= cutoff
+                    and (
+                        coverage.asset_scope == "ALL_ASSETS"
+                        or asset_id in coverage.asset_ids
+                    )
+                ),
+                key=lambda value: value.coverage_id,
+            )
         )
 
     def covers_interval(
