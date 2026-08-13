@@ -68,7 +68,7 @@ def test_spent_assessment_plan_id_is_fail_closed() -> None:
         assessment._require_unspent_plan_id(spent)
 
 
-def test_recovery_plan_remains_disabled_without_explicit_authorization() -> None:
+def test_recovery_plan_binds_explicit_authorization_and_is_valid() -> None:
     root = assessment.EXPECTED_ROOT.resolve(strict=True)
     plan = json.loads(
         (root / "config" / "historical_foundation_assessment_plan_v1.json").read_text(
@@ -76,8 +76,6 @@ def test_recovery_plan_remains_disabled_without_explicit_authorization() -> None
         )
     )
 
-    with pytest.raises(
-        assessment.AssessmentError,
-        match="assessment recovery is not explicitly authorized",
-    ):
-        assessment._validate_plan(root, plan)
+    assert plan["recovery_authorized"] is True
+    assert plan["authorization"]["approval_line"] == "Approve"
+    assert assessment._validate_plan(root, plan) == plan

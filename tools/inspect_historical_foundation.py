@@ -528,6 +528,16 @@ def _validate_plan(root: Path, payload: object) -> dict[str, object]:
             raise AssessmentError("assessment recovery binding differs")
         if payload.get("recovery_authorized") is not True:
             raise AssessmentError("assessment recovery is not explicitly authorized")
+        authorization = payload.get("authorization")
+        if (
+            not isinstance(authorization, dict)
+            or authorization.get("kind")
+            != "EXPLICIT_USER_RECOVERY_AUTHORIZATION"
+            or authorization.get("approval_line") != "Approve"
+            or authorization.get("prepared_plan_commit")
+            != "017aa6d1e064545193013ed44cc9b86d32176d81"
+        ):
+            raise AssessmentError("assessment recovery authorization binding differs")
     if (
         payload.get("schema_version") != 1
         or payload.get("project") != PROJECT

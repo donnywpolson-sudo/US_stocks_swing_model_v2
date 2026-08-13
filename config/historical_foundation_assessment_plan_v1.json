@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project": "US_stocks_swing_model_v2",
   "mode": "READ_ONLY_HISTORICAL_FOUNDATION_ASSESSMENT",
-  "plan_id": "784bc47549596513e4946ebea08af89f6022b6f0f8ca36f3a104d2266c68c3b7",
+  "plan_id": "2dcba99c2df14eae147994ae2df3c91218886dcf9059c76ab03e8ea823285222",
   "recovery": {
     "prior_plan_id": "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
     "prior_attempt_index": 1,
@@ -10,7 +10,14 @@
     "prior_evidence_commit": "dca887c794c37e3443f283b4381a894eef7ede25",
     "bug_fix": "COUNT_RECEIPT_FIELD_NAMES"
   },
-  "recovery_authorized": false,
+  "recovery_authorized": true,
+  "authorization": {
+    "kind": "EXPLICIT_USER_RECOVERY_AUTHORIZATION",
+    "approval_line": "Approve",
+    "approved_at": "2026-08-13T21:50:50.1286560Z",
+    "prepared_plan_commit": "017aa6d1e064545193013ed44cc9b86d32176d81",
+    "scope": "one 120-second read-only attempt using the existing allowlisted paths and byte limits, with no writes, network, credentials, outcomes, labels, holdouts, training, evaluation, backtesting, or automatic retry"
+  },
   "command_family": {
     "executable": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe",
     "arguments": [
