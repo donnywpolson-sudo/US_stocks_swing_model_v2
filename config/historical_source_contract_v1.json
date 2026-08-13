@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_CONTRACT_V1",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "scope_record": "config/v1_price_volume_research_scope.json",
+  "admission_rule": "FAIL_CLOSED_ALL_MANDATORY_FAMILIES",
+  "real_outcome_access": false,
+  "source_domains": [
+    {
+      "source_family": "CORPORATE_ACTIONS",
+      "classification": "REQUIRED",
+      "purpose": "Causal action state and raw-to-adjusted lineage"
+    },
+    {
+      "source_family": "DELISTING_TERMINAL_EVENTS",
+      "classification": "REQUIRED",
+      "purpose": "Survivorship-safe inactive and terminal-event representation without calculating outcomes"
+    },
+    {
+      "source_family": "EXCHANGE_CALENDAR",
+      "classification": "REQUIRED",
+      "purpose": "Qualified regular-session dates and UTC boundaries"
+    },
+    {
+      "source_family": "HISTORICAL_SECURITY_MASTER",
+      "classification": "REQUIRED",
+      "purpose": "Stable security identity with historical ticker exchange type and listing intervals"
+    },
+    {
+      "source_family": "RAW_DAILY_OHLCV",
+      "classification": "REQUIRED",
+      "purpose": "Unadjusted daily market observations bound to stable historical identity"
+    },
+    {
+      "source_family": "ANALYST_ESTIMATES",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "No analyst feature dependency in price-volume V1"
+    },
+    {
+      "source_family": "EARNINGS_EVENTS",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "No earnings feature dependency in price-volume V1"
+    },
+    {
+      "source_family": "FUNDAMENTALS",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "No fundamental feature dependency in price-volume V1"
+    },
+    {
+      "source_family": "HISTORICAL_INDEX_MEMBERSHIP",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "V1 uses a dynamic structural listing universe rather than an index universe"
+    },
+    {
+      "source_family": "MARKET_CAP_AND_SHARES",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "No capitalization threshold in the source-readiness gate"
+    },
+    {
+      "source_family": "SECTOR_AND_INDUSTRY",
+      "classification": "OUT_OF_SCOPE_V1",
+      "purpose": "No sector or industry neutralization in price-volume V1"
+    },
+    {
+      "source_family": "REAL_OUTCOMES",
+      "classification": "PROHIBITED",
+      "purpose": "Separate later authorization is mandatory"
+    }
+  ],
+  "common_package_metadata": [
+    "adjustment_state",
+    "content_hashes",
+    "coverage_end",
+    "coverage_start",
+    "dataset_name",
+    "dataset_schema_version",
+    "dataset_version",
+    "file_manifest",
+    "identifier_fields",
+    "ingestion_code_version",
+    "known_limitations",
+    "license_classification",
+    "provider",
+    "retrieved_at",
+    "revision_policy",
+    "schema_hash",
+    "security_scope",
+    "source_identifier",
+    "storage_location",
+    "timestamp_semantics",
+    "timezone"
+  ],
+  "universal_semantics": {
+    "raw_source_bytes_or_partitions_immutable": true,
+    "complete_lineage_required": true,
+    "source_revision_required": true,
+    "unknown_timestamp_semantics_admitted": false,
+    "unknown_adjustment_state_admitted": false,
+    "undocumented_forward_fill_admitted": false,
+    "interpolated_observations_admitted": false,
+    "synthetic_market_bars_admitted": false,
+    "current_state_historical_join_admitted": false,
+    "silent_unresolved_row_drop_admitted": false,
+    "material_survivorship_quarantine_admitted": false
+  },
+  "identity_contract": {
+    "ticker_is_permanent_identity": false,
+    "stable_vendor_or_security_identifier_required": true,
+    "historical_ticker_intervals_required": true,
+    "historical_exchange_intervals_required": true,
+    "historical_security_type_required": true,
+    "active_and_inactive_status_required": true,
+    "ticker_reuse_must_resolve_to_distinct_securities": true,
+    "predecessor_successor_histories_may_be_stitched": false
+  },
+  "raw_bar_contract": {
+    "adjustment_state": "RAW_UNADJUSTED",
+    "unique_key": [
+      "stable_security_id",
+      "session_date"
+    ],
+    "required_fields": [
+      "close",
+      "high",
+      "low",
+      "open",
+      "session_date",
+      "source_identifier",
+      "source_partition_or_row_hash",
+      "source_revision",
+      "source_symbol",
+      "stable_security_id",
+      "timestamp_semantics",
+      "volume"
+    ],
+    "absence_remains_absence": true,
+    "silent_repair": false
+  },
+  "corporate_action_contract": {
+    "events_separate_from_raw_bars": true,
+    "effective_event_completeness_required": true,
+    "historical_publication_or_usable_time_required": true,
+    "revision_history_required": true,
+    "inferred_gap_events_installable": false,
+    "fully_adjusted_convenience_series_is_canonical_raw": false
+  },
+  "availability_contract": {
+    "required_fields": [
+      "effective_time",
+      "published_time",
+      "received_time",
+      "source_identifier",
+      "source_revision",
+      "usable_time"
+    ],
+    "consumer_rule": "usable_time_lte_signal_cutoff",
+    "same_close_execution": "DENIED",
+    "earliest_default_execution": "NEXT_ELIGIBLE_SESSION"
+  },
+  "contract_id": "a0b3e22afc7f563174763c9f03ec719c5052bbb5972aa8b52674f3e03d5ce88a"
+}

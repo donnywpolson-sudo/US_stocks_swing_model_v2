@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "V1_PRICE_VOLUME_RESEARCH_DATA_SCOPE",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "scope_statement": "End-of-day price-and-volume research over a point-in-time dynamic universe of historically listed US exchange-traded common-stock securities, using only information available by the applicable post-close signal cutoff, with earliest default execution on the next eligible session.",
+  "data_foundation_only": true,
+  "signal_contract": {
+    "information_cutoff": "THROUGH_COMPLETED_D0_REGULAR_SESSION",
+    "signal_time": "POST_D0_REGULAR_CLOSE",
+    "earliest_execution": "NEXT_ELIGIBLE_SESSION_D1",
+    "same_close_execution": "DENIED",
+    "availability_rule": "usable_time_lte_signal_cutoff",
+    "canonical_timezone": "America/New_York"
+  },
+  "mandatory_source_domains": [
+    "ACTIVE_AND_INACTIVE_DELISTED_SECURITIES",
+    "COMPLETE_SOURCE_AND_TRANSFORMATION_LINEAGE",
+    "CORPORATE_ACTION_EVENTS",
+    "HISTORICAL_EXCHANGE_LISTING_VALIDITY",
+    "HISTORICAL_SECURITY_TYPE",
+    "HISTORICAL_TICKER_VALIDITY",
+    "LISTING_AND_INACTIVE_DELISTING_STATUS",
+    "POINT_IN_TIME_STRUCTURAL_UNIVERSE_STATE",
+    "RAW_UNADJUSTED_DAILY_OHLCV",
+    "SOURCE_QUALIFIED_SESSION_AND_TIMESTAMP_SEMANTICS",
+    "STABLE_HISTORICAL_SECURITY_IDENTITY"
+  ],
+  "out_of_scope_v1": [
+    "ANALYST_ESTIMATE_VINTAGES",
+    "ANALYST_ESTIMATES",
+    "EARNINGS_EVENT_FEATURES",
+    "EARNINGS_PUBLICATION_TIMESTAMPS",
+    "FUNDAMENTAL_FEATURES",
+    "HISTORICAL_FUNDAMENTAL_VINTAGES",
+    "HISTORICAL_INDEX_MEMBERSHIP",
+    "HISTORICAL_INDUSTRY_NEUTRALIZATION",
+    "HISTORICAL_SECTOR_NEUTRALIZATION",
+    "INTRADAY_SIGNAL_DATA",
+    "NEWS_AND_ALTERNATIVE_DATA",
+    "OPTIONS_DATA",
+    "POINT_IN_TIME_MARKET_CAPITALIZATION",
+    "RESTATED_FINANCIAL_STATEMENTS",
+    "SHARES_OUTSTANDING",
+    "SHORT_BORROW_AND_LOCATE_DATA"
+  ],
+  "security_type_policy": {
+    "classification_source": "EXPLICIT_SOURCE_FIELD_OR_REVIEWED_ADJUDICATION_ONLY",
+    "included_v1": [
+      "COMMON_STOCK"
+    ],
+    "excluded_v1": [
+      "CLOSED_END_FUND",
+      "CONVERTIBLE_INSTRUMENT",
+      "ETF",
+      "ETN",
+      "MUTUAL_FUND",
+      "OTC_SECURITY",
+      "PREFERRED_STOCK",
+      "RIGHT",
+      "SPAC_UNIT",
+      "UNIT",
+      "WARRANT"
+    ],
+    "adr_policy": "UNRESOLVED_EXCLUDED_UNTIL_EXPLICIT_DECISION",
+    "ambiguous_policy": "EXCLUDE_WITH_UNKNOWN_AMBIGUOUS_REASON",
+    "ticker_shape_inference": false,
+    "share_classes_remain_distinct": true
+  },
+  "unresolved_policy_decisions": [
+    "ADR_INCLUSION_OR_EXCLUSION_FOR_ANY_LATER_RESEARCH_PROTOCOL",
+    "FINAL_PRICE_LIQUIDITY_AND_MINIMUM_HISTORY_THRESHOLDS"
+  ],
+  "prohibited_this_phase": [
+    "BACKTESTING",
+    "BROKER_CONNECTIVITY",
+    "FEATURE_SELECTION_USING_OUTCOMES",
+    "FINAL_HOLDOUT_ACCESS",
+    "FORWARD_RETURN_OR_LABEL_GENERATION",
+    "MODEL_TRAINING_OR_EVALUATION",
+    "PERFORMANCE_CALCULATION",
+    "PRODUCTION_DEPLOYMENT",
+    "REAL_OUTCOME_ACCESS",
+    "TRADING"
+  ],
+  "scope_id": "ade1f51711a308a271492c03f50801f77c9dbeee47a33c1beb46c41e2a9c160d"
+}

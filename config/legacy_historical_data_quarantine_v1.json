@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "LEGACY_HISTORICAL_DATA_QUARANTINE_V1",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "physical_files_modified": false,
+  "physical_files_deleted": false,
+  "sources": [
+    {
+      "source_id": "accepted_alpaca_historical_daily_bars_legacy_discovery",
+      "path": "data/vault/accepted/alpaca_historical_daily_bars/86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "classifications": [
+        "CURRENT_IDENTITY_SEEDED",
+        "LEGACY_DISCOVERY",
+        "NOT_POINT_IN_TIME_SAFE",
+        "NOT_RESEARCH_ELIGIBLE"
+      ],
+      "allowed_uses": [
+        "FILE_FORMAT_TESTING",
+        "INTERFACE_TESTING",
+        "OPERATIONAL_DIAGNOSTICS",
+        "PERFORMANCE_BENCHMARKING_WITHOUT_OUTCOMES",
+        "SCHEMA_VALIDATION",
+        "SYNTHETIC_OR_NON_OUTCOME_DEVELOPMENT"
+      ],
+      "denied_uses": [
+        "BACKTESTING",
+        "FEATURE_PERFORMANCE_ANALYSIS",
+        "REAL_FORWARD_RETURN_OR_LABEL_GENERATION",
+        "RESEARCH_CONCLUSIONS",
+        "TRAINING",
+        "VALIDATION_EVALUATION"
+      ],
+      "reason_codes": [
+        "CURRENT_2026_IDENTITY_APPLIED_TO_HISTORICAL_ACQUISITION_COHORT",
+        "HISTORICAL_MEMBERSHIP_UNPROVEN",
+        "SURVIVORSHIP_SAFETY_UNPROVEN"
+      ]
+    },
+    {
+      "source_id": "accepted_alpaca_discovery_proxy_features",
+      "path": "data/vault/accepted/alpaca_discovery_proxy_features/aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c",
+      "classifications": [
+        "DERIVED_FROM_CURRENT_IDENTITY_SEEDED_SOURCE",
+        "LEGACY_DISCOVERY",
+        "NOT_POINT_IN_TIME_SAFE",
+        "NOT_RESEARCH_ELIGIBLE"
+      ],
+      "allowed_uses": [
+        "FILE_FORMAT_TESTING",
+        "INTERFACE_TESTING",
+        "OPERATIONAL_DIAGNOSTICS",
+        "SCHEMA_VALIDATION"
+      ],
+      "denied_uses": [
+        "BACKTESTING",
+        "FEATURE_PERFORMANCE_ANALYSIS",
+        "REAL_RESEARCH_PANEL_INPUT",
+        "TRAINING",
+        "VALIDATION_EVALUATION"
+      ],
+      "reason_codes": [
+        "INHERITS_UNQUALIFIED_IDENTITY_AND_UNIVERSE",
+        "NOT_REBUILT_FROM_SOURCE_QUALIFIED_INPUTS"
+      ]
+    }
+  ],
+  "loader_rule": "SOURCE_ADMISSION_REQUIRED_NO_CLASSIFICATION_UPGRADE_BY_OVERLAP",
+  "quarantine_id": "40331ebb83de21c700939b1805a687ba16d3a89ee9df60f6eb4c92e236b10311"
+}

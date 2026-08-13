@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_ACQUISITION_REQUIREMENTS_V1",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "status": "BLOCKED_EXTERNAL_SOURCE_PACKAGE_REQUIRED",
+  "vendor_neutral": true,
+  "this_record_authorizes_network_access": false,
+  "this_record_authorizes_bulk_download": false,
+  "this_record_authorizes_purchase_or_new_terms": false,
+  "required_coverage": {
+    "minimum_start_session": "2016-01-04",
+    "end_session": "LATEST_COMPLETED_SESSION_AT_FUTURE_APPROVED_ACQUISITION",
+    "venues": [
+      "NASDAQ",
+      "NYSE",
+      "NYSE_AMERICAN"
+    ],
+    "security_scope": "ALL_HISTORICALLY_LISTED_COMMON_STOCK_SHARE_CLASSES_INCLUDING_ACTIVE_INACTIVE_DELISTED_FAILED_ACQUIRED_AND_BANKRUPT_SECURITIES",
+    "current_survivor_list_backfill_permitted": false
+  },
+  "required_packages": [
+    {
+      "source_family": "HISTORICAL_SECURITY_MASTER",
+      "required_identifiers": [
+        "STABLE_TRADABLE_SECURITY_ID",
+        "VENDOR_INSTRUMENT_ID"
+      ],
+      "required_fields": [
+        "effective_end",
+        "effective_start",
+        "historical_exchange_or_mic",
+        "historical_ticker",
+        "issuer_or_legal_entity_id_where_supported",
+        "listing_and_inactive_status",
+        "listing_first_trade_and_final_trade_dates",
+        "published_received_and_usable_times",
+        "security_type",
+        "share_class_id_where_supported",
+        "source_revision"
+      ],
+      "required_semantics": [
+        "HISTORICAL_TICKER_REUSE_RESOLVABLE",
+        "NO_TICKER_DERIVED_STABLE_ID",
+        "SHARE_CLASSES_DISTINCT",
+        "VINTAGES_OR_AS_RECEIVED_REVISIONS_RETAINED"
+      ]
+    },
+    {
+      "source_family": "RAW_DAILY_OHLCV",
+      "required_fields": [
+        "close",
+        "high",
+        "low",
+        "open",
+        "session_date",
+        "source_revision",
+        "source_row_or_partition_hash",
+        "source_symbol",
+        "stable_source_security_identifier",
+        "timestamp_and_session_semantics",
+        "volume"
+      ],
+      "required_semantics": [
+        "NO_FORWARD_FILL",
+        "NO_INTERPOLATION",
+        "NO_SYNTHETIC_ZERO_FILLED_SESSIONS",
+        "RAW_UNADJUSTED",
+        "SOURCE_UNIVERSE_INCLUDES_INACTIVE_AND_DELISTED_SECURITIES"
+      ]
+    },
+    {
+      "source_family": "CORPORATE_ACTIONS",
+      "required_event_types": [
+        "ACQUISITION",
+        "CASH_DIVIDEND",
+        "CASH_OR_STOCK_CONSIDERATION",
+        "FORWARD_SPLIT",
+        "MERGER",
+        "REVERSE_SPLIT",
+        "RIGHTS_OFFERING",
+        "SHARE_CLASS_CHANGE",
+        "SPECIAL_DIVIDEND",
+        "SPIN_OFF",
+        "STOCK_DIVIDEND",
+        "SYMBOL_CHANGE"
+      ],
+      "required_fields": [
+        "announcement_or_publication_time",
+        "cash_amount_where_applicable",
+        "effective_and_ex_dates",
+        "payment_and_record_dates_where_available",
+        "predecessor_and_successor_security_ids",
+        "received_and_usable_times",
+        "share_or_split_ratio_where_applicable",
+        "source_event_id",
+        "source_revision"
+      ],
+      "required_semantics": [
+        "COMPLETE_EFFECTIVE_EVENT_CENSUS_FOR_BAR_SCOPE",
+        "LATE_ARRIVAL_AND_REVISION_HISTORY",
+        "NO_GAP_INFERENCE_AS_EVENT_TRUTH"
+      ]
+    },
+    {
+      "source_family": "DELISTING_TERMINAL_EVENTS",
+      "required_fields": [
+        "bankruptcy_or_liquidation_indicator_where_classified",
+        "cash_or_stock_consideration_terms_where_provided",
+        "delisting_or_inactive_effective_date",
+        "delisting_reason",
+        "exchange_status",
+        "final_trading_date",
+        "last_observed_genuine_trade_reference",
+        "predecessor_or_successor_security",
+        "published_received_and_usable_times",
+        "source_event_id",
+        "source_revision",
+        "stable_security_id"
+      ],
+      "prohibited_derivations": [
+        "ACQUISITION_PAYOFF_RETURN",
+        "BANKRUPTCY_LOSS",
+        "DELISTING_RETURN",
+        "LAST_CLOSE_AS_ASSUMED_TERMINAL_VALUE"
+      ]
+    }
+  ],
+  "package_admission_prerequisites": [
+    "EXACT_LICENSE_CLASSIFICATION_PERMITS_LOCAL_RESEARCH_USE",
+    "FULL_FILE_MANIFEST_AND_CONTENT_HASHES",
+    "IMMUTABLE_RAW_BYTES_OR_PARTITIONS",
+    "NO_CREDENTIALS_IN_METADATA_OR_LOGS",
+    "SCHEMA_AND_INGESTION_CODE_VERSION",
+    "SOURCE_DOCUMENTATION_FOR_ADJUSTMENT_TIMESTAMP_IDENTIFIER_AND_REVISION_SEMANTICS"
+  ],
+  "stop_conditions": [
+    "BULK_ACQUISITION_NOT_SEPARATELY_AUTHORIZED",
+    "CREDENTIALS_NOT_ALREADY_SECURELY_CONFIGURED",
+    "LICENSE_OR_STORAGE_TERMS_UNRESOLVED",
+    "MATERIAL_SOURCE_DOMAIN_INCOMPLETE",
+    "PAID_PURCHASE_ACCOUNT_CREATION_OR_NEW_COMMERCIAL_TERMS_REQUIRED"
+  ],
+  "requirements_id": "835af84a7c45bf200f3dee9ef6e3f1471d811b936f4dd2525061ad35aadfcbfb"
+}

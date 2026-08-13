@@ -61,6 +61,7 @@ def test_feature_registry_matches_causal_implementation_and_denies_outcome_ranki
     )
     assert registry.real_outcome_access is False
     assert registry.performance_based_ranking is False
+    assert {feature.status for feature in registry.features} == {"SOURCE_BLOCKED"}
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["real_outcome_access"] = True

@@ -21,6 +21,7 @@ from .common import (
     sha256_bytes,
 )
 from .errors import ContractError, IntegrityError
+from .historical_source_admission import SourceAdmissionResult
 
 
 ALLOWED_FOUNDATION_NAMESPACES = (
@@ -285,7 +286,12 @@ class FoundationAccessAuditEvent:
             if type(value) is not str or not value or value != value.strip():
                 raise ContractError(f"foundation audit {name} must be canonical text")
         require_aware_utc(self.requested_at, "foundation audit requested_at")
-        if self.decision not in {"ALLOW_FOUNDATION_INPUT", "ALLOW_SYNTHETIC_OUTCOME", "DENY"}:
+        if self.decision not in {
+            "ALLOW_FOUNDATION_INPUT",
+            "ALLOW_QUALIFIED_SOURCE",
+            "ALLOW_SYNTHETIC_OUTCOME",
+            "DENY",
+        }:
             raise ContractError("foundation audit decision is invalid")
         if self.synthetic_permit_id is not None:
             require_sha256(
@@ -492,6 +498,79 @@ class FoundationDataGateway:
             decision="ALLOW_SYNTHETIC_OUTCOME",
             reason="exact synthetic-only permit and namespace verified",
             synthetic_permit_id=verified.permit_id,
+        )
+        return resolved
+
+    def resolve_source_qualified_input(
+        self,
+        relative: str,
+        *,
+        admission: SourceAdmissionResult,
+        purpose: str,
+        requested_at: datetime,
+    ) -> Path:
+        """Resolve a source path only after an exact clean admission result."""
+
+        requested = require_aware_utc(requested_at, "requested_at")
+        if type(admission) is not SourceAdmissionResult:
+            raise ContractError("source-qualified access requires an exact admission result")
+        admission.validate()
+        if not admission.research_eligible or admission.status != "ADMITTED":
+            raise OutcomeAccessDenied(
+                self._record(
+                    relative=relative,
+                    purpose=purpose,
+                    requested_at=requested,
+                    decision="DENY",
+                    reason=(
+                        "historical source is not admitted: "
+                        + admission.status
+                        + ":"
+                        + ",".join(admission.reason_codes)
+                    ),
+                )
+            )
+        reason = _denied_foundation_path(relative)
+        if reason is not None:
+            raise OutcomeAccessDenied(
+                self._record(
+                    relative=relative,
+                    purpose=purpose,
+                    requested_at=requested,
+                    decision="DENY",
+                    reason=reason,
+                )
+            )
+        safe = safe_relative_path(relative)
+        storage = safe_relative_path(admission.storage_location)
+        if safe.parts[: len(storage.parts)] != storage.parts:
+            raise OutcomeAccessDenied(
+                self._record(
+                    relative=relative,
+                    purpose=purpose,
+                    requested_at=requested,
+                    decision="DENY",
+                    reason="requested path differs from the admitted package location",
+                )
+            )
+        if safe.parts[0] not in self.policy.allowed_namespaces:
+            raise OutcomeAccessDenied(
+                self._record(
+                    relative=relative,
+                    purpose=purpose,
+                    requested_at=requested,
+                    decision="DENY",
+                    reason="namespace is outside the foundation allowlist",
+                )
+            )
+        candidate = self.root.joinpath(*safe.parts)
+        resolved = require_contained_path(candidate, self.root)
+        self._record(
+            relative=relative,
+            purpose=purpose,
+            requested_at=requested,
+            decision="ALLOW_QUALIFIED_SOURCE",
+            reason="exact source admission and storage binding verified",
         )
         return resolved
 

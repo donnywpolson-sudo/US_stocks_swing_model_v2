@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_ADMISSION_POLICY_V1",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "required_source_families": [
+    "CORPORATE_ACTIONS",
+    "DELISTING_TERMINAL_EVENTS",
+    "EXCHANGE_CALENDAR",
+    "HISTORICAL_SECURITY_MASTER",
+    "RAW_DAILY_OHLCV"
+  ],
+  "admittable_evidence_class": "EXTERNAL_AS_RECEIVED",
+  "required_license_classification": "LOCAL_RESEARCH_PERMITTED",
+  "unresolved_tolerance": 0,
+  "silent_drop_tolerance": 0,
+  "quarantine_policy": {
+    "adjusted_convenience_only": "QUARANTINE",
+    "current_identity_seeded": "QUARANTINE",
+    "current_state_only": "QUARANTINE",
+    "legacy_discovery": "QUARANTINE",
+    "synthetic_only": "SYNTHETIC_TEST_ONLY",
+    "unknown_adjustment_state": "BLOCKED",
+    "unqualified_timestamp_semantics": "BLOCKED"
+  },
+  "mandatory_quantitative_standards": {
+    "admitted_bar_identity_resolution_percent": 100,
+    "admitted_bar_lineage_percent": 100,
+    "admitted_bar_session_semantics_percent": 100,
+    "admitted_historical_ticker_exchange_validity_percent": 100,
+    "current_state_only_join_rows": 0,
+    "duplicate_canonical_security_date_keys": 0,
+    "future_availability_violations": 0,
+    "interpolated_or_synthetic_raw_bars": 0,
+    "silent_unresolved_mappings": 0,
+    "silently_dropped_inactive_or_delisted_rows": 0
+  },
+  "gateway_contract": {
+    "idempotent": true,
+    "content_addressed": true,
+    "reason_codes_required": true,
+    "unqualified_source_access": "DENY_AND_AUDIT",
+    "canonical_panel_requires_all_mandatory_admissions": true,
+    "passing_does_not_unlock_outcomes": true
+  },
+  "real_outcome_access": false,
+  "policy_id": "76bf376faf2cb5b6b660bc37bb7777d0c8979eca278292212501d573eb9a91d8"
+}

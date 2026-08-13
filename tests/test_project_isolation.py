@@ -49,7 +49,12 @@ LOCAL_IMPORT_ALLOWLISTS = {
         "research.splits",
         "schemas",
     },
-    "outcome_firewall.py": {"capabilities", "common", "errors"},
+    "outcome_firewall.py": {
+        "capabilities",
+        "common",
+        "errors",
+        "historical_source_admission",
+    },
     "research/builder.py": {"research.artifacts", "research.contracts"},
     "research/evaluator.py": {"research.artifacts", "research.contracts"},
     "feature_release.py": {"errors", "releases", "schemas"},
