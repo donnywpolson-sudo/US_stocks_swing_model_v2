@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "READ_ONLY_HISTORICAL_FOUNDATION_ASSESSMENT",
+  "plan_id": "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+  "command_family": {
+    "executable": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe",
+    "arguments": [
+      "tools/inspect_historical_foundation.py",
+      "--plan",
+      "config/historical_foundation_assessment_plan_v1.json"
+    ],
+    "working_directory": "C:/Users/donny/Desktop/US_stocks_swing_model_v2"
+  },
+  "invocation_limit": 1,
+  "timeout_seconds": 120,
+  "network_requests": 0,
+  "writes_allowed": false,
+  "credential_access": false,
+  "outcome_access": false,
+  "label_access": false,
+  "training": false,
+  "evaluation": false,
+  "backtesting": false,
+  "maximum_total_content_bytes": 33554432,
+  "maximum_parquet_source_bytes": 100663296,
+  "release_manifest_census": {
+    "accepted_root": "data/vault/accepted",
+    "dataset_allowlist": [
+      "alpaca_daily_bars",
+      "alpaca_discovery_proxy_features",
+      "alpaca_feed_qualification",
+      "alpaca_historical_daily_bars",
+      "alpaca_legacy_daily_bars",
+      "identity",
+      "nasdaq_bootstrap_baseline",
+      "stock_historical_foundation_set",
+      "stock_historical_research_ready_receipt",
+      "stock_rebuild_complete_receipt",
+      "xnys_sessions"
+    ],
+    "maximum_releases": 32,
+    "maximum_manifest_bytes": 1048576
+  },
+  "identity_probe": {
+    "path": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02/identity_snapshots.json",
+    "maximum_file_bytes": 12582912,
+    "maximum_sample_rows": 3,
+    "sample_fields": [
+      "asset_id",
+      "symbol",
+      "security_type",
+      "listing_exchange",
+      "active",
+      "eligible",
+      "membership_present",
+      "effective_at",
+      "known_at",
+      "evidence_state"
+    ]
+  },
+  "parquet_probes": [
+    {
+      "path": "data/vault/accepted/alpaca_historical_daily_bars/86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559/bars/year=2016.parquet",
+      "maximum_sample_rows": 3,
+      "sample_columns": [
+        "provider_symbol",
+        "asset_id",
+        "security_type",
+        "session",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "bar_event_at",
+        "available_at",
+        "retrieved_at",
+        "evidence_class",
+        "input_quality_state",
+        "historical_membership_proven",
+        "point_in_time_safe"
+      ]
+    },
+    {
+      "path": "data/vault/accepted/alpaca_historical_daily_bars/86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559/bars/year=2026.parquet",
+      "maximum_sample_rows": 3,
+      "sample_columns": [
+        "provider_symbol",
+        "asset_id",
+        "security_type",
+        "session",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "bar_event_at",
+        "available_at",
+        "retrieved_at",
+        "evidence_class",
+        "input_quality_state",
+        "historical_membership_proven",
+        "point_in_time_safe"
+      ]
+    },
+    {
+      "path": "data/vault/accepted/alpaca_discovery_proxy_features/aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c/features/year=2016.parquet",
+      "maximum_sample_rows": 3,
+      "sample_columns": [
+        "symbol",
+        "decision_session",
+        "d0_raw_intraday_return",
+        "trailing_5_session_raw_return",
+        "trailing_5_session_raw_volatility",
+        "status"
+      ]
+    },
+    {
+      "path": "data/vault/accepted/alpaca_discovery_proxy_features/aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c/features/year=2026.parquet",
+      "maximum_sample_rows": 3,
+      "sample_columns": [
+        "symbol",
+        "decision_session",
+        "d0_raw_intraday_return",
+        "trailing_5_session_raw_return",
+        "trailing_5_session_raw_volatility",
+        "status"
+      ]
+    },
+    {
+      "path": "data/vault/accepted/xnys_sessions/834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7/sessions.parquet",
+      "maximum_sample_rows": 3,
+      "sample_columns": [
+        "session",
+        "open_at",
+        "close_at",
+        "early_close",
+        "calendar_name",
+        "calendar_package",
+        "calendar_version"
+      ]
+    }
+  ],
+  "receipt_censuses": [
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpha_vantage_listing_status/receipts",
+      "maximum_files": 16,
+      "maximum_file_bytes": 1048576,
+      "time_fields": [
+        "requested_at",
+        "request_time",
+        "receipt_time",
+        "retrieved_at"
+      ]
+    },
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpaca_free_bounded_corporate_actions/receipts",
+      "maximum_files": 16,
+      "maximum_file_bytes": 1048576,
+      "time_fields": [
+        "requested_at",
+        "request_time",
+        "receipt_time",
+        "retrieved_at"
+      ]
+    },
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpaca_free_bounded_assets/receipts",
+      "maximum_files": 16,
+      "maximum_file_bytes": 1048576,
+      "time_fields": [
+        "requested_at",
+        "request_time",
+        "receipt_time",
+        "retrieved_at"
+      ]
+    },
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/nasdaq_free_bounded_listed/receipts",
+      "maximum_files": 16,
+      "maximum_file_bytes": 1048576,
+      "time_fields": [
+        "requested_at",
+        "request_time",
+        "receipt_time",
+        "retrieved_at"
+      ]
+    },
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/nasdaq_free_bounded_otherlisted/receipts",
+      "maximum_files": 16,
+      "maximum_file_bytes": 1048576,
+      "time_fields": [
+        "requested_at",
+        "request_time",
+        "receipt_time",
+        "retrieved_at"
+      ]
+    }
+  ],
+  "structured_object_censuses": [
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpha_vantage_listing_status/objects",
+      "format": "csv",
+      "maximum_files": 8,
+      "maximum_file_bytes": 2097152,
+      "date_fields": [
+        "ipoDate",
+        "delistingDate"
+      ],
+      "type_fields": [
+        "assetType",
+        "status",
+        "exchange"
+      ],
+      "known_cases": [
+        "AAPL",
+        "FB",
+        "META",
+        "ATVI",
+        "LK",
+        "LKNCY",
+        "BBBY",
+        "BBBYQ"
+      ]
+    },
+    {
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpaca_free_bounded_corporate_actions/objects",
+      "format": "json",
+      "maximum_files": 8,
+      "maximum_file_bytes": 2097152,
+      "date_fields": [
+        "process_date",
+        "ex_date",
+        "effective_date",
+        "record_date",
+        "payable_date"
+      ],
+      "type_fields": [
+        "ca_type",
+        "type"
+      ],
+      "known_cases": [
+        "AAPL",
+        "META",
+        "ATVI",
+        "LKNCY",
+        "BBBYQ"
+      ]
+    }
+  ],
+  "explicitly_denied_datasets": [
+    "alpaca_discovery_proxy_outcomes",
+    "alpaca_discovery_joined_trial_inputs"
+  ],
+  "explicitly_denied_paths": [
+    "data/w/alpaca_discovery_proxy_outcomes/**",
+    "data/w/alpaca_discovery_joined_trial_input/**",
+    "data/w/alpaca_discovery_joined_trial_inputs/**",
+    "data/w/o/**",
+    "data/w/r/**",
+    "reports/generated/**",
+    "api.env"
+  ],
+  "expected_output": {
+    "destination": "stdout_only",
+    "format": "single_canonical_json_object",
+    "tracked": false,
+    "ignored_generated_files": false,
+    "temporary_files": false
+  },
+  "stop_conditions": [
+    "repository identity or plain-path containment differs",
+    "plan ID or authority boundary differs",
+    "any denied outcome label evaluation holdout report or credential path is requested",
+    "any file or aggregate read bound is exceeded",
+    "any selected release manifest or representative schema is malformed",
+    "any selected path is linked or a reparse point",
+    "any write network provider credential training evaluation or backtest capability is requested"
+  ]
+}

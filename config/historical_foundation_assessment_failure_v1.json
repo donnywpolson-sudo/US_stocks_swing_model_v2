@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "READ_ONLY_HISTORICAL_FOUNDATION_ASSESSMENT_FAILED_ATTEMPT",
+  "recorded_at": "2026-08-13T21:40:35.3539905Z",
+  "plan_id": "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+  "command": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe tools/inspect_historical_foundation.py --plan config/historical_foundation_assessment_plan_v1.json",
+  "working_directory": "C:/Users/donny/Desktop/US_stocks_swing_model_v2",
+  "attempt_index": 1,
+  "allowed_attempts": 1,
+  "timeout_seconds": 120,
+  "exit_code": 1,
+  "result_emitted": false,
+  "failure": {
+    "exception_type": "TypeError",
+    "message": "unsupported operand type(s) for +: 'NoneType' and 'NoneType'",
+    "source_path": "tools/inspect_historical_foundation.py",
+    "source_line": 382,
+    "function": "_receipt_census",
+    "statement": "field_counts.update(payload)",
+    "cause": "collections.Counter.update interpreted receipt field values as counter increments instead of counting field-name presence"
+  },
+  "preserved_inputs": {
+    "tool_sha256": "2590338974ff524e58d4313ebd9095d1d8931349a1979e6872bfda3cae7342ff",
+    "plan_file_sha256": "679e988fa8a781d30ef22913a37f71a2c8fb457c97044159b9e883c32f045bd4"
+  },
+  "boundary_observations": {
+    "network_requests": 0,
+    "repository_writes_by_command": 0,
+    "credentials_accessed": false,
+    "outcomes_accessed": false,
+    "labels_accessed": false,
+    "training_performed": false,
+    "evaluation_performed": false,
+    "backtesting_performed": false,
+    "capture_contract_files_changed": false,
+    "scheduled_task_changed": false
+  },
+  "scheduler_after_failure": {
+    "task_name": "USStocksSwingV2-Alpaca-Free-Daily-Capture",
+    "state": "Ready",
+    "last_run_time": "2026-08-13T04:15:00-07:00",
+    "last_task_result": 0,
+    "next_run_time": "2026-08-14T04:15:00-07:00",
+    "missed_runs": 0
+  },
+  "disposition": {
+    "state": "ATTEMPT_SPENT_NO_AUTOMATIC_RETRY",
+    "failed_tool_and_plan_preserved": true,
+    "partial_in_memory_result_preserved": false,
+    "generated_or_local_data_cleanup_performed": false,
+    "recovery_requires_new_explicit_authorization": true
+  }
+}

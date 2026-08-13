@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "TWO_SESSION_AUTOMATION_ACCEPTANCE_BASELINE",
+  "recorded_at": "2026-08-13T21:24:00.739795Z",
+  "repository": {
+    "accepted_commit": "e81444af789d11d3471bdc93458ec1b03b648d28",
+    "accepted_branch": "alpaca-free-bounded-long-short",
+    "accepted_tag": "frozen-automation-acceptance-2026-08-13-e81444a",
+    "tag_object": "5ea4af2e6a822ef216e720dfe3e09b5784344912",
+    "worktree_clean_at_checkpoint": true,
+    "upstream_ref": "origin/alpaca-free-bounded-long-short",
+    "upstream_commit_at_checkpoint": "b2e7c996d3c053ce4e30c29bde26f89a076c0ad8",
+    "ahead_of_upstream_at_checkpoint": 1,
+    "history_rewritten": false,
+    "tag_pushed": false
+  },
+  "acceptance": {
+    "policy_id": "TWO_SESSION_AUTOMATION_ACCEPTANCE_V1",
+    "acceptance_run_id": "46bcf2e908202ff098a08f47c4a92d16e61f22b4fcae4e956e61b1662c7ecfb1",
+    "state": "TWO_SESSION_AUTOMATION_ACCEPTANCE_COMPLETE",
+    "required_consecutive_sessions": 2,
+    "completed_consecutive_sessions": 2,
+    "accepted_capture_status": "COMPLETE",
+    "prospective_capture_automation_accepted": true,
+    "prospective_capture_operational": true,
+    "next_phase_historical_exploratory_development_eligible": true,
+    "prospective_research_ready": false,
+    "training_authorized": false,
+    "evaluation_authorized": false,
+    "predictions": 0,
+    "orders": 0,
+    "completion_event_id": "2f24765769f1fc11efe702305e2bc222338d035c0e06ad056e30a899f7bafac4",
+    "completion_recorded_at": "2026-08-13T12:30:53.088515Z",
+    "recovery_remediation_commit": "e81444af789d11d3471bdc93458ec1b03b648d28"
+  },
+  "successful_sessions": [
+    {
+      "session": "2026-08-12",
+      "session_event_id": "0133e6e19669a149a97021a8b7bdd7c69928aa9c1827d2cf318fca7b44fb1a6f",
+      "started_at": "2026-08-12T11:15:02.240957Z",
+      "completed_at": "2026-08-12T12:30:33.678305Z",
+      "status": "COMPLETE",
+      "acceptance_credit": 1,
+      "selected_count": 500,
+      "pagination_failure_count": 0,
+      "retry_count": 0,
+      "failure_classification": null,
+      "universe_snapshot_id": "77a1d3f178be64702a069cb8dd38e9d4b38f532e9b7c3f1aac0bc650477fefd9",
+      "log_path": "data/w/alpaca_free_bounded/automation/logs/capture-2026-08-12.log",
+      "log_bytes": 130,
+      "log_sha256": "100f0b3e319567a26289e1981dee7f83ac786c7498868fde50c1e00cdc0c960f"
+    },
+    {
+      "session": "2026-08-13",
+      "session_event_id": "8ae1e6706043ad485db484b73d9a81a98e01852580ae40ee921fafb34db22411",
+      "started_at": "2026-08-13T11:15:03.706246Z",
+      "completed_at": "2026-08-13T12:30:54.085556Z",
+      "status": "COMPLETE",
+      "acceptance_credit": 2,
+      "selected_count": 500,
+      "pagination_failure_count": 0,
+      "retry_count": 0,
+      "failure_classification": null,
+      "universe_snapshot_id": "ae74e7c2e0ec79704c4683c5af622c3654a6210715b44d7fc58b9b6610c92d95",
+      "log_path": "data/w/alpaca_free_bounded/automation/logs/capture-2026-08-13.log",
+      "log_bytes": 130,
+      "log_sha256": "9764878af9ac07d6497f72b90d1f85ca0f4b0e7ad4bbc713089e665c78b8933c"
+    }
+  ],
+  "scheduler": {
+    "task_name": "USStocksSwingV2-Alpaca-Free-Daily-Capture",
+    "state_at_checkpoint": "Ready",
+    "last_run_time": "2026-08-13T04:15:00-07:00",
+    "last_task_result": 0,
+    "next_run_time_at_checkpoint": "2026-08-14T04:15:00-07:00",
+    "missed_runs": 0,
+    "execute": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "arguments": "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"C:\\Users\\donny\\Desktop\\US_stocks_swing_model_v2\\scripts\\run_alpaca_free_daily_capture.ps1\"",
+    "working_directory": "C:\\Users\\donny\\Desktop\\US_stocks_swing_model_v2",
+    "start_boundary": "2026-08-10T04:15:00-07:00",
+    "weekday_trigger_mask": 62,
+    "logon_type": "Interactive",
+    "run_level": "Limited",
+    "wake_to_run": true,
+    "execution_time_limit": "PT4H",
+    "restart_count": 2,
+    "restart_interval": "PT5M",
+    "multiple_instances": "IgnoreNew",
+    "exported_task_xml_utf8_bytes": 2097,
+    "exported_task_xml_sha256": "5bd55c27b14ed53f7fbc20fad3fff3c15f151e4f61fe6e0723d62f68f31b9f2b"
+  },
+  "tracked_capture_contracts": [
+    {
+      "path": "config/alpaca_free_automation_acceptance_v1.json",
+      "bytes": 3449,
+      "sha256": "ca1632267b5e5ff3ad13102c75ed97244ad7b8dabda3e26facc0a0148d4e4425"
+    },
+    {
+      "path": "config/alpaca_free_bounded_v1.json",
+      "bytes": 10032,
+      "sha256": "4b767ba595a5bddde0f6cb56e0c980b4645a631112142af9c414acb8887420f9"
+    },
+    {
+      "path": "scripts/run_alpaca_free_daily_capture.ps1",
+      "bytes": 1074,
+      "sha256": "6067a79f8fcfb54d9b242a3877b3212135548cbe4ed0d6abaab1e589b26b92fd"
+    }
+  ],
+  "local_evidence_checkpoints": [
+    {
+      "path": "data/w/alpaca_free_bounded/automation/latest_status.json",
+      "evidence_mode": "exact_snapshot_at_checkpoint",
+      "bytes_at_checkpoint": 1062,
+      "sha256_at_checkpoint": "6c236975bd5b8a310e0568715ad9b52ce6424bcf7d8cb3fd8288b8ed08886d52"
+    },
+    {
+      "path": "data/w/alpaca_free_bounded/automation/session_ledger.jsonl",
+      "evidence_mode": "append_only_prefix_at_checkpoint",
+      "bytes_at_checkpoint": 58822,
+      "sha256_at_checkpoint": "0724db9572e58792bbec536ba8175bb530878a5ed7ce7dcd8a37b6850a44e993"
+    },
+    {
+      "path": "data/w/alpaca_free_bounded/automation/acceptance_events.jsonl",
+      "evidence_mode": "append_only_prefix_at_checkpoint",
+      "bytes_at_checkpoint": 9056,
+      "sha256_at_checkpoint": "6c27074ee331a831e7f426c8fb49c7a3adc635058c2412e35e04bcacf38894f9"
+    }
+  ],
+  "preservation": {
+    "capture_implementation_changed_by_checkpoint": false,
+    "scheduled_task_changed_by_checkpoint": false,
+    "local_evidence_copied_or_rewritten": false,
+    "history_rewritten": false,
+    "remote_mutated": false,
+    "note": "Local append-only evidence remains ignored generated state. This record binds its exact checkpoint bytes and semantic identifiers without copying or relabeling it as accepted research evidence."
+  }
+}
