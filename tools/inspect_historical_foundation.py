@@ -50,6 +50,7 @@ DENIED_PARQUET_FIELDS = {
 SPENT_PLAN_IDS = frozenset(
     {
         "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+        "2dcba99c2df14eae147994ae2df3c91218886dcf9059c76ab03e8ea823285222",
     }
 )
 

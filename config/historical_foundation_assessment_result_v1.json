@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "READ_ONLY_HISTORICAL_FOUNDATION_ASSESSMENT_RESULT",
+  "recorded_at": "2026-08-13T21:52:32.8214091Z",
+  "plan_id": "2dcba99c2df14eae147994ae2df3c91218886dcf9059c76ab03e8ea823285222",
+  "authorized_plan_commit": "e0798ece3aab7732d186216a609074a2434607d9",
+  "attempt_index": 1,
+  "allowed_attempts": 1,
+  "exit_code": 0,
+  "result_emitted": true,
+  "result_id": "155583d38fa4dc948f4fdb4ef196489c8c63c5e45487f11522ed09d3b456d994",
+  "full_result_destination": "stdout_only_by_plan",
+  "full_result_persisted_as_file": false,
+  "claims": {
+    "read_only": true,
+    "network_requests": 0,
+    "credentials_accessed": false,
+    "outcomes_accessed": false,
+    "labels_accessed": false,
+    "training_performed": false,
+    "evaluation_performed": false,
+    "backtesting_performed": false
+  },
+  "read_budget": {
+    "files_read": 78,
+    "bytes_read": 15957599,
+    "maximum_bytes": 33554432,
+    "parquet_source_bytes": 84791496,
+    "maximum_parquet_source_bytes": 100663296
+  },
+  "identity": {
+    "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+    "snapshot_id": "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6",
+    "snapshot_count": 1,
+    "snapshot_effective_at": "2026-07-30T17:50:28.233146Z",
+    "snapshot_known_at": "2026-07-30T17:50:28.233146Z",
+    "complete_membership": true,
+    "row_count": 14667,
+    "unique_asset_ids": 14667,
+    "unique_symbols": 14667,
+    "membership_present": 13074,
+    "eligible": 10072,
+    "security_type_counts": {
+      "ETF": 5058,
+      "STOCK": 5037,
+      "UNKNOWN": 4572
+    },
+    "limitation": "This is one current prospective snapshot, not historical point-in-time membership."
+  },
+  "representative_parquet": [
+    {
+      "dataset": "alpaca_historical_daily_bars",
+      "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "year": 2016,
+      "rows": 842106,
+      "bytes": 18379793,
+      "declared_sha256": "917dd56a19e1d79b911ed4ccac31c51d466c784aead8dd93975dad31f502dc75",
+      "evidence_class": "LEGACY_DISCOVERY",
+      "input_quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+      "historical_membership_proven": false,
+      "point_in_time_safe": false
+    },
+    {
+      "dataset": "alpaca_historical_daily_bars",
+      "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "year": 2026,
+      "rows": 1136970,
+      "bytes": 26317985,
+      "declared_sha256": "8031cba254e27c3e4659f3049cb6e6ec1a538b0236a3b41d43070075f0307a91",
+      "evidence_class": "LEGACY_DISCOVERY",
+      "input_quality_state": "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+      "historical_membership_proven": false,
+      "point_in_time_safe": false
+    },
+    {
+      "dataset": "alpaca_discovery_proxy_features",
+      "release_id": "aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c",
+      "year": 2016,
+      "rows": 826079,
+      "bytes": 16541352,
+      "declared_sha256": "7b9c3bf49599e696174caa98925ac9744ecd595d81561c84c24971af9779c9e8",
+      "limitation": "Past-only proxy features inherit the historical source's PIT and identity caveats."
+    },
+    {
+      "dataset": "alpaca_discovery_proxy_features",
+      "release_id": "aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c",
+      "year": 2026,
+      "rows": 1136970,
+      "bytes": 23450376,
+      "declared_sha256": "47a2ab8c1d6a0a2ee13174d71d18f0d2864dce814a16b4182845b79b3c1b93a0",
+      "limitation": "Past-only proxy features inherit the historical source's PIT and identity caveats."
+    },
+    {
+      "dataset": "xnys_sessions",
+      "release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+      "rows": 9049,
+      "bytes": 101990,
+      "declared_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+      "calendar": "XNYS",
+      "calendar_package": "exchange-calendars",
+      "calendar_version": "4.13.2",
+      "event_start": "2000-01-03",
+      "event_end": "2035-12-31"
+    }
+  ],
+  "receipt_censuses": [
+    {
+      "source": "alpha_vantage_listing_status",
+      "receipts": 8,
+      "evidence_class": "HISTORICAL_RECONSTRUCTED",
+      "http_200": 8,
+      "requested_at_min": "2026-08-11T00:23:35.369659Z",
+      "requested_at_max": "2026-08-11T00:28:53.758302Z"
+    },
+    {
+      "source": "alpaca_free_bounded_corporate_actions",
+      "receipts": 10,
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "http_200": 10,
+      "requested_at_min": "2026-08-11T00:22:57.396221Z",
+      "requested_at_max": "2026-08-13T11:30:27.919184Z"
+    },
+    {
+      "source": "alpaca_free_bounded_assets",
+      "receipts": 6,
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "http_200": 6,
+      "requested_at_min": "2026-08-11T00:20:26.815209Z",
+      "requested_at_max": "2026-08-13T12:30:01.136573Z"
+    },
+    {
+      "source": "nasdaq_free_bounded_listed",
+      "receipts": 6,
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "http_200": 6,
+      "requested_at_min": "2026-08-11T00:19:49.216127Z",
+      "requested_at_max": "2026-08-13T12:30:15.227738Z"
+    },
+    {
+      "source": "nasdaq_free_bounded_otherlisted",
+      "receipts": 5,
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "http_200": 5,
+      "requested_at_min": "2026-08-11T00:20:01.433032Z",
+      "requested_at_max": "2026-08-13T12:30:16.205288Z"
+    }
+  ],
+  "structured_source_censuses": [
+    {
+      "source": "alpha_vantage_listing_status",
+      "objects": 7,
+      "rows": 66017,
+      "schema": [
+        "symbol",
+        "name",
+        "exchange",
+        "assetType",
+        "ipoDate",
+        "delistingDate",
+        "status"
+      ],
+      "active_rows": 61914,
+      "delisted_rows": 4103,
+      "minimum_date_text": "1962-01-02",
+      "maximum_date_text": "null",
+      "limitation": "Capture occurred in 2026 and is HISTORICAL_RECONSTRUCTED; it does not prove historical membership or stable identity. Literal null date text requires explicit parsing."
+    },
+    {
+      "source": "alpaca_free_bounded_corporate_actions",
+      "objects": 8,
+      "rows": 2003,
+      "minimum_event_date": "2020-03-20",
+      "maximum_event_date": "2026-08-13",
+      "type_counts": {
+        "cash_dividends": 1924,
+        "cash_mergers": 15,
+        "forward_splits": 8,
+        "name_changes": 16,
+        "partial_calls": 1,
+        "reverse_splits": 28,
+        "stock_dividends": 4,
+        "stock_mergers": 6,
+        "worthless_removals": 1
+      },
+      "limitation": "Provider process-date captures do not establish complete effective-event history or causal publication times."
+    }
+  ],
+  "primary_findings": [
+    "The accepted historical bars are raw price observations but are legacy discovery evidence, current-identity seeded, historical-membership unresolved, and explicitly not point-in-time safe.",
+    "The accepted identity release contains stable vendor asset IDs but only one current prospective snapshot; it cannot be applied backward as historical membership.",
+    "The listing-status captures include delisted rows but are reconstructed in 2026 and ticker keyed, so they do not by themselves establish stable historical identity or causal universe membership.",
+    "Corporate-action captures represent multiple event types but have no proven complete effective-event coverage or historical publication-time vintage.",
+    "The XNYS calendar release explicitly records UTC session open/close, early-close state, package, and version and is suitable for synthetic causal mechanics subject to release verification.",
+    "Existing past-only proxy features must remain legacy discovery artifacts because their source identity and membership are PIT unresolved."
+  ],
+  "disposition": {
+    "state": "COMPLETE_ATTEMPT_SPENT",
+    "automatic_retry_authorized": false,
+    "real_history_research_authorized": false,
+    "real_outcome_access_authorized": false,
+    "source_dependent_readiness": "BLOCKED",
+    "next_work": "Implement fail-closed causal interfaces and synthetic invariance tests while recording unavailable point-in-time source classes as blockers."
+  }
+}

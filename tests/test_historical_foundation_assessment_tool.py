@@ -59,16 +59,19 @@ def test_receipt_census_counts_nullable_field_presence(tmp_path: Path) -> None:
 
 
 def test_spent_assessment_plan_id_is_fail_closed() -> None:
-    spent = next(iter(assessment.SPENT_PLAN_IDS))
+    assert assessment.SPENT_PLAN_IDS == {
+        "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+        "2dcba99c2df14eae147994ae2df3c91218886dcf9059c76ab03e8ea823285222",
+    }
+    for spent in assessment.SPENT_PLAN_IDS:
+        with pytest.raises(
+            assessment.AssessmentError,
+            match="assessment plan invocation is already spent",
+        ):
+            assessment._require_unspent_plan_id(spent)
 
-    with pytest.raises(
-        assessment.AssessmentError,
-        match="assessment plan invocation is already spent",
-    ):
-        assessment._require_unspent_plan_id(spent)
 
-
-def test_recovery_plan_binds_explicit_authorization_and_is_valid() -> None:
+def test_successful_recovery_plan_is_content_addressed_and_now_spent() -> None:
     root = assessment.EXPECTED_ROOT.resolve(strict=True)
     plan = json.loads(
         (root / "config" / "historical_foundation_assessment_plan_v1.json").read_text(
@@ -78,4 +81,12 @@ def test_recovery_plan_binds_explicit_authorization_and_is_valid() -> None:
 
     assert plan["recovery_authorized"] is True
     assert plan["authorization"]["approval_line"] == "Approve"
-    assert assessment._validate_plan(root, plan) == plan
+    unsigned = {key: value for key, value in plan.items() if key != "plan_id"}
+    assert plan["plan_id"] == assessment._sha256_bytes(
+        assessment._canonical_bytes(unsigned)
+    )
+    with pytest.raises(
+        assessment.AssessmentError,
+        match="assessment plan invocation is already spent",
+    ):
+        assessment._validate_plan(root, plan)
