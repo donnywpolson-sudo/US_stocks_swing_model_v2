@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project": "US_stocks_swing_model_v2",
   "mode": "READ_ONLY_HISTORICAL_SOURCE_QUALIFICATION_AUDIT",
-  "plan_id": "a6229640e9dcc90788dfd98c0f1f65967368ea2eb2fc6572ea6b98cc8f4ea1ce",
+  "plan_id": "9e8d578e872b9b6b172774c7cc675125d3df0749fe4239600983b9eb942ad785",
   "code_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2_source_qualification",
   "expected_code_branch": "historical-source-qualification-v1",
   "implementation_commit": "6d22491fc629423e7361788d02ff78a80150c6d8",
@@ -15,6 +15,7 @@
   "command_family": {
     "executable": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe",
     "arguments": [
+      "-B",
       "tools/audit_historical_source_qualification.py",
       "--plan",
       "config/historical_source_qualification_audit_plan_v1.json"
