@@ -47,10 +47,20 @@ DENIED_PARQUET_FIELDS = {
     "strategy_return",
     "pnl",
 }
+SPENT_PLAN_IDS = frozenset(
+    {
+        "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+    }
+)
 
 
 class AssessmentError(RuntimeError):
     pass
+
+
+def _require_unspent_plan_id(plan_id: object) -> None:
+    if plan_id in SPENT_PLAN_IDS:
+        raise AssessmentError("assessment plan invocation is already spent")
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -379,7 +389,7 @@ def _receipt_census(
         )
         if not isinstance(payload, dict):
             raise AssessmentError(f"receipt is not an object: {path}")
-        field_counts.update(payload)
+        field_counts.update(payload.keys())
         for field, counter in (
             ("source", source_counts),
             ("status", status_counts),
@@ -502,6 +512,22 @@ def _validate_plan(root: Path, payload: object) -> dict[str, object]:
     unsigned = {key: value for key, value in payload.items() if key != "plan_id"}
     if plan_id != _sha256_bytes(_canonical_bytes(unsigned)):
         raise AssessmentError("assessment plan ID differs")
+    _require_unspent_plan_id(plan_id)
+    recovery = payload.get("recovery")
+    if recovery is not None:
+        if (
+            not isinstance(recovery, dict)
+            or recovery.get("prior_plan_id") not in SPENT_PLAN_IDS
+            or recovery.get("prior_attempt_index") != 1
+            or recovery.get("prior_attempt_state")
+            != "ATTEMPT_SPENT_NO_AUTOMATIC_RETRY"
+            or recovery.get("prior_evidence_commit")
+            != "dca887c794c37e3443f283b4381a894eef7ede25"
+            or recovery.get("bug_fix") != "COUNT_RECEIPT_FIELD_NAMES"
+        ):
+            raise AssessmentError("assessment recovery binding differs")
+        if payload.get("recovery_authorized") is not True:
+            raise AssessmentError("assessment recovery is not explicitly authorized")
     if (
         payload.get("schema_version") != 1
         or payload.get("project") != PROJECT

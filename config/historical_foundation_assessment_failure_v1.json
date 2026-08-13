@@ -47,6 +47,7 @@
   "disposition": {
     "state": "ATTEMPT_SPENT_NO_AUTOMATIC_RETRY",
     "failed_tool_and_plan_preserved": true,
+    "failed_tool_and_plan_preserved_in_commit": "dca887c794c37e3443f283b4381a894eef7ede25",
     "partial_in_memory_result_preserved": false,
     "generated_or_local_data_cleanup_performed": false,
     "recovery_requires_new_explicit_authorization": true

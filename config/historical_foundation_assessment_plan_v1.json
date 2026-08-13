@@ -2,7 +2,15 @@
   "schema_version": 1,
   "project": "US_stocks_swing_model_v2",
   "mode": "READ_ONLY_HISTORICAL_FOUNDATION_ASSESSMENT",
-  "plan_id": "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+  "plan_id": "784bc47549596513e4946ebea08af89f6022b6f0f8ca36f3a104d2266c68c3b7",
+  "recovery": {
+    "prior_plan_id": "13042ecf4129d52d08b5c2a61653ec5993742c5f4831beb862bfc4f9a9f2d347",
+    "prior_attempt_index": 1,
+    "prior_attempt_state": "ATTEMPT_SPENT_NO_AUTOMATIC_RETRY",
+    "prior_evidence_commit": "dca887c794c37e3443f283b4381a894eef7ede25",
+    "bug_fix": "COUNT_RECEIPT_FIELD_NAMES"
+  },
+  "recovery_authorized": false,
   "command_family": {
     "executable": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe",
     "arguments": [
