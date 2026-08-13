@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_INVENTORY",
+  "evidence_cutoff": "2026-08-13T21:52:32.821409Z",
+  "assessment_result_path": "config/historical_foundation_assessment_result_v1.json",
+  "assessment_result_id": "155583d38fa4dc948f4fdb4ef196489c8c63c5e45487f11522ed09d3b456d994",
+  "inventory_scope": "METADATA_AND_BOUNDED_REPRESENTATIVE_RECORDS_ONLY",
+  "datasets": [
+    {
+      "source_id": "accepted_identity_snapshot_2026_07_30",
+      "source_kind": "SECURITY_IDENTITY_AND_MEMBERSHIP_SNAPSHOT",
+      "role": "AUTHORITATIVE_ONLY_FOR_ITS_RECORDED_PROSPECTIVE_SNAPSHOT",
+      "path": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+      "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+      "snapshot_ids": [
+        "679c22119b9e3a9cdf19424ab9eccef5dae85bb5cb7be70502bdc597d2932df6"
+      ],
+      "date_coverage": {
+        "effective_at": "2026-07-30T17:50:28.233146Z",
+        "known_at": "2026-07-30T17:50:28.233146Z",
+        "snapshot_count": 1
+      },
+      "security_coverage": {
+        "rows": 14667,
+        "unique_stable_asset_ids": 14667,
+        "unique_symbols": 14667,
+        "membership_present": 13074,
+        "eligible": 10072,
+        "stocks": 5037,
+        "etfs": 5058,
+        "unknown_security_type": 4572
+      },
+      "identifiers": [
+        "asset_id",
+        "symbol"
+      ],
+      "timestamp_semantics": "EXPLICIT_EFFECTIVE_AT_AND_KNOWN_AT_UTC",
+      "revision_semantics": "APPEND_ONLY_BITEMPORAL_INTERFACE_EXISTS_BUT_ONLY_ONE_ACCEPTED_SNAPSHOT_WAS_OBSERVED",
+      "adjustment_status": "NOT_APPLICABLE",
+      "point_in_time_status": "PIT_ONLY_AT_THE_RECORDED_2026_SNAPSHOT_NOT_HISTORICAL",
+      "integrity_metadata": {
+        "release_manifest_content_addressed": true,
+        "row_count_from_bounded_assessment": 14667
+      },
+      "limitations": [
+        "CANNOT_BE_APPLIED_BACKWARD_AS_HISTORICAL_MEMBERSHIP",
+        "DOES_NOT_PROVE_HISTORICAL_TICKER_REUSE_OR_CORPORATE_LINEAGE",
+        "UNKNOWN_SECURITY_TYPES_REQUIRE_ABSTENTION"
+      ]
+    },
+    {
+      "source_id": "accepted_alpaca_historical_daily_bars_legacy_discovery",
+      "source_kind": "DAILY_RAW_OHLCV",
+      "role": "LEGACY_DISCOVERY_ONLY",
+      "path": "data/vault/accepted/alpaca_historical_daily_bars/86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "date_coverage": {
+        "bounded_assessment_years": [
+          2016,
+          2026
+        ],
+        "exact_full_range": "NOT_RECORDED_BY_BOUNDED_ASSESSMENT"
+      },
+      "security_coverage": "CURRENT_IDENTITY_SEEDED_CENSUS_NOT_PROVEN_HISTORICAL",
+      "identifiers": [
+        "asset_id",
+        "provider_symbol"
+      ],
+      "schema_fields_observed": [
+        "asset_id",
+        "available_at",
+        "bar_event_at",
+        "close",
+        "evidence_class",
+        "high",
+        "historical_membership_proven",
+        "input_quality_state",
+        "low",
+        "open",
+        "point_in_time_safe",
+        "provider_symbol",
+        "retrieved_at",
+        "security_type",
+        "session",
+        "volume"
+      ],
+      "timestamp_semantics": "BAR_EVENT_AVAILABLE_AND_RETRIEVAL_TIMES_EXIST_BUT_SOURCE_IDENTITY_AND_MEMBERSHIP_REMAIN_PIT_UNRESOLVED",
+      "revision_semantics": "NO_HISTORICAL_VENDOR_VINTAGE_PROOF_IN_ASSESSMENT",
+      "adjustment_status": "RAW_PRICE_OBSERVATIONS_DECLARED_BY_REPOSITORY_CONTRACT",
+      "point_in_time_status": "NOT_POINT_IN_TIME_SAFE",
+      "integrity_metadata": {
+        "representative_partitions": [
+          {
+            "year": 2016,
+            "rows": 842106,
+            "bytes": 18379793,
+            "sha256": "917dd56a19e1d79b911ed4ccac31c51d466c784aead8dd93975dad31f502dc75"
+          },
+          {
+            "year": 2026,
+            "rows": 1136970,
+            "bytes": 26317985,
+            "sha256": "8031cba254e27c3e4659f3049cb6e6ec1a538b0236a3b41d43070075f0307a91"
+          }
+        ]
+      },
+      "limitations": [
+        "LEGACY_DISCOVERY",
+        "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+        "HISTORICAL_MEMBERSHIP_NOT_PROVEN",
+        "SURVIVORSHIP_SAFETY_NOT_PROVEN",
+        "NOT_ELIGIBLE_FOR_REAL_RESEARCH"
+      ]
+    },
+    {
+      "source_id": "alpha_vantage_listing_status_reconstructed_candidates",
+      "source_kind": "DATED_LISTING_STATUS_CANDIDATE",
+      "role": "HISTORICAL_RECONSTRUCTED_CANDIDATE_PENDING_SEMANTICS_VALIDATION",
+      "path": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpha_vantage_listing_status",
+      "release_id": null,
+      "date_coverage": {
+        "capture_time_min": "2026-08-11T00:23:35.369659Z",
+        "capture_time_max": "2026-08-11T00:28:53.758302Z",
+        "minimum_date_text": "1962-01-02",
+        "maximum_date_text": "null"
+      },
+      "security_coverage": {
+        "objects": 7,
+        "rows": 66017,
+        "active_rows": 61914,
+        "delisted_rows": 4103
+      },
+      "identifiers": [
+        "symbol"
+      ],
+      "schema_fields_observed": [
+        "assetType",
+        "delistingDate",
+        "exchange",
+        "ipoDate",
+        "name",
+        "status",
+        "symbol"
+      ],
+      "timestamp_semantics": "REQUEST_AND_RECEIPT_TIMES_RETAINED_IN_2026; HISTORICAL_FIELD_KNOWABILITY_NOT_PROVEN",
+      "revision_semantics": "HISTORICAL_VINTAGES_NOT_PROVEN",
+      "adjustment_status": "NOT_APPLICABLE",
+      "point_in_time_status": "UNQUALIFIED_FOR_POINT_IN_TIME_MEMBERSHIP",
+      "integrity_metadata": {
+        "receipt_count": 8,
+        "http_200_receipts": 8
+      },
+      "limitations": [
+        "TICKER_KEYED_NOT_STABLE_IDENTITY",
+        "CAPTURED_IN_2026",
+        "DOES_NOT_PROVE_HISTORICAL_MEMBERSHIP_KNOWLEDGE_TIME",
+        "LITERAL_NULL_DATE_TEXT_REQUIRES_EXPLICIT_PARSING"
+      ]
+    },
+    {
+      "source_id": "alpaca_free_bounded_corporate_action_captures",
+      "source_kind": "CORPORATE_ACTION_PROCESS_DATE_CAPTURES",
+      "role": "PROSPECTIVE_AS_OBSERVED_RAW_EVIDENCE",
+      "path": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpaca_free_bounded_corporate_actions",
+      "release_id": null,
+      "date_coverage": {
+        "event_date_min": "2020-03-20",
+        "event_date_max": "2026-08-13",
+        "receipt_time_min": "2026-08-11T00:22:57.396221Z",
+        "receipt_time_max": "2026-08-13T11:30:27.919184Z"
+      },
+      "security_coverage": "REQUESTED_CAPTURE_SCOPE_ONLY_NOT_COMPLETE_MARKET_PROOF",
+      "identifiers": [
+        "provider_event_fields",
+        "symbol_where_supplied"
+      ],
+      "event_type_counts": {
+        "cash_dividends": 1924,
+        "cash_mergers": 15,
+        "forward_splits": 8,
+        "name_changes": 16,
+        "partial_calls": 1,
+        "reverse_splits": 28,
+        "stock_dividends": 4,
+        "stock_mergers": 6,
+        "worthless_removals": 1
+      },
+      "timestamp_semantics": "RECEIPT_TIME_IS_CAUSAL_FOR_CAPTURE; HISTORICAL_PUBLICATION_TIME_NOT_PROVEN",
+      "revision_semantics": "MUTATION_TYPES_SUPPORTED_BY_ARCHITECTURE_BUT COMPLETE_HISTORICAL_REVISION_CHAIN_NOT_PROVEN",
+      "adjustment_status": "EVENTS_SEPARATE_FROM_RAW_BARS",
+      "point_in_time_status": "PROSPECTIVE_RECEIPT_CAUSALITY_ONLY",
+      "integrity_metadata": {
+        "objects": 8,
+        "rows": 2003,
+        "receipt_count": 10,
+        "http_200_receipts": 10
+      },
+      "limitations": [
+        "PROCESS_DATE_ACQUISITION_DOES_NOT_PROVE_EFFECTIVE_EVENT_COMPLETENESS",
+        "HISTORICAL_PUBLICATION_VINTAGES_UNAVAILABLE",
+        "DELISTING_AND_TERMINAL_EVENT_CENSUS_INCOMPLETE",
+        "NO_PERMISSION_TO_APPROXIMATE_MISSING_EVENTS"
+      ]
+    },
+    {
+      "source_id": "accepted_xnys_sessions_4_13_2",
+      "source_kind": "EXCHANGE_SESSION_CALENDAR",
+      "role": "QUALIFIED_CAUSAL_SESSION_REFERENCE",
+      "path": "data/vault/accepted/xnys_sessions/834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+      "release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+      "date_coverage": {
+        "first_session": "2000-01-03",
+        "last_session": "2035-12-31",
+        "session_count": 9049
+      },
+      "security_coverage": "XNYS_SESSION_LEVEL_NOT_SECURITY_LEVEL",
+      "identifiers": [
+        "session"
+      ],
+      "schema_fields_observed": [
+        "calendar_name",
+        "calendar_package",
+        "calendar_version",
+        "close_at",
+        "early_close",
+        "open_at",
+        "session"
+      ],
+      "timestamp_semantics": "UTC_OPEN_AND_CLOSE_WITH_AMERICA_NEW_YORK_MARKET_SEMANTICS",
+      "revision_semantics": "PINNED_EXCHANGE_CALENDARS_4_13_2_RELEASE",
+      "adjustment_status": "NOT_APPLICABLE",
+      "point_in_time_status": "SUITABLE_FOR_SESSION_MECHANICS_SUBJECT_TO_RELEASE_VERIFICATION",
+      "integrity_metadata": {
+        "sessions_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+        "bytes": 101990,
+        "calendar_package": "exchange-calendars",
+        "calendar_version": "4.13.2"
+      },
+      "limitations": [
+        "DOES_NOT_ESTABLISH_SECURITY_SPECIFIC_HALTS",
+        "SOURCE_DATA_MUST_BIND_THE_DAILY_BAR_TO_THE_PINNED_SESSION"
+      ]
+    },
+    {
+      "source_id": "accepted_alpaca_discovery_proxy_features",
+      "source_kind": "DERIVED_PAST_ONLY_FEATURES",
+      "role": "LEGACY_DISCOVERY_ONLY_DERIVED_CACHE",
+      "path": "data/vault/accepted/alpaca_discovery_proxy_features/aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c",
+      "release_id": "aa21367a98e0ff55196ebab2b8f06ba0a4d404b76f161c5e5d470b42c8020b0c",
+      "date_coverage": {
+        "bounded_assessment_years": [
+          2016,
+          2026
+        ],
+        "exact_full_range": "NOT_RECORDED_BY_BOUNDED_ASSESSMENT"
+      },
+      "security_coverage": "INHERITS_LEGACY_BAR_AND_CURRENT_IDENTITY_CENSUS",
+      "identifiers": [
+        "decision_session",
+        "symbol"
+      ],
+      "timestamp_semantics": "DECISION_SESSION_PRESENT; SOURCE_AVAILABILITY_INHERITS_LEGACY_CAVEATS",
+      "revision_semantics": "DERIVED_RELEASE_IMMUTABLE_BUT_NOT_PIT_QUALIFIED",
+      "adjustment_status": "PAST_ONLY_RAW_PRICE_FEATURES",
+      "point_in_time_status": "NOT_POINT_IN_TIME_SAFE_AS_A_RESEARCH_INPUT",
+      "integrity_metadata": {
+        "representative_partitions": [
+          {
+            "year": 2016,
+            "rows": 826079,
+            "bytes": 16541352,
+            "sha256": "7b9c3bf49599e696174caa98925ac9744ecd595d81561c84c24971af9779c9e8"
+          },
+          {
+            "year": 2026,
+            "rows": 1136970,
+            "bytes": 23450376,
+            "sha256": "47a2ab8c1d6a0a2ee13174d71d18f0d2864dce814a16b4182845b79b3c1b93a0"
+          }
+        ]
+      },
+      "limitations": [
+        "INHERITS_HISTORICAL_MEMBERSHIP_AND_IDENTITY_BLOCKERS",
+        "MUST_NOT_BE_RELABELED_AS_TRUSTED_CAUSAL_FEATURES",
+        "NOT_ELIGIBLE_FOR_REAL_RESEARCH"
+      ]
+    }
+  ],
+  "prospective_capture_sources": [
+    {
+      "source_id": "alpaca_free_bounded_assets",
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "receipt_count": 6,
+      "http_200_receipts": 6,
+      "receipt_time_min": "2026-08-11T00:20:26.815209Z",
+      "receipt_time_max": "2026-08-13T12:30:01.136573Z",
+      "historical_role": "NONE"
+    },
+    {
+      "source_id": "nasdaq_free_bounded_listed",
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "receipt_count": 6,
+      "http_200_receipts": 6,
+      "receipt_time_min": "2026-08-11T00:19:49.216127Z",
+      "receipt_time_max": "2026-08-13T12:30:15.227738Z",
+      "historical_role": "NONE"
+    },
+    {
+      "source_id": "nasdaq_free_bounded_otherlisted",
+      "evidence_class": "PROSPECTIVE_AS_OBSERVED",
+      "receipt_count": 5,
+      "http_200_receipts": 5,
+      "receipt_time_min": "2026-08-11T00:20:01.433032Z",
+      "receipt_time_max": "2026-08-13T12:30:16.205288Z",
+      "historical_role": "NONE"
+    }
+  ],
+  "unavailable_or_unqualified_source_classes": [
+    {
+      "source_class": "HISTORICAL_POINT_IN_TIME_INDEX_OR_UNIVERSE_MEMBERSHIP",
+      "state": "ABSENT_OR_UNQUALIFIED",
+      "effect": "BLOCKS_CAUSAL_HISTORICAL_UNIVERSE"
+    },
+    {
+      "source_class": "STABLE_HISTORICAL_SECURITY_IDENTITY_WITH_TICKER_REUSE_LINEAGE",
+      "state": "INSUFFICIENT_SOURCE_HISTORY",
+      "effect": "BLOCKS_TRUSTED_HISTORICAL_IDENTITY"
+    },
+    {
+      "source_class": "COMPLETE_HISTORICAL_EFFECTIVE_CORPORATE_ACTION_AND_DELISTING_CENSUS",
+      "state": "ABSENT",
+      "effect": "BLOCKS_CAUSAL_ADJUSTMENT_AND_SURVIVORSHIP_CLAIMS"
+    },
+    {
+      "source_class": "DELISTING_TERMINAL_PRICE_OR_DELISTING_RETURN_SOURCE",
+      "state": "ABSENT_OR_UNQUALIFIED",
+      "effect": "RECORDED_LIMITATION_NO_APPROXIMATION_ALLOWED"
+    },
+    {
+      "source_class": "POINT_IN_TIME_SECTOR_AND_INDUSTRY_CLASSIFICATION",
+      "state": "ABSENT",
+      "effect": "SECTOR_AND_INDUSTRY_FEATURES_OR_CONSTRAINTS_BLOCKED"
+    },
+    {
+      "source_class": "POINT_IN_TIME_MARKET_CAP_AND_SHARES_OUTSTANDING",
+      "state": "ABSENT",
+      "effect": "MARKET_CAP_FILTERS_BLOCKED"
+    },
+    {
+      "source_class": "POINT_IN_TIME_FUNDAMENTAL_VINTAGES",
+      "state": "ABSENT",
+      "effect": "FUNDAMENTAL_FEATURES_BLOCKED"
+    },
+    {
+      "source_class": "POINT_IN_TIME_EARNINGS_EVENT_PUBLICATION_TIMES",
+      "state": "ABSENT",
+      "effect": "EARNINGS_EVENT_FEATURES_BLOCKED"
+    },
+    {
+      "source_class": "HISTORICAL_ANALYST_ESTIMATE_VINTAGES",
+      "state": "ABSENT",
+      "effect": "ANALYST_FEATURES_BLOCKED"
+    }
+  ],
+  "claims": {
+    "massive_datasets_copied": false,
+    "real_outcomes_accessed": false,
+    "real_labels_accessed": false,
+    "historical_point_in_time_foundation_complete": false,
+    "source_dependent_readiness": "BLOCKED"
+  },
+  "inventory_id": "78861ca49a91c5b2c7e377a723e60cda8b3aaf9d1400698a466d11922dfa63f8"
+}

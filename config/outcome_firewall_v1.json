@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "phase": "HISTORICAL_RESEARCH_FOUNDATION_OUTCOME_FIREWALL",
+  "allowed_namespaces": [
+    "corporate_actions",
+    "features",
+    "identity",
+    "observations",
+    "sessions",
+    "synthetic",
+    "universe"
+  ],
+  "real_outcome_access": false,
+  "real_label_access": false,
+  "holdout_access": false,
+  "training_on_real_outcomes": false,
+  "evaluation_on_real_outcomes": false,
+  "backtesting": false,
+  "broker_connectivity": false,
+  "trading": false,
+  "policy_id": "c638926f3fac8f256346a77e2e5680fc1eff78910793873c851220ba2f49f76b"
+}

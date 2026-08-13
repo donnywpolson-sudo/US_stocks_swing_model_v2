@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "FUTURE_REAL_OUTCOME_RESEARCH_PROTOCOL_PREREGISTRATION",
+  "protocol_state": "FOUNDATION_PREREGISTRATION_FROZEN_WITH_EXPLICIT_UNRESOLVED_DECISIONS",
+  "binding_contracts": [
+    "config/alpaca_free_bounded_v1.json",
+    "config/feature_registry_v1.json",
+    "config/outcome_firewall_v1.json",
+    "config/research_readiness_contract.json",
+    "docs/HISTORICAL_RESEARCH_HARNESS.md",
+    "docs/REBUILD_CONSTITUTION.md"
+  ],
+  "authority": {
+    "this_protocol_authorizes_outcome_access": false,
+    "this_protocol_authorizes_training": false,
+    "this_protocol_authorizes_evaluation": false,
+    "this_protocol_authorizes_holdout_access": false,
+    "separate_future_authorization_required": true,
+    "unresolved_decisions_block_registration": true
+  },
+  "eligible_universe": {
+    "profile_id": "ALPACA_FREE_BOUNDED_V1",
+    "historical_source_state": "BLOCKED_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE",
+    "primary_size": 500,
+    "sensitivity_size": 1000,
+    "security_type": "AFFIRMATIVELY_VERIFIED_US_PRIMARY_LISTED_COMMON_STOCK",
+    "permitted_exchanges": [
+      "NASDAQ",
+      "NYSE",
+      "NYSE_AMERICAN"
+    ],
+    "minimum_previous_close": 5.0,
+    "liquidity_lookback_sessions": 60,
+    "liquidity_ranking": "TRAILING_60_SESSION_MEDIAN_DOLLAR_VOLUME",
+    "information_cutoff": "THROUGH_T_MINUS_1",
+    "current_membership_backfill_allowed": false,
+    "later_delisting_causes_prior_exclusion": false,
+    "unknown_security_type_policy": "ABSTAIN"
+  },
+  "timing": {
+    "canonical_timezone": "America/New_York",
+    "signal_timestamp": "AFTER_D0_REGULAR_CLOSE_PLUS_REQUIRED_PUBLICATION_LATENCY",
+    "earliest_executable_timestamp": "D1_REGULAR_SESSION_OPEN",
+    "same_D0_close_execution_allowed": false,
+    "rebalance_frequency": "EACH_ELIGIBLE_TRADING_SESSION",
+    "primary_holding_horizon": "D1_REGULAR_OPEN_TO_D5_REGULAR_CLOSE",
+    "holding_sessions": 5,
+    "secondary_horizons": "UNRESOLVED_NO_SECONDARY_HORIZON_AUTHORIZED",
+    "overlapping_position_treatment": "FIVE_CONCURRENT_DAILY_COHORTS",
+    "capital_fraction_per_new_cohort": 0.2
+  },
+  "scope_and_constraints": {
+    "direction_scope": "SEPARATE_STOCK_LONG_STOCK_SHORT_ETF_LONG_ETF_SHORT_SLEEVES",
+    "position_count_limits": "UNRESOLVED",
+    "per_name_concentration_limits": "UNRESOLVED",
+    "sector_constraints": "UNRESOLVED_REQUIRES_POINT_IN_TIME_SECTOR_SOURCE",
+    "industry_constraints": "UNRESOLVED_REQUIRES_POINT_IN_TIME_INDUSTRY_SOURCE",
+    "liquidity_restrictions": "PROFILE_TOP_500_PRIMARY_AND_TOP_1000_SENSITIVITY_WITH_T_MINUS_1_INPUTS",
+    "capacity_restrictions": "UNRESOLVED_REQUIRES_NOTIONAL_AND_ADV_CONTRACT",
+    "historical_borrow_assumption": "SHORTABILITY_UNVERIFIED_HISTORICAL",
+    "prospective_short_gate": "ACTIVE_TRADABLE_MARGINABLE_SHORTABLE_AND_EASY_TO_BORROW",
+    "stock_borrow_fee": 0.0,
+    "locate_fee": 0.0,
+    "short_cost_interpretation": "GROSS_ONLY_NOT_BORROW_OR_LOCATE_ADJUSTED",
+    "corporate_event_exclusions": "ABSTAIN_WHEN_ACTION_DELISTING_OR_EFFECTIVE_EVENT_COVERAGE_IS_UNRESOLVED"
+  },
+  "cost_and_slippage": {
+    "one_way_cost_basis_points": [
+      0,
+      10,
+      25,
+      50
+    ],
+    "binding_stress_cost_basis_points": 25,
+    "transaction_cost_application": "ACTUAL_WEIGHT_CHANGES",
+    "slippage_model": "UNRESOLVED_NO_SEPARATE_SLIPPAGE_MODEL_FROZEN",
+    "capacity_without_notional_and_adv": "UNKNOWN"
+  },
+  "temporal_design": {
+    "train_period": "EXPANDING_WINDOW_MINIMUM_1008_SESSIONS_EXACT_CALENDAR_BOUNDS_UNRESOLVED",
+    "inner_validation_periods": "FOUR_CHRONOLOGICAL_ROLLING_126_SESSION_FOLDS",
+    "outer_validation_periods": "EXPANDING_ROLLING_ORIGIN_126_SESSION_TESTS_STEPPED_126_SESSIONS",
+    "minimum_outer_folds": 8,
+    "minimum_distinct_outer_dates": 1008,
+    "final_untouched_test_period_sessions": 252,
+    "walk_forward_procedure": "NESTED_CHRONOLOGICAL_EXPANDING_ROLLING_ORIGIN",
+    "label_interval_convention_for_FUTURE_AUTHORIZED_PHASE": "HALF_OPEN_DECISION_AT_TO_D5_CLOSE",
+    "purging_policy": "REMOVE_TRAIN_SAMPLE_IF_ITS_INFORMATION_INTERVAL_INTERSECTS_ANY_VALIDATION_OR_TEST_INTERVAL",
+    "embargo_policy": "MINIMUM_FIVE_PINNED_EXCHANGE_SESSIONS",
+    "calendar_day_or_row_embargo_allowed": false,
+    "zero_post_purge_overlap_required": true
+  },
+  "selection_and_multiplicity": {
+    "hyperparameter_search_budget": "UNRESOLVED_MUST_BE_FROZEN_BEFORE_ANY_REAL_OUTCOME_ACCESS",
+    "feature_selection_policy": "UNRESOLVED_EXACT_FEATURE_SET_AND_ANY_FOLD_LOCAL_SELECTION_MUST_BE_FROZEN_BEFORE_ACCESS",
+    "outer_test_may_select_or_tune": false,
+    "holdout_may_select_or_tune": false,
+    "family_assignment_must_predate_access": true,
+    "multiple_testing_controls": [
+      "DEFLATED_SHARPE_FOR_HYPOTHETICAL_UNDERLYING_BOOK_WHEN_APPLICABLE",
+      "PBO_CSCV_WHEN_AT_LEAST_TEN_COMPARABLE_CONFIGURATIONS_EXIST",
+      "ROMANO_WOLF_FOR_JOINT_CANDIDATE_BASELINE_COMPARISONS",
+      "RAW_COUNT_OF_ALL_OUTCOME_INFORMED_ALTERNATIVES"
+    ],
+    "primary_forecast_metric": "MULTICLASS_LOG_LOSS",
+    "primary_economic_statistic": "STRESS_COST_UNDERLYING_BOOK_MEAN_RETURN",
+    "secondary_metrics": [
+      "CALIBRATION_DIAGNOSTICS",
+      "COVERAGE_AND_ERROR_AT_ABSTENTION_POLICY",
+      "MULTICLASS_BRIER_SCORE",
+      "ROBUST_ABSOLUTE_ERROR"
+    ],
+    "secondary_metrics_may_rescue_primary_failure": false
+  },
+  "decision_rules": {
+    "pass_criteria": "USE_ONLY_THE_PREDECLARED_BINDING_GATE_ORDER_AND_THRESHOLDS_IN_RESEARCH_READINESS_CONTRACT_AFTER_SEPARATE_AUTHORIZATION",
+    "fail_criteria": "ANY_INVALID_CAUSAL_LINEAGE_ROLE_TIMING_LEDGER_COST_SLEEVE_OR_EVIDENCE_FAILURE_OR_BINDING_STATISTICAL_GATE_FAILURE",
+    "abandonment_criteria": [
+      "FINAL_HOLDOUT_FAILURE_CLOSES_THE_TRIAL_WITH_NO_RESCUE_RETRY_OR_REUSE",
+      "INSUFFICIENT_POINT_IN_TIME_IDENTITY_UNIVERSE_ACTION_OR_DELISTING_EVIDENCE_BLOCKS_THE_TRIAL",
+      "POST_ACCESS_SEMANTIC_CHANGE_REQUIRES_A_NEW_COUNTED_TRIAL",
+      "NEGATIVE_CONTROL_OR_MULTIPLICITY_FAILURE_CANNOT_BE_RESCUED_BY_RELATIVE_RANK"
+    ]
+  },
+  "final_holdout": {
+    "populated": false,
+    "ordinary_development_access": false,
+    "firewall_policy": "config/outcome_firewall_v1.json",
+    "future_access_mode": "ONE_TIME_GOVERNED_RECEIPT_ONLY_AFTER_SPECIFICATION_FREEZE_AND_SEPARATE_AUTHORIZATION",
+    "pooled_with_outer_results": false,
+    "success_authorizes_candidate_sealing": false
+  },
+  "unresolved_decisions": [
+    {
+      "decision_id": "EXACT_POINT_IN_TIME_HISTORICAL_UNIVERSE_SOURCE",
+      "state": "BLOCKED_SOURCE_UNAVAILABLE"
+    },
+    {
+      "decision_id": "POSITION_COUNT_AND_PER_NAME_LIMITS",
+      "state": "UNRESOLVED"
+    },
+    {
+      "decision_id": "SECTOR_AND_INDUSTRY_CONSTRAINTS",
+      "state": "BLOCKED_POINT_IN_TIME_CLASSIFICATIONS_UNAVAILABLE"
+    },
+    {
+      "decision_id": "CAPACITY_NOTIONAL_AND_MAXIMUM_ADV_PARTICIPATION",
+      "state": "UNRESOLVED"
+    },
+    {
+      "decision_id": "SEPARATE_SLIPPAGE_MODEL",
+      "state": "UNRESOLVED"
+    },
+    {
+      "decision_id": "EXACT_CALENDAR_TRAIN_VALIDATION_AND_HOLDOUT_BOUNDARIES",
+      "state": "UNRESOLVED_PENDING_QUALIFIED_SOURCE_COVERAGE"
+    },
+    {
+      "decision_id": "EXACT_FEATURE_SET_AND_HYPERPARAMETER_BUDGET",
+      "state": "UNRESOLVED_NO_OUTCOME_INFORMED_CHOICE_ALLOWED"
+    },
+    {
+      "decision_id": "SECONDARY_HORIZONS",
+      "state": "UNRESOLVED_NONE_AUTHORIZED"
+    }
+  ],
+  "claims": {
+    "real_outcomes_created": false,
+    "real_outcomes_accessed": false,
+    "holdout_accessed": false,
+    "model_trained_on_real_outcomes": false,
+    "performance_evaluated": false,
+    "protocol_passing_unlocks_outcomes": false
+  },
+  "protocol_id": "3413bd390a324b92e9ccb2563f0d9542fa4b291eeab69270dc723268c1787416"
+}

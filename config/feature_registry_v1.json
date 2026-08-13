@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "phase": "HISTORICAL_RESEARCH_FOUNDATION_OUTCOME_FIREWALL",
+  "diagnostic_permissions": [
+    "COMPUTATIONAL_REPRODUCIBILITY",
+    "COVERAGE",
+    "CROSS_FEATURE_CORRELATION",
+    "CROSS_SECTIONAL_CONCENTRATION",
+    "DISTRIBUTION_SHAPE",
+    "ESTIMATED_FEATURE_TURNOVER",
+    "MISSINGNESS",
+    "OUTLIER_INCIDENCE",
+    "TIME_STABILITY"
+  ],
+  "real_outcome_access": false,
+  "performance_based_ranking": false,
+  "features": [
+    {
+      "feature_id": "PIT_PRICE_D0_INTRADAY_RETURN_V1",
+      "name": "d0_raw_intraday_return",
+      "family": "PAST_PRICE_MOVEMENT",
+      "hypothesis": "The completed session open-to-close move describes recent price behavior without asserting predictive value.",
+      "required_source_fields": [
+        "asset_id",
+        "available_at",
+        "close",
+        "open",
+        "session"
+      ],
+      "lookback_sessions": 1,
+      "minimum_history_sessions": 6,
+      "signal_cutoff": "POST_D0_REGULAR_CLOSE",
+      "required_lag_sessions": 0,
+      "usable_time_rule": "MAX_REQUIRED_BAR_USABLE_TIME_LTE_SIGNAL_CUTOFF",
+      "missing_data_policy": "ABSTAIN_NO_IMPUTATION",
+      "outlier_policy": "PRESERVE_NO_CLIPPING_INFRASTRUCTURE_DIAGNOSTICS_ONLY",
+      "cross_sectional_normalization": "NONE",
+      "universe_dependency": "POINT_IN_TIME_ELIGIBILITY_AT_D0_WITH_T_MINUS_1_FILTER_INPUTS",
+      "corporate_action_treatment": "ABSTAIN_WHEN_ACTION_OR_DELISTING_INTERSECTS_LOOKBACK_OR_COVERAGE_IS_INCOMPLETE",
+      "update_frequency": "ONCE_PER_COMPLETED_ELIGIBLE_SESSION",
+      "known_leakage_risks": [
+        "CURRENT_IDENTITY_BACKFILL",
+        "FUTURE_ACTION_ADJUSTMENT",
+        "SAME_CLOSE_EXECUTION_ASSUMPTION"
+      ],
+      "implementation_ref": "us_stocks_swing_model_v2.prospective_price_features:materialize_price_only_features",
+      "version": "1.0.0",
+      "status": "IMPLEMENTED_CAUSAL_INFRASTRUCTURE_ONLY"
+    },
+    {
+      "feature_id": "PIT_PRICE_TRAILING_5_RETURN_V1",
+      "name": "trailing_5_session_raw_return",
+      "family": "PAST_TREND",
+      "hypothesis": "The five completed-session price change summarizes recent trend without asserting predictive value.",
+      "required_source_fields": [
+        "asset_id",
+        "available_at",
+        "close",
+        "session"
+      ],
+      "lookback_sessions": 6,
+      "minimum_history_sessions": 6,
+      "signal_cutoff": "POST_D0_REGULAR_CLOSE",
+      "required_lag_sessions": 0,
+      "usable_time_rule": "MAX_REQUIRED_BAR_USABLE_TIME_LTE_SIGNAL_CUTOFF",
+      "missing_data_policy": "ABSTAIN_NO_IMPUTATION",
+      "outlier_policy": "PRESERVE_NO_CLIPPING_INFRASTRUCTURE_DIAGNOSTICS_ONLY",
+      "cross_sectional_normalization": "NONE",
+      "universe_dependency": "POINT_IN_TIME_ELIGIBILITY_AT_D0_WITH_T_MINUS_1_FILTER_INPUTS",
+      "corporate_action_treatment": "ABSTAIN_WHEN_ACTION_OR_DELISTING_INTERSECTS_LOOKBACK_OR_COVERAGE_IS_INCOMPLETE",
+      "update_frequency": "ONCE_PER_COMPLETED_ELIGIBLE_SESSION",
+      "known_leakage_risks": [
+        "CURRENT_IDENTITY_BACKFILL",
+        "FUTURE_ACTION_ADJUSTMENT",
+        "FUTURE_BAR_INCLUSION"
+      ],
+      "implementation_ref": "us_stocks_swing_model_v2.prospective_price_features:materialize_price_only_features",
+      "version": "1.0.0",
+      "status": "IMPLEMENTED_CAUSAL_INFRASTRUCTURE_ONLY"
+    },
+    {
+      "feature_id": "PIT_PRICE_TRAILING_5_VOLATILITY_V1",
+      "name": "trailing_5_session_raw_volatility",
+      "family": "REALIZED_PAST_VOLATILITY",
+      "hypothesis": "Dispersion of five past close-to-close moves describes recent variability without asserting predictive value.",
+      "required_source_fields": [
+        "asset_id",
+        "available_at",
+        "close",
+        "session"
+      ],
+      "lookback_sessions": 6,
+      "minimum_history_sessions": 6,
+      "signal_cutoff": "POST_D0_REGULAR_CLOSE",
+      "required_lag_sessions": 0,
+      "usable_time_rule": "MAX_REQUIRED_BAR_USABLE_TIME_LTE_SIGNAL_CUTOFF",
+      "missing_data_policy": "ABSTAIN_NO_IMPUTATION",
+      "outlier_policy": "PRESERVE_NO_CLIPPING_INFRASTRUCTURE_DIAGNOSTICS_ONLY",
+      "cross_sectional_normalization": "NONE",
+      "universe_dependency": "POINT_IN_TIME_ELIGIBILITY_AT_D0_WITH_T_MINUS_1_FILTER_INPUTS",
+      "corporate_action_treatment": "ABSTAIN_WHEN_ACTION_OR_DELISTING_INTERSECTS_LOOKBACK_OR_COVERAGE_IS_INCOMPLETE",
+      "update_frequency": "ONCE_PER_COMPLETED_ELIGIBLE_SESSION",
+      "known_leakage_risks": [
+        "CURRENT_IDENTITY_BACKFILL",
+        "FUTURE_ACTION_ADJUSTMENT",
+        "FUTURE_BAR_INCLUSION"
+      ],
+      "implementation_ref": "us_stocks_swing_model_v2.prospective_price_features:materialize_price_only_features",
+      "version": "1.0.0",
+      "status": "IMPLEMENTED_CAUSAL_INFRASTRUCTURE_ONLY"
+    }
+  ],
+  "registry_id": "afa7f3844c5ff6755e59effb3760a77de1d7c6ea7daf55634cfccaadbfe5334f"
+}

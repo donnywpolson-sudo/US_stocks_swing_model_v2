@@ -67,6 +67,9 @@ membership source and options remain excluded.
   scientific and design contract.
 - [`docs/ALPACA_FREE_BOUNDED_V1.md`](docs/ALPACA_FREE_BOUNDED_V1.md): opt-in
   free Alpaca long/short data profile, commands, and readiness boundary.
+- [`docs/HISTORICAL_FOUNDATION_ASSESSMENT.md`](docs/HISTORICAL_FOUNDATION_ASSESSMENT.md):
+  current source inventory findings, causal controls, outcome firewall, and
+  non-authorizing readiness gate.
 
 For provider/publication work, read
 [`docs/NETWORK_ACQUISITION.md`](docs/NETWORK_ACQUISITION.md). For historical

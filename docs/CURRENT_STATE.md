@@ -7,10 +7,24 @@ before acting.
 
 ## Current milestone
 
-`FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_PATH_ACTIVE`
+`HISTORICAL_FOUNDATION_COMPLETE_WITH_SOURCE_BLOCKERS`
 
 - The controlled rebuild architecture and its synthetic acceptance contracts
   are complete.
+- The two-session prospective capture automation acceptance gate completed on
+  August 13, 2026. The accepted implementation is preserved at commit
+  `e81444af789d11d3471bdc93458ec1b03b648d28` and local tag
+  `frozen-automation-acceptance-2026-08-13-e81444a`; capture semantics and the
+  scheduled task remain unchanged.
+- The authorized Historical Research Foundation and Outcome-Firewall phase is
+  complete with caveats. Causal identity, universe, action, session,
+  availability, canonical panel, feature-registry, and outcome-denial
+  interfaces pass synthetic mechanics tests. The detailed assessment and gate
+  are in [`HISTORICAL_FOUNDATION_ASSESSMENT.md`](HISTORICAL_FOUNDATION_ASSESSMENT.md).
+- Source-dependent historical readiness remains blocked. The repository does
+  not have qualified historical point-in-time membership, stable historical
+  identity lineage, or complete effective-event corporate-action and delisting
+  coverage. Passing the infrastructure gates does not unlock real outcomes.
 - The active operating path permits only completely free data and services.
   Project storage remains on the local desktop with GitHub as the configured
   backup. Paid data, subscriptions, commercial trial offers, and additional
@@ -20,12 +34,12 @@ before acting.
 - Alpaca SIP is the sole qualified bar feed, but remains non-active. The
   canonical source record is
   [`config/sources.json`](../config/sources.json).
-- A caveated current-identity-seeded Alpaca SIP historical release is retained
-  as `legacy_discovery_only`. Proxy feature, proxy outcome, and joined-input
-  contracts and publication mechanics exist, but those three materialized
-  releases are not established by the currently reviewed accepted-release
-  census. No proxy artifact can enter trusted eligibility, feature, outcome,
-  registration, or evaluation work.
+- A caveated current-identity-seeded Alpaca SIP historical release and its
+  past-only proxy-feature release are retained as `legacy_discovery_only`.
+  Their accepted manifests do not resolve historical identity, membership, or
+  survivorship. Outcome and joined-input paths were explicitly excluded from
+  the foundation assessment, and no proxy artifact can enter trusted
+  eligibility, feature, outcome, registration, or evaluation work.
 - The bounded SIP smoke capture and its non-active accepted release are
   complete. This does not activate Alpaca SIP or authorize downstream work.
 - The August 10 bounded Alpaca corporate-action capture is preserved as
@@ -95,3 +109,7 @@ production readiness.
   mechanics.
 - [`HISTORICAL_RESEARCH_HARNESS.md`](HISTORICAL_RESEARCH_HARNESS.md): research
   mechanics and claims boundary.
+- [`HISTORICAL_FOUNDATION_ASSESSMENT.md`](HISTORICAL_FOUNDATION_ASSESSMENT.md):
+  source findings, causal controls, and readiness results.
+- [`../config/historical_foundation_readiness_gate_v1.json`](../config/historical_foundation_readiness_gate_v1.json):
+  machine-readable non-authorizing gate.

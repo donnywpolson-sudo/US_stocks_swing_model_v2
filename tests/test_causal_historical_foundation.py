@@ -187,6 +187,25 @@ def test_availability_and_vintage_chains_fail_closed() -> None:
         )
 
 
+def test_premarket_and_after_hours_inputs_follow_actual_usable_time() -> None:
+    opening_cutoff = D0_OPEN
+    premarket = _input(
+        CausalInputKind.EARNINGS_EVENT,
+        key="premarket-earnings-asset-1",
+        usable=D0_OPEN - timedelta(minutes=30),
+        payload={"event_state": "PUBLISHED_PREMARKET"},
+    )
+    after_hours = _input(
+        CausalInputKind.EARNINGS_EVENT,
+        key="after-hours-earnings-asset-1",
+        usable=D0_CLOSE + timedelta(hours=1),
+        payload={"event_state": "PUBLISHED_AFTER_HOURS"},
+    )
+    assert require_inputs_usable_at((premarket,), opening_cutoff) == (premarket,)
+    with pytest.raises(ContractError, match="unavailable"):
+        require_inputs_usable_at((after_hours,), SIGNAL_CUTOFF)
+
+
 def _identity_snapshot(
     permit: SyntheticOnlyPermit,
     *,
@@ -433,6 +452,62 @@ def test_canonical_panel_is_stable_under_future_identity_and_action_mutation() -
     assert after == before
 
 
+def test_canonical_panel_cannot_be_ready_from_an_unresolved_raw_bar_reference() -> None:
+    identity_ledger, _, identity_snapshot_id = _identity_ledger()
+    action_ledger, action_permit = _action_ledger()
+    action = CorporateAction(
+        action_id="synthetic-split",
+        asset_id="asset-1",
+        action_type=ActionType.SPLIT,
+        effective_session=D0,
+        announced_at=D0_CLOSE - timedelta(hours=2),
+        received_at=D0_CLOSE - timedelta(hours=1),
+        revision=1,
+        source_snapshot_id="3" * 64,
+        source_release_id=action_permit.permit_id,
+        source_epoch="SYNTHETIC_ONLY",
+        raw_row_sha256="9" * 64,
+        ratio_new_for_old=2.0,
+    )
+    action_ledger.append(action)
+    adjusted = CausalDailyBar.create(
+        stable_security_id="asset-1",
+        session=D0,
+        open=5.0,
+        high=5.5,
+        low=4.5,
+        close=5.25,
+        volume=2000,
+        trade_count=100,
+        vwap=5.1,
+        availability=_stamp(
+            "adjusted-bar",
+            effective=D0_CLOSE,
+            usable=D0_CLOSE + timedelta(minutes=5),
+        ),
+        source_release_id=_hash("synthetic-bar-release"),
+        identity_snapshot_id=identity_snapshot_id,
+        adjustment_state="CAUSAL_ACTION_ADJUSTED",
+        raw_source_bar_id=_hash("unresolved-raw-bar"),
+        corporate_action_ids=(action.action_id,),
+        quality_flags=(),
+        evidence_state="SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE",
+    )
+    current, following = _session_pair()
+    panel = build_causal_stock_date_panel(
+        session=current,
+        next_session=following,
+        signal_cutoff=SIGNAL_CUTOFF,
+        identity_ledger=identity_ledger,
+        universe_snapshot=_universe(),
+        bars=(adjusted,),
+        action_ledger=action_ledger,
+        evidence_state="SYNTHETIC_ONLY_NOT_TRUST_ELIGIBLE",
+    )
+    assert panel.rows[0].causal_ready is False
+    assert "MISSING_RAW_OBSERVED_DAILY_BAR" in panel.rows[0].blocker_codes
+
+
 def test_prefix_features_and_universe_ignore_strictly_future_rows() -> None:
     sessions = tuple(D0 - timedelta(days=value) for value in range(5, -1, -1))
     base_bars = tuple(
@@ -619,6 +694,44 @@ def test_bar_integrity_reports_missing_stale_zero_volume_and_action_gaps() -> No
         extreme_gap_threshold=None,
     )
     assert unresolved.state == "BLOCKED_EXTREME_GAP_POLICY_UNRESOLVED"
+
+
+def test_bar_integrity_reports_unexpected_stale_halt_and_duplicate_records() -> None:
+    _, _, identity_snapshot_id = _identity_ledger()
+    first_session = D0 - timedelta(days=1)
+    first = _bar(identity_snapshot_id, session=first_session, price=50.0)
+    next_source = _bar(identity_snapshot_id, session=D0, price=50.0)
+    stale_halt = CausalDailyBar.create(
+        **{
+            **{
+                key: value
+                for key, value in next_source.__dict__.items()
+                if key != "bar_id"
+            },
+            "open": first.open,
+            "high": first.high,
+            "low": first.low,
+            "close": first.close,
+            "quality_flags": ("TRADING_HALT_SUSPECTED",),
+        }
+    )
+    report = assess_daily_bar_integrity(
+        (first, stale_halt),
+        expected_sessions=(first_session,),
+        action_sessions=frozenset(),
+        extreme_gap_threshold=0.5,
+    )
+    assert report.state == "FAIL_INTEGRITY"
+    assert report.unexpected_sessions == (D0,)
+    assert report.stale_price_sessions == (D0,)
+    assert report.halt_suspected_sessions == (D0,)
+    with pytest.raises(IntegrityError, match="duplicate"):
+        assess_daily_bar_integrity(
+            (first, first),
+            expected_sessions=(first_session,),
+            action_sessions=frozenset(),
+            extreme_gap_threshold=0.5,
+        )
 
 
 def test_invalid_ohlc_and_same_close_execution_fail_closed() -> None:

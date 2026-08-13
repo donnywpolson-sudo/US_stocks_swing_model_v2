@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -178,6 +179,47 @@ class FoundationPhasePolicy:
         require_sha256(self.policy_id, "foundation_policy.policy_id")
         if self.policy_id != sha256_bytes(canonical_json_bytes(self.unsigned_dict())):
             raise IntegrityError("foundation policy ID differs from its content")
+
+
+def load_foundation_phase_policy(path: Path) -> FoundationPhasePolicy:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise IntegrityError("foundation outcome-firewall policy is missing or invalid") from exc
+    expected = {
+        "schema_version",
+        "phase",
+        "allowed_namespaces",
+        "real_outcome_access",
+        "real_label_access",
+        "holdout_access",
+        "training_on_real_outcomes",
+        "evaluation_on_real_outcomes",
+        "backtesting",
+        "broker_connectivity",
+        "trading",
+        "policy_id",
+    }
+    if type(payload) is not dict or set(payload) != expected:
+        raise ContractError("foundation policy fields differ from the exact contract")
+    if type(payload["allowed_namespaces"]) is not list:
+        raise ContractError("foundation policy namespaces must be a list")
+    policy = FoundationPhasePolicy(
+        schema_version=payload["schema_version"],
+        phase=payload["phase"],
+        allowed_namespaces=tuple(payload["allowed_namespaces"]),
+        real_outcome_access=payload["real_outcome_access"],
+        real_label_access=payload["real_label_access"],
+        holdout_access=payload["holdout_access"],
+        training_on_real_outcomes=payload["training_on_real_outcomes"],
+        evaluation_on_real_outcomes=payload["evaluation_on_real_outcomes"],
+        backtesting=payload["backtesting"],
+        broker_connectivity=payload["broker_connectivity"],
+        trading=payload["trading"],
+        policy_id=payload["policy_id"],
+    )
+    policy.validate()
+    return policy
 
 
 @dataclass(frozen=True)

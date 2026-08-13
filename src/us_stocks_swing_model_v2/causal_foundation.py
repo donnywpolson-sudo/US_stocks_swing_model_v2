@@ -1100,6 +1100,8 @@ def build_causal_stock_date_panel(
             blockers.add("IDENTITY_INELIGIBLE")
         if raw_bar is None and adjusted_bar is None:
             blockers.add("MISSING_CAUSAL_DAILY_BAR")
+        if raw_bar is None:
+            blockers.add("MISSING_RAW_OBSERVED_DAILY_BAR")
         if not coverage_complete:
             blockers.add("INCOMPLETE_EFFECTIVE_EVENT_OR_DELISTING_COVERAGE")
         if action_ids and adjusted_bar is None:
@@ -1140,7 +1142,11 @@ def build_causal_stock_date_panel(
         lineage = {
             session.session_id,
             next_session.session_id,
+            session.calendar_release_id,
+            next_session.calendar_release_id,
             identity.identity_snapshot_id,
+            identity.alpaca_snapshot_id,
+            identity.nasdaq_snapshot_id,
             universe_snapshot.snapshot_id,
             *decision.evidence_hashes,
             *(action.raw_row_sha256 for action in action_rows),
@@ -1157,10 +1163,13 @@ def build_causal_stock_date_panel(
         }
         for bar in asset_bars.values():
             lineage.add(bar.bar_id)
+            lineage.add(bar.source_release_id)
+            lineage.add(bar.availability.source_snapshot_id)
         source_identifiers = {
             identity_ledger.source_epoch,
             action_ledger.source_epoch,
             *decision.source_memberships,
+            *(bar.availability.source_identifier for bar in asset_bars.values()),
         }
         provisional = CausalStockDateRow(
             stable_security_id=decision.stable_asset_id,

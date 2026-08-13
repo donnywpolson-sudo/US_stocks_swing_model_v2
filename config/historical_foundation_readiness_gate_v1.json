@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_RESEARCH_FOUNDATION_READINESS_GATE",
+  "phase_status": "PASS_WITH_CAVEATS",
+  "source_dependent_readiness": "BLOCKED",
+  "future_real_outcome_phase_eligible": false,
+  "automatic_outcome_unlock": false,
+  "baseline_reference": {
+    "accepted_commit": "e81444af789d11d3471bdc93458ec1b03b648d28",
+    "tag": "frozen-automation-acceptance-2026-08-13-e81444a",
+    "record": "config/automation_acceptance_baseline_v1.json"
+  },
+  "assessment_reference": {
+    "record": "config/historical_foundation_assessment_result_v1.json",
+    "result_id": "155583d38fa4dc948f4fdb4ef196489c8c63c5e45487f11522ed09d3b456d994"
+  },
+  "gates": [
+    {
+      "gate": "CAPTURE_BASELINE_PRESERVED",
+      "result": "PASS",
+      "evidence": "Immutable local tag and content-addressed baseline record preserve commit, scheduler, task result, sessions, logs, and capture-contract hashes."
+    },
+    {
+      "gate": "HISTORICAL_SOURCE_INVENTORY_COMPLETE",
+      "result": "PASS",
+      "evidence": "Discovered historical, prospective, derived, absent, and unqualified source classes are recorded in config/historical_source_inventory_v1.json without copying bulk data."
+    },
+    {
+      "gate": "POINT_IN_TIME_SECURITY_IDENTITY",
+      "result": "BLOCKED",
+      "evidence": "Stable-ID and bitemporal interfaces pass synthetic tests, but only one accepted 2026 identity snapshot exists and historical ticker reuse or lineage cannot be proven."
+    },
+    {
+      "gate": "SURVIVORSHIP_AND_DELISTING_TREATMENT",
+      "result": "BLOCKED",
+      "evidence": "The reconstructed listing candidate contains 4,103 delisted rows, but stable identity, complete delisting census, terminal price, and delisting-return sources are unavailable or unqualified."
+    },
+    {
+      "gate": "CORPORATE_ACTION_RECONCILIATION",
+      "result": "BLOCKED",
+      "evidence": "Raw/action/causal-adjusted interfaces and coverage-lineage tests pass, but process-date captures do not prove complete effective-event coverage or historical publication vintages."
+    },
+    {
+      "gate": "SESSION_AND_TIMESTAMP_INTEGRITY",
+      "result": "PASS_WITH_CAVEATS",
+      "evidence": "Pinned XNYS 4.13.2 UTC opens, closes, holidays, early closes, and DST mechanics are tested; historical security-specific halts and all vendor timestamp semantics remain unqualified."
+    },
+    {
+      "gate": "CAUSAL_UNIVERSE_CONSTRUCTION",
+      "result": "BLOCKED",
+      "evidence": "The stable-ID T-minus-1 eligibility interface and mutation tests pass, but qualified historical membership and classification sources are unavailable."
+    },
+    {
+      "gate": "FEATURE_PREFIX_INVARIANCE",
+      "result": "PASS",
+      "evidence": "Synthetic truncated and full inputs produce identical registered feature results through the cutoff."
+    },
+    {
+      "gate": "FUTURE_MUTATION_INVARIANCE",
+      "result": "PASS",
+      "evidence": "Synthetic future changes to price, volume, actions, membership, ticker identity, delisting, sector, fundamentals, earnings, and analyst vintages leave cutoff views unchanged."
+    },
+    {
+      "gate": "AVAILABILITY_ENFORCEMENT",
+      "result": "PASS",
+      "evidence": "Every generic input and canonical panel row enforces usable_time less than or equal to signal_cutoff and later revisions fail closed."
+    },
+    {
+      "gate": "OUTCOME_FIREWALL",
+      "result": "PASS",
+      "evidence": "Default-deny policy, path namespaces, payload/import guards, audit events, and exact synthetic permits deny real outcomes, labels, holdouts, evaluation, backtesting, broker access, and trading."
+    },
+    {
+      "gate": "RESEARCH_PROTOCOL_FROZEN",
+      "result": "PASS_WITH_CAVEATS",
+      "evidence": "Inherited timing and validation mechanics are frozen; explicit unresolved strategy and source decisions remain registration blockers and no protocol state unlocks outcomes."
+    },
+    {
+      "gate": "SYNTHETIC_END_TO_END_REHEARSAL",
+      "result": "PASS",
+      "evidence": "Deterministic rehearsal d1a52d45b59fa682071eb1317fdf0ac82fbe49a049a893d9d526a5c37739c149 exercises identity, universe, panel, features, purge, embargo, model API, portfolio/cost interfaces, and in-memory artifacts using generated outcomes only."
+    },
+    {
+      "gate": "CLEAN_WORKTREE_AND_REPRODUCIBLE_TESTS",
+      "result": "PASS",
+      "evidence": "Repository tests include deterministic reproduction and prohibit rehearsal I/O; final Git and test verification is required before reporting completion."
+    }
+  ],
+  "supplementary_causal_results": {
+    "universe_invariance": "PASS_SYNTHETIC",
+    "ticker_mapping_invariance": "PASS_SYNTHETIC",
+    "revision_vintage_invariance": "PASS_SYNTHETIC",
+    "same_close_execution_denial": "PASS_SYNTHETIC",
+    "real_outcome_datasets_created": false,
+    "real_outcome_datasets_accessed": false,
+    "real_training_performed": false,
+    "real_evaluation_performed": false,
+    "backtesting_performed": false,
+    "holdout_accessed": false,
+    "broker_or_trading_activity": false
+  },
+  "blocking_source_requirements": [
+    "COMPLETE_POINT_IN_TIME_HISTORICAL_MEMBERSHIP",
+    "STABLE_HISTORICAL_IDENTITY_AND_TICKER_REUSE_LINEAGE",
+    "COMPLETE_EFFECTIVE_EVENT_CORPORATE_ACTION_AND_DELISTING_COVERAGE",
+    "QUALIFIED_HISTORICAL_PUBLICATION_AND_REVISION_VINTAGES"
+  ],
+  "required_later_action": "SEPARATE_EXPLICIT_AUTHORIZATION_AFTER_BLOCKERS_AND_UNRESOLVED_PROTOCOL_DECISIONS_ARE_CLEARED",
+  "gate_record_id": "1ad1cf98a34f1c02a38f0423779c349649e9b6dd296db3aa6fa65f8de970f43c"
+}

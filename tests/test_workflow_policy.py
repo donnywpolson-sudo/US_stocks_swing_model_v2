@@ -94,14 +94,16 @@ def test_workflow_routes_to_the_canonical_checklist_without_prompt_churn() -> No
 def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation() -> None:
     readme = _read("README.md")
     state = _read("docs/CURRENT_STATE.md")
+    normalized_state = " ".join(state.split())
 
     assert "docs/CURRENT_STATE.md" in readme
     assert "not\nexecution authority" in state
     assert "current code, configuration, accepted\nreleases, Git state" in state
-    assert "FREE_ONLY_DISCOVERY_AND_PROSPECTIVE_PATH_ACTIVE" in state
+    assert "HISTORICAL_FOUNDATION_COMPLETE_WITH_SOURCE_BLOCKERS" in state
     assert "as `legacy_discovery_only`" in state
-    assert "materialized\n  releases are not established" in state
-    assert "No proxy artifact can enter trusted eligibility" in state
+    assert "past-only proxy-feature release are retained" in normalized_state
+    assert "Outcome and joined-input paths were explicitly excluded" in normalized_state
+    assert "no proxy artifact can enter trusted eligibility" in normalized_state
     assert "bounded SIP smoke capture and its non-active accepted release are" in state
     assert "unimplemented" not in state.lower()
     assert "## Operational routing" in state
