@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "mode": "READ_ONLY_HISTORICAL_SOURCE_QUALIFICATION_AUDIT",
+  "plan_id": "a6229640e9dcc90788dfd98c0f1f65967368ea2eb2fc6572ea6b98cc8f4ea1ce",
+  "code_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2_source_qualification",
+  "expected_code_branch": "historical-source-qualification-v1",
+  "implementation_commit": "6d22491fc629423e7361788d02ff78a80150c6d8",
+  "result_record_path": "config/historical_source_qualification_audit_result_v1.json",
+  "authorization": {
+    "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+    "source": "EXPLICIT_USER_GOAL",
+    "scope": "one bounded read-only local evidence audit with no provider request, write, credential, outcome, label, holdout, training, evaluation, backtest, deployment, broker, or trading capability"
+  },
+  "command_family": {
+    "executable": "C:/Users/donny/AppData/Local/Programs/Python/Python311/python.exe",
+    "arguments": [
+      "tools/audit_historical_source_qualification.py",
+      "--plan",
+      "config/historical_source_qualification_audit_plan_v1.json"
+    ],
+    "working_directory": "C:/Users/donny/Desktop/US_stocks_swing_model_v2_source_qualification"
+  },
+  "invocation_limit": 1,
+  "timeout_seconds": 300,
+  "writes_allowed": false,
+  "network_requests": 0,
+  "credential_access": false,
+  "outcome_access": false,
+  "label_access": false,
+  "training": false,
+  "evaluation": false,
+  "backtesting": false,
+  "evidence_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2",
+  "evidence_checkout": {
+    "branch": "alpaca-free-bounded-long-short",
+    "head": "7e0a546540d98ba3033251e222867cbaa934afc5",
+    "capture_hashes": {
+      "config/alpaca_free_automation_acceptance_v1.json": "ca1632267b5e5ff3ad13102c75ed97244ad7b8dabda3e26facc0a0148d4e4425",
+      "config/alpaca_free_bounded_v1.json": "4b767ba595a5bddde0f6cb56e0c980b4645a631112142af9c414acb8887420f9",
+      "scripts/run_alpaca_free_daily_capture.ps1": "6067a79f8fcfb54d9b242a3877b3212135548cbe4ed0d6abaab1e589b26b92fd"
+    }
+  },
+  "accepted_root": "data/vault/accepted",
+  "maximum_release_payload_bytes": 2147483648,
+  "releases": [
+    {
+      "dataset": "alpaca_historical_daily_bars",
+      "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+      "path": "data/vault/accepted/alpaca_historical_daily_bars/86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559"
+    },
+    {
+      "dataset": "identity",
+      "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+      "path": "data/vault/accepted/identity/8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02"
+    },
+    {
+      "dataset": "xnys_sessions",
+      "release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+      "path": "data/vault/accepted/xnys_sessions/834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7"
+    }
+  ],
+  "maximum_structured_source_bytes": 33554432,
+  "structured_sources": [
+    {
+      "source_id": "alpha_vantage_listing_status_reconstructed_candidates",
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpha_vantage_listing_status/objects",
+      "format": "csv",
+      "maximum_files": 16,
+      "maximum_file_bytes": 4194304,
+      "date_fields": [
+        "delistingDate",
+        "ipoDate"
+      ],
+      "type_fields": [
+        "assetType",
+        "exchange",
+        "status"
+      ]
+    },
+    {
+      "source_id": "alpaca_free_bounded_corporate_action_captures",
+      "directory": "data/vault/qualification/as_received/alpaca_free_bounded_v1/alpaca_free_bounded_corporate_actions/objects",
+      "format": "json",
+      "maximum_files": 16,
+      "maximum_file_bytes": 4194304,
+      "date_fields": [
+        "effective_date",
+        "ex_date",
+        "payable_date",
+        "process_date",
+        "record_date"
+      ],
+      "type_fields": [
+        "ca_type",
+        "type"
+      ]
+    }
+  ],
+  "expected_output": {
+    "destination": "stdout_only",
+    "format": "single_canonical_json_object",
+    "generated_files": false,
+    "tracked": false
+  },
+  "stop_conditions": [
+    "code worktree branch ancestry or cleanliness differs",
+    "scheduler evidence checkout branch head cleanliness or capture hash differs",
+    "plan identity or one-shot authority differs",
+    "accepted release identity manifest tree or file hash differs",
+    "source path names an outcome label evaluation holdout report credential or other denied component",
+    "release or structured-source byte or file limit would be exceeded",
+    "source schema or row census is malformed",
+    "any write network credential outcome label training evaluation backtest deployment broker or trading capability is requested"
+  ]
+}
