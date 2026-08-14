@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_ACQUISITION_PLAN_V1",
+  "phase": "HISTORICAL_DATA_PROVIDER_EVALUATION_ACQUISITION_DECISION_V1",
+  "plan_id": "e53e4c6ca5ea67a3cadaf11ff1bb149a8f5f2aa1f9d703dc3e3559a9cd1e45b3",
+  "decision_id": "eda1cc156a76235e3c3a6e84292c29d87233cc2ca197a84fd55f8a7e8a6a2e18",
+  "plan_status": "CONDITIONAL_NOT_EXECUTABLE",
+  "provider_id": "CRSP",
+  "provider": "Morningstar / Center for Research in Security Prices",
+  "product": "CRSP 1962 US Stock",
+  "product_code": "C6Z",
+  "tier_or_format": "CIZ_FLAT_FILE_FORMAT_2_0",
+  "required_addons": ["ARCHIVED_AS_RECEIVED_RELEASES_AND_MANIFESTS_2016_TO_CURRENT_IF_NOT_INCLUDED"],
+  "purpose_classification": "MANDATORY_VALUE",
+  "required_coverage": {
+    "start_session": "2016-01-04",
+    "end_session": "LATEST_COMPLETED_SESSION_AT_FUTURE_APPROVED_ACQUISITION",
+    "venues": ["NASDAQ", "NYSE", "NYSE_AMERICAN"],
+    "security_types": ["EXCHANGE_LISTED_COMMON_STOCK_SHARE_CLASSES"],
+    "activity_scope": ["ACTIVE", "ACQUIRED", "BANKRUPT", "DELISTED", "FAILED", "INACTIVE"],
+    "must_be_independent_of_current_survivor_list": true
+  },
+  "required_deliverables": [
+    {"table_or_file": "StkSecurityInfoHist", "purpose": "PERMNO-keyed historical ticker, share-class, exchange, security-type and listing intervals."},
+    {"table_or_file": "StkIssuerInfoHist", "purpose": "PERMCO issuer history retained separately from tradable-security identity."},
+    {"table_or_file": "StkDlySecurityData", "purpose": "Daily raw regular-session observations and status flags."},
+    {"table_or_file": "StkDelists", "purpose": "Delisting dates, reasons, actions, statuses, terms, successor identifiers and genuine terminal references."},
+    {"table_or_file": "StkDistributions", "purpose": "Splits, dividends, rights, spin-offs and other distribution terms and dates."},
+    {"table_or_file": "EXCHANGE_CALENDAR_AND_METADATA", "purpose": "Session calendar, flags, missing-value codes, schema and field semantics."},
+    {"table_or_file": "ARCHIVED_RELEASE_FILES", "purpose": "Every licensed as-received monthly or quarterly release from January 2016 onward."},
+    {"table_or_file": "RELEASE_MANIFESTS_AND_NOTES", "purpose": "Release identifiers, file census, hashes or integrity metadata, publication times and correction descriptions."}
+  ],
+  "required_identifiers": ["PERMNO", "PERMCO", "HISTORICAL_CUSIP_WHERE_LICENSED", "HISTORICAL_NCUSIP", "HISTORICAL_TICKER", "PRIMARY_EXCHANGE_CODE"],
+  "required_raw_bar_fields": ["PERMNO", "DlyCalDt", "DlyOpen", "DlyHigh", "DlyLow", "DlyClose", "DlyVol", "DlyPrcFlg", "SOURCE_RELEASE_ID", "SOURCE_FILE_OR_PARTITION_ID"],
+  "required_identity_fields": ["PERMNO", "PERMCO", "SecInfoStartDt", "SecInfoEndDt", "Ticker", "TradingStatusFlg", "PrimaryExch", "ShareClass", "SecurityType", "ShareType", "UsIncFlg", "IssuerType", "SOURCE_RELEASE_ID"],
+  "required_action_fields": ["PERMNO", "DISTCD", "DisExDt", "DisDeclDt", "DisRecordDt", "DisPayDt", "DisFacPr", "DisFacShr", "DisCashAmt", "DisAcqPmt", "DisPmtType", "DisPmtPermno", "SOURCE_RELEASE_ID", "SOURCE_EVENT_ID_OR_DETERMINISTIC_SOURCE_KEY"],
+  "required_terminal_fields": ["PERMNO", "DelListingDt", "DelActionType", "DelStatusType", "DelReasonType", "DelPaymentType", "DelAmount", "DelPermno", "DelDate", "DelLastTradeDt", "DelPrc", "SOURCE_RELEASE_ID", "SOURCE_EVENT_ID_OR_DETERMINISTIC_SOURCE_KEY"],
+  "quarantined_vendor_fields": {
+    "fields": ["DlyRet", "DelRet", "MthRet", "MthRetx", "RET", "RETX"],
+    "policy": "MAY_LAND_IMMUTABLY_IF_UNAVOIDABLY_BUNDLED_BUT_MUST_NOT_BE_PARSED_LOADED_EXPOSED_OR_USED_DURING_SOURCE_ADMISSION_OR_ORDINARY_DEVELOPMENT",
+    "reason": "Vendor return fields are outcomes or performance-adjacent and remain outside this phase and the outcome firewall."
+  },
+  "raw_adjustment_selection": {
+    "canonical_bar_layer": "ORIGINAL_UNADJUSTED_DAILY_OPEN_HIGH_LOW_CLOSE_AND_RAW_SHARE_VOLUME",
+    "fully_adjusted_convenience_series": "NOT_CANONICAL_AND_NOT_REQUIRED_V1",
+    "provider_return_fields": "DENIED"
+  },
+  "required_revision_semantics": [
+    "AS_RECEIVED_RELEASE_CUTS_RETAINED_FROM_2016_ONWARD",
+    "RELEASE_PUBLICATION_OR_PROCESS_TIME",
+    "RECORD_TO_RELEASE_BINDING",
+    "CORRECTION_AND_REPLACEMENT_CHRONOLOGY",
+    "NO_LATEST_CORRECTED_HISTORY_SUBSTITUTION_FOR_POINT_IN_TIME_VIEW"
+  ],
+  "delivery": {
+    "preferred_format": "CRSP_CIZ_FLAT_ASCII_OR_EQUIVALENT_PORTABLE_FLAT_FILES",
+    "expected_channel": "LICENSED_MOVEIT_OR_VENDOR_APPROVED_SECURE_FILE_DELIVERY",
+    "bootstrap": "BOUNDED_FULL_RELEASE_CENSUS_FROM_2016_ONWARD_AFTER_SEPARATE_AUTHORIZATION",
+    "incremental_updates": "MONTHLY_AS_RECEIVED_RELEASE_LANDING_AFTER_SEPARATE_AUTHORIZATION",
+    "authentication_category": "VENDOR_ISSUED_SECURE_FILE_TRANSFER_CREDENTIALS",
+    "windows_compatibility": "DOCUMENTED",
+    "storage_estimate": "EXACT_C6Z_PLUS_ARCHIVED_RELEASE_FOOTPRINT_QUOTE_REQUIRED; AN OFFICIAL LEGACY PRODUCT MATRIX HAS LISTED APPROXIMATELY_3_3_GB_FOR_A_SINGLE_1962_US_STOCK_RELEASE_BUT_THIS_IS_NOT_A_VINTAGE_CORPUS_ESTIMATE"
+  },
+  "pricing": {
+    "classification": "QUOTE_REQUIRED",
+    "minimum_initial_cost": null,
+    "first_year_cost": null,
+    "recurring_annual_cost": null,
+    "unresolved_items": ["C6Z_BASE_SUBSCRIPTION", "ARCHIVED_RELEASE_ENTITLEMENT", "DELIVERY_OR_SETUP_FEES", "EXCHANGE_FEES_IF_ANY", "MINIMUM_TERM"]
+  },
+  "purchase_prerequisites": [
+    {"prerequisite_id": "P-01", "status": "UNRESOLVED", "requirement": "Archived as-received C6Z release corpus and manifests from January 2016 onward are licensable."},
+    {"prerequisite_id": "P-02", "status": "UNRESOLVED", "requirement": "Release and event knowledge-time fields are sufficient for causal historical reconstruction."},
+    {"prerequisite_id": "P-03", "status": "UNRESOLVED", "requirement": "2016-plus common-stock raw open, high, low, close and volume coverage is documented and source-admissible."},
+    {"prerequisite_id": "P-04", "status": "UNRESOLVED", "requirement": "Corporate-action and terminal-event census, terms, identifiers and revisions satisfy the frozen contract."},
+    {"prerequisite_id": "P-05", "status": "UNRESOLVED", "requirement": "Subscriber eligibility and automated local quantitative-research use are contractually permitted."},
+    {"prerequisite_id": "P-06", "status": "UNRESOLVED", "requirement": "Immutable local landing, backups, derived canonical data and post-cancellation retention are contractually permitted."},
+    {"prerequisite_id": "P-07", "status": "UNRESOLVED", "requirement": "An itemized quote identifies base, archive, setup, exchange and recurring costs and the exact delivery entitlement."}
+  ],
+  "explicitly_do_not_acquire": [
+    "CRSP10_YEAR_MONTHLY_DATABASE",
+    "CRSP_COMPUSTAT_OR_FUNDAMENTAL_PRODUCTS",
+    "CRSP_INDEX_PRODUCTS",
+    "EARNINGS_OR_ANALYST_PRODUCTS",
+    "HISTORICAL_INDEX_CONSTITUENTS",
+    "INTRADAY_DATA",
+    "NEWS_OR_ALTERNATIVE_DATA",
+    "OPTIONS_OR_BORROW_DATA",
+    "SECTOR_INDUSTRY_SHARES_OR_MARKET_CAP_ADDONS"
+  ],
+  "subsequent_ingestion_sequence": [
+    {"step": 1, "name": "IMMUTABLE_LANDING", "action": "Land exact vendor bytes under a separately authorized immutable source-package root without transformation."},
+    {"step": 2, "name": "SOURCE_MANIFEST", "action": "Record provider, product, entitlement, release, files, retrieval and license classifications."},
+    {"step": 3, "name": "CONTENT_HASHING", "action": "Hash every raw file and partition before parsing."},
+    {"step": 4, "name": "SCHEMA_CAPTURE", "action": "Bind the delivered schema, metadata guide, missing-value codes and release version."},
+    {"step": 5, "name": "LICENSE_METADATA", "action": "Record the executed license class and confirmed storage, automation, derived-data and retention rights without secrets."},
+    {"step": 6, "name": "PROVIDER_ID_PRESERVATION", "action": "Preserve PERMNO, PERMCO and other delivered identifiers exactly."},
+    {"step": 7, "name": "STABLE_ID_INGESTION", "action": "Map PERMNO to the repository stable tradable-security layer without ticker-derived IDs."},
+    {"step": 8, "name": "HISTORICAL_TICKER_INTERVALS", "action": "Ingest and validate nonoverlapping PERMNO ticker intervals and ticker reuse."},
+    {"step": 9, "name": "HISTORICAL_EXCHANGE_INTERVALS", "action": "Ingest point-in-time exchange and listing validity under each PERMNO."},
+    {"step": 10, "name": "SECURITY_TYPE_MAPPING", "action": "Map documented CRSP share and security type codes to the frozen V1 taxonomy and quarantine ambiguity."},
+    {"step": 11, "name": "RAW_OHLCV_ADMISSION", "action": "Admit only qualified original unadjusted daily bars through historical_source_admission.py."},
+    {"step": 12, "name": "CORPORATE_ACTION_ADMISSION", "action": "Admit required action events with effective, knowledge-time, revision and stable-source identity."},
+    {"step": 13, "name": "TERMINAL_EVENT_ADMISSION", "action": "Admit source terminal metadata while denying vendor return fields and outcome calculations."},
+    {"step": 14, "name": "CALENDAR_BINDING", "action": "Bind source session dates to the accepted exchange calendar and classify discrepancies."},
+    {"step": 15, "name": "CROSS_SOURCE_RECONCILIATION", "action": "Confirm single-source PERMNO consistency; use no ticker-only joins and add no second provider unless separately approved."},
+    {"step": 16, "name": "FULL_CORPUS_VALIDATION", "action": "Run identity, interval, security-type, bar-integrity, survivorship, action and timestamp checks across the full corpus."},
+    {"step": 17, "name": "QUARANTINE", "action": "Quarantine every invalid, ambiguous, incomplete or outcome-bearing row with explicit reason codes and counts."},
+    {"step": 18, "name": "CANONICAL_PANEL_CONSTRUCTION", "action": "Build the real point-in-time panel only after all mandatory source families pass admission in the later authorized phase."},
+    {"step": 19, "name": "REAL_SOURCE_CAUSAL_INVARIANCE", "action": "Run prefix, future-mutation, snapshot-poisoning, universe, revision and availability tests without outcome access."},
+    {"step": 20, "name": "READINESS_GATE_RERUN", "action": "Recompute historical_source_readiness_gate_v2; passing still does not unlock outcomes."}
+  ],
+  "future_command_family": "NOT_DEFINED_UNTIL_PURCHASE_AND_INGESTION_ARE_SEPARATELY_AUTHORIZED",
+  "expected_future_outputs": ["IMMUTABLE_LICENSED_SOURCE_PACKAGE_OUTSIDE_GIT", "CONTENT_ADDRESSED_SOURCE_MANIFESTS", "SOURCE_ADMISSION_REPORTS", "QUARANTINE_MANIFESTS", "CANONICAL_PANEL_ONLY_IF_ALL_SOURCE_GATES_PASS"],
+  "tracked_disposition": "ONLY_SMALL_CONFIG_DOCS_SCHEMAS_HASHES_AND_TESTS_MAY_BE_TRACKED; LICENSED_SOURCE_BYTES_AND_DERIVED_BULK_DATA_REMAIN_OUTSIDE_GIT",
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_bulk_download": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_ingestion": false,
+    "authorizes_outcome_access": false,
+    "authorizes_paid_api_calls": false,
+    "authorizes_provider_contact": false,
+    "authorizes_purchase": false,
+    "authorizes_subscription_or_trial": false
+  }
+}

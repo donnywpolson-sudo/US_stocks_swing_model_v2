@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_PROVIDER_COMPARISON_V1",
+  "phase": "HISTORICAL_DATA_PROVIDER_EVALUATION_ACQUISITION_DECISION_V1",
+  "comparison_id": "2282436f2e5a69e340e89a6e1ebf3770350865c71e3f65c9cc561bb06e2f5a94",
+  "evaluation_id": "bb7fb48b037eef9f174b51a5148ea45f11d391e54771947b35b512633969cf4e",
+  "score_rule": "MANDATORY_REQUIREMENTS_ARE_NONCOMPENSATORY; COST_CONVENIENCE_AND_OPTIONAL_VALUE_CANNOT_OFFSET_A_FAIL_OR_UNRESOLVED_MANDATORY_REQUIREMENT",
+  "status_legend": {
+    "PASS_PRIMARY_EVIDENCE": "Current official product-specific evidence directly supports the requirement.",
+    "PASS_WITH_LIMITATION": "Official evidence supports a material portion but leaves a nonfatal limitation that must be checked at source admission.",
+    "FAIL": "Official evidence contradicts or omits a required source behavior in a way that prevents qualification.",
+    "UNRESOLVED": "Public evidence is insufficient and purchase is prohibited pending an exact answer.",
+    "NOT_APPLICABLE": "Requirement does not apply to the product; no mandatory V1 cell uses this status."
+  },
+  "rows": [
+    {"requirement_id": "R01_STABLE_HISTORICAL_SECURITY_IDENTITY", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_PRIMARY_EVIDENCE", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "UNRESOLVED"}},
+    {"requirement_id": "R02_HISTORICAL_TICKER_VALIDITY", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "FAIL", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "FAIL"}},
+    {"requirement_id": "R03_HISTORICAL_EXCHANGE_LISTING_VALIDITY", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "FAIL", "TIINGO": "FAIL"}},
+    {"requirement_id": "R04_HISTORICAL_SECURITY_TYPE_CLASSIFICATION", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_PRIMARY_EVIDENCE", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "PASS_WITH_LIMITATION"}},
+    {"requirement_id": "R05_LISTING_INACTIVE_DELISTING_HISTORY", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "FAIL"}},
+    {"requirement_id": "R06_RAW_UNADJUSTED_DAILY_OHLCV", "provider_statuses": {"CRSP": "PASS_WITH_LIMITATION", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "FAIL", "TIINGO": "PASS_PRIMARY_EVIDENCE"}},
+    {"requirement_id": "R07_ACTIVE_SECURITY_COVERAGE", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_PRIMARY_EVIDENCE", "SHARADAR": "PASS_PRIMARY_EVIDENCE", "TIINGO": "PASS_PRIMARY_EVIDENCE"}},
+    {"requirement_id": "R08_INACTIVE_DELISTED_SECURITY_COVERAGE", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "FAIL"}},
+    {"requirement_id": "R09_CORPORATE_ACTION_EVENTS", "provider_statuses": {"CRSP": "PASS_WITH_LIMITATION", "NORGATE": "FAIL", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "FAIL"}},
+    {"requirement_id": "R10_DELISTING_TERMINAL_EVENT_METADATA", "provider_statuses": {"CRSP": "PASS_WITH_LIMITATION", "NORGATE": "FAIL", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "FAIL"}},
+    {"requirement_id": "R11_DAILY_BAR_SESSION_TIMESTAMP_SEMANTICS", "provider_statuses": {"CRSP": "PASS_WITH_LIMITATION", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "PASS_PRIMARY_EVIDENCE"}},
+    {"requirement_id": "R12_REVISION_VERSION_SEMANTICS", "provider_statuses": {"CRSP": "UNRESOLVED", "NORGATE": "FAIL", "SHARADAR": "FAIL", "TIINGO": "FAIL"}},
+    {"requirement_id": "R13_CAUSAL_AVAILABILITY_SEMANTICS", "provider_statuses": {"CRSP": "UNRESOLVED", "NORGATE": "FAIL", "SHARADAR": "FAIL", "TIINGO": "FAIL"}},
+    {"requirement_id": "R14_FULL_LINEAGE_PROVENANCE", "provider_statuses": {"CRSP": "PASS_PRIMARY_EVIDENCE", "NORGATE": "PASS_WITH_LIMITATION", "SHARADAR": "PASS_WITH_LIMITATION", "TIINGO": "PASS_WITH_LIMITATION"}},
+    {"requirement_id": "R15_LOCAL_RESEARCH_LICENSE", "provider_statuses": {"CRSP": "UNRESOLVED", "NORGATE": "FAIL", "SHARADAR": "FAIL", "TIINGO": "FAIL"}}
+  ],
+  "fully_qualified_provider_ids": [],
+  "mandatory_gate_counts": {
+    "CRSP": {"PASS_PRIMARY_EVIDENCE": 8, "PASS_WITH_LIMITATION": 4, "FAIL": 0, "UNRESOLVED": 3},
+    "NORGATE": {"PASS_PRIMARY_EVIDENCE": 3, "PASS_WITH_LIMITATION": 6, "FAIL": 6, "UNRESOLVED": 0},
+    "SHARADAR": {"PASS_PRIMARY_EVIDENCE": 1, "PASS_WITH_LIMITATION": 9, "FAIL": 5, "UNRESOLVED": 0},
+    "TIINGO": {"PASS_PRIMARY_EVIDENCE": 3, "PASS_WITH_LIMITATION": 2, "FAIL": 9, "UNRESOLVED": 1}
+  },
+  "operational_suitability": {
+    "CRSP": {"status": "PASS_WITH_LIMITATION", "notes": "Portable flat files and Windows-compatible delivery are suitable, but only after an eligible license and archived-release entitlement are confirmed."},
+    "NORGATE": {"status": "PASS_WITH_LIMITATION", "notes": "Excellent Windows operation; reference and event portability is limited and subscription expiry breaks durable access."},
+    "SHARADAR": {"status": "PASS_WITH_LIMITATION", "notes": "REST and bulk tables are straightforward, but mandatory source families and version history are absent."},
+    "TIINGO": {"status": "PASS_WITH_LIMITATION", "notes": "The EOD REST API is simple and reproducible for bars, but missing identity, event and vintage domains make a complete integration impossible."}
+  },
+  "economic_suitability": {
+    "CRSP": {"classification": "QUOTE_REQUIRED", "published_v1_cost": null},
+    "NORGATE": {"classification": "PUBLIC_PRICE_CONFIRMED", "minimum_six_month_cost_usd": 346.50, "annual_cost_usd": 630.00},
+    "SHARADAR": {"classification": "UNRESOLVED_EXACT_TIER", "advertised_from_monthly_usd": 9.00, "advertised_bundle_monthly_usd": 29.00},
+    "TIINGO": {"classification": "PUBLIC_PRICE_CONFIRMED_FOR_EOD_ONLY", "individual_annual_cost_usd": 300.00, "internal_commercial_annual_cost_usd": 499.00}
+  },
+  "future_optional_value": {
+    "weight": "LOW_AND_NONCOMPENSATORY",
+    "note": "Fundamentals, sectors, indexes, intraday, news, options and analyst data are excluded from V1 selection even when bundled."
+  },
+  "combination_analysis": [
+    {
+      "combination_id": "C-CRSP-C6Z-SINGLE",
+      "providers": ["CRSP"],
+      "status": "UNRESOLVED",
+      "join": "NOT_APPLICABLE_SINGLE_PROVIDER_PERMNO",
+      "assessment": "Strongest and lowest-complexity technical option, conditional on archived as-received releases, causal knowledge-time evidence, complete 2016-plus raw fields, license and price."
+    },
+    {
+      "combination_id": "C-CRSP-REFERENCE-TIINGO-BARS",
+      "providers": ["CRSP", "TIINGO"],
+      "status": "FAIL",
+      "join": "NO_DOCUMENTED_SHARED_STABLE_SECURITY_ID; TICKER_ONLY_JOIN_PROHIBITED",
+      "assessment": "Tiingo raw bars do not expose a production permanent ID bridge to PERMNO and add retention restrictions without repairing CRSP vintage or knowledge-time uncertainty."
+    },
+    {
+      "combination_id": "C-NORGATE-TIINGO",
+      "providers": ["NORGATE", "TIINGO"],
+      "status": "FAIL",
+      "join": "NORGATE_ASSETID_HAS_NO_DOCUMENTED_TIINGO_BRIDGE",
+      "assessment": "The union still lacks historical ticker intervals, complete events, terminal metadata and vintages; both licenses prevent durable post-subscription retention."
+    },
+    {
+      "combination_id": "C-SHARADAR-TIINGO",
+      "providers": ["SHARADAR", "TIINGO"],
+      "status": "FAIL",
+      "join": "ISSUER_LEVEL_PERMATICKER_IS_NOT_A_SHARED_TRADABLE_SECURITY_ID",
+      "assessment": "Tiingo can replace Sharadar's adjusted bars, but neither supplies point-in-time exchange history, full stable identity, complete terminal events or historical vintages."
+    }
+  ],
+  "research_integrity_order": ["CRSP_CONDITIONAL", "NO_OTHER_QUALIFIED_PROVIDER_OR_STACK"],
+  "best_practical_valid_option": null,
+  "authorization_boundary": {
+    "authorizes_download": false,
+    "authorizes_ingestion": false,
+    "authorizes_outcomes": false,
+    "authorizes_provider_contact": false,
+    "authorizes_purchase": false,
+    "authorizes_subscription_or_trial": false
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_ACQUISITION_DECISION_V1",
+  "phase": "HISTORICAL_DATA_PROVIDER_EVALUATION_ACQUISITION_DECISION_V1",
+  "decision_id": "eda1cc156a76235e3c3a6e84292c29d87233cc2ca197a84fd55f8a7e8a6a2e18",
+  "comparison_id": "2282436f2e5a69e340e89a6e1ebf3770350865c71e3f65c9cc561bb06e2f5a94",
+  "status": "NO_QUALIFIED_OPTION_FOUND",
+  "decision_date": "2026-08-13",
+  "decision_rule": [
+    "RESEARCH_VALIDITY",
+    "SURVIVORSHIP_SAFETY",
+    "POINT_IN_TIME_IDENTITY",
+    "RAW_DATA_INTEGRITY",
+    "CORPORATE_ACTION_AND_DELISTING_COMPLETENESS",
+    "LICENSING_CERTAINTY",
+    "REPRODUCIBILITY",
+    "OPERATIONAL_FEASIBILITY",
+    "COST"
+  ],
+  "recommended_purchase": null,
+  "purchase_now": "PROHIBITED",
+  "decision_summary": "No evaluated single provider or legally bridgeable provider combination currently proves every mandatory frozen V1 requirement. CRSP C6Z is the strongest and simplest technical finalist, but historical as-received release access, knowledge-time semantics, complete 2016-plus raw field population, licensing, eligibility, retention and price remain unresolved.",
+  "strongest_candidate": {
+    "provider_id": "CRSP",
+    "product": "CRSP 1962 US Stock",
+    "product_code": "C6Z",
+    "format": "CIZ_FLAT_FILE_FORMAT_2_0",
+    "status": "CONDITIONAL_NOT_PURCHASE_READY",
+    "why": "It is the only evaluated product with primary evidence for permanent security identity, historical ticker and exchange intervals, security types, active and inactive coverage, daily raw market fields, broad distributions and detailed delistings in one identifier system.",
+    "blocking_requirements": ["R06_RAW_UNADJUSTED_DAILY_OHLCV", "R09_CORPORATE_ACTION_EVENTS", "R10_DELISTING_TERMINAL_EVENT_METADATA", "R11_DAILY_BAR_SESSION_TIMESTAMP_SEMANTICS", "R12_REVISION_VERSION_SEMANTICS", "R13_CAUSAL_AVAILABILITY_SEMANTICS", "R15_LOCAL_RESEARCH_LICENSE"]
+  },
+  "best_practical_candidate": null,
+  "best_practical_assessment": "No fully valid practical candidate exists. Norgate, Sharadar and Tiingo are less expensive and easier to access, but each fails multiple noncompensatory mandatory research-safety or retention requirements.",
+  "provider_combination_decision": {
+    "multi_provider_required": false,
+    "qualified_combination_found": false,
+    "assessment": "No documented legally permissible deterministic cross-provider bridge repairs the gaps. Ticker-only joins are prohibited; Tiingo lacks a production permanent-ID bridge, Norgate AssetID is vendor-specific, and Sharadar permaticker is issuer-level rather than a shared tradable-security ID. Every considered stack also retains causal-vintage or license failures."
+  },
+  "scenarios": [
+    {"scenario_id": "OPTION_A_BEST_RESEARCH_INTEGRITY", "status": "CONDITIONAL_ONLY", "selection": "CRSP_C6Z", "assessment": "Best technical fit, but no purchase until every mandatory confirmation is resolved."},
+    {"scenario_id": "OPTION_B_BEST_PRACTICAL_VALUE", "status": "NO_VALID_OPTION", "selection": null, "assessment": "No lower-cost stack satisfies all mandatory gates without assumptions."},
+    {"scenario_id": "OPTION_C_LOWEST_ACQUISITION_COMPLEXITY", "status": "CONDITIONAL_ONLY", "selection": "CRSP_C6Z_SINGLE_PROVIDER", "assessment": "One provider and PERMNO minimize joins, conditional on licensing the complete evidence package."},
+    {"scenario_id": "OPTION_D_NO_SAFE_ACQUISITION_YET", "status": "SELECTED", "selection": null, "assessment": "Public evidence does not yet support purchase of any option."}
+  ],
+  "mandatory_unresolved_items": [
+    {
+      "question_id": "Q-01",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R12_REVISION_VERSION_SEMANTICS"],
+      "unknown": "Archived as-received release entitlement",
+      "question": "Can Morningstar/CRSP license every as-received monthly or quarterly C6Z release, schema, manifest and release note from January 2016 onward, rather than only the latest corrected historical database?",
+      "required_answer": "YES_WITH_EXACT_DELIVERY_CENSUS_AND_RELEASE_IDENTIFIERS",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-02",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R12_REVISION_VERSION_SEMANTICS", "R13_CAUSAL_AVAILABILITY_SEMANTICS"],
+      "unknown": "Historical record knowledge-time reconstruction",
+      "question": "Do those archived releases expose immutable release publication or process timestamps and enough record-level revision metadata to reconstruct which identity, distribution and delisting records were usable at every historical cutoff?",
+      "required_answer": "YES_WITH_FIELD_AND_RELEASE_MAPPING",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-03",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R06_RAW_UNADJUSTED_DAILY_OHLCV", "R11_DAILY_BAR_SESSION_TIMESTAMP_SEMANTICS"],
+      "unknown": "Exact V1 raw field population and bar publication semantics",
+      "question": "For all common-stock share classes on NYSE, Nasdaq and NYSE American from 2016-01-04 onward, what are the row and security coverage and missing-value rates for DlyOpen, DlyHigh, DlyLow, DlyClose and DlyVol, are those fields original unadjusted regular-session observations, and when is each daily release usable?",
+      "required_answer": "SCHEMA_LEVEL_CONFIRMATION_AND_COVERAGE_REPORT",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-04",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R09_CORPORATE_ACTION_EVENTS", "R10_DELISTING_TERMINAL_EVENT_METADATA"],
+      "unknown": "Complete event census and stable event revision history",
+      "question": "Does C6Z cover forward and reverse splits, cash and special dividends, stock dividends, rights, spin-offs, symbol and share-class changes, mergers, acquisitions, cash or stock consideration and terminal events with stable event identifiers, all required terms, predecessor or successor PERMNOs and revision chronology?",
+      "required_answer": "YES_WITH_TABLE_FIELD_EVENT_TYPE_AND_COVERAGE_CENSUS",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-05",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R15_LOCAL_RESEARCH_LICENSE"],
+      "unknown": "Subscriber eligibility and permitted research use",
+      "question": "Is an individual or noninstitutional subscriber eligible for C6Z, and does the applicable agreement permit automated local quantitative research, immutable landing copies and backups, derived point-in-time canonical panels and internal feature datasets?",
+      "required_answer": "WRITTEN_CONTRACT_CONFIRMATION",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-06",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R14_FULL_LINEAGE_PROVENANCE", "R15_LOCAL_RESEARCH_LICENSE"],
+      "unknown": "Retention and exchange-license obligations",
+      "question": "May downloaded source releases, hashes, manifests, backups and internal derived canonical panels be retained after subscription expiration, on the project's local machines and approved backups, and are any additional exchange agreements or fees required?",
+      "required_answer": "WRITTEN_CONTRACT_CONFIRMATION",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-07",
+      "provider_id": "CRSP",
+      "product": "C6Z",
+      "requirement_ids": ["R14_FULL_LINEAGE_PROVENANCE", "R15_LOCAL_RESEARCH_LICENSE"],
+      "unknown": "Exact package quote and delivery entitlement",
+      "question": "What is the minimum initial and first-year price, recurring price, minimum term, setup or exchange fees, delivery method, update cadence, authentication category and archived-release add-on cost for the exact C6Z package described in this decision?",
+      "required_answer": "ITEMIZED_BINDING_QUOTE_AND_ENTITLEMENT_LIST",
+      "mandatory": true,
+      "purchase_prohibited": true
+    },
+    {
+      "question_id": "Q-08",
+      "provider_id": "TIINGO",
+      "product": "END_OF_DAY_STOCK_PRICES_WITH_PERMATICKER_ENTITLEMENT",
+      "requirement_ids": ["R01_STABLE_HISTORICAL_SECURITY_IDENTITY", "R02_HISTORICAL_TICKER_VALIDITY"],
+      "unknown": "PermaTicker entitlement and permanent-identity completeness",
+      "question": "Which current paid entitlement enables permaTicker for EOD history, what issuer, security, share-class or listing entity does it identify, and does it expose complete historical ticker and exchange validity intervals for every active, delisted and recycled V1 common-stock security?",
+      "required_answer": "PRODUCT_TIER_SCHEMA_IDENTIFIER_SEMANTICS_MAPPING_COVERAGE_AND_PRICE",
+      "mandatory": true,
+      "purchase_prohibited": true
+    }
+  ],
+  "other_provider_questions": {
+    "location": "config/historical_provider_evaluation_v1.json",
+    "status": "NOT_SENT",
+    "purpose": "Schema-level questions for Norgate, Sharadar and Tiingo are preserved in each failed or unresolved matrix cell; they are not purchase prerequisites because those products have documented independent failures."
+  },
+  "do_not_buy_v1": [
+    {"item": "CRSP10 Year US Stock Database", "reason": "Monthly rolling ten-year classroom product; no required daily V1 bars."},
+    {"item": "CRSP index products and CRSP/Compustat", "reason": "Historical index membership and fundamentals are OUT_OF_SCOPE_V1."},
+    {"item": "Norgate US Stocks Platinum", "reason": "Historical ticker, event, terminal, vintage and retention failures."},
+    {"item": "Sharadar direct products", "reason": "Adjusted-only full OHLCV, latest-only exchange, vintage and retention failures."},
+    {"item": "Tiingo EOD or early-release actions", "reason": "Identity, ticker reuse, delisted, event, terminal, vintage and retention failures."},
+    {"item": "Fundamentals, earnings, analysts, sectors, industries, shares, market cap, indexes, news, options, borrow or intraday add-ons", "reason": "OUT_OF_SCOPE_V1 and cannot improve mandatory-source qualification."}
+  ],
+  "phase_execution_attestation": {
+    "provider_account_created": false,
+    "provider_contact_sent": false,
+    "provider_purchase_or_subscription": false,
+    "paid_trial_started": false,
+    "paid_api_request_executed": false,
+    "commercial_dataset_downloaded": false,
+    "commercial_dataset_ingested": false,
+    "real_canonical_panel_built": false,
+    "real_outcomes_created_or_accessed": false,
+    "model_training_or_evaluation_performed": false,
+    "backtest_or_performance_calculation_performed": false
+  },
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_bulk_download": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_ingestion": false,
+    "authorizes_outcome_access": false,
+    "authorizes_paid_api_calls": false,
+    "authorizes_provider_contact": false,
+    "authorizes_purchase": false,
+    "authorizes_subscription_or_trial": false
+  }
+}
