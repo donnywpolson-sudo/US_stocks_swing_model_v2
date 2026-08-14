@@ -1,0 +1,220 @@
+{
+  "schema_version": 2,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_READINESS_GATE_V2",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "overall_status": "BLOCKED",
+  "source_independent_completion": true,
+  "source_qualified_v1_panel_available": false,
+  "automatic_outcome_unlock": false,
+  "real_outcome_access_authorized": false,
+  "references": {
+    "scope_id": "ade1f51711a308a271492c03f50801f77c9dbeee47a33c1beb46c41e2a9c160d",
+    "source_contract_id": "a0b3e22afc7f563174763c9f03ec719c5052bbb5972aa8b52674f3e03d5ce88a",
+    "admission_policy_id": "76bf376faf2cb5b6b660bc37bb7777d0c8979eca278292212501d573eb9a91d8",
+    "audit_result_record_id": "1731e025eb4e4395fb44c7f0dbb7ebad7d4b26dccd05dccfa985b6454380149e",
+    "qualification_report_id": "0d814852b0ad917b0b41955f6eb04a420d83f7408949ec7142d12c4db2168591",
+    "acquisition_requirements_id": "835af84a7c45bf200f3dee9ef6e3f1471d811b936f4dd2525061ad35aadfcbfb"
+  },
+  "gates": [
+    {
+      "gate": "FOUNDATION_CHECKPOINT_PRESERVED",
+      "result": "PASS",
+      "evidence": "Annotated tag frozen-historical-foundation-firewall-2026-08-13-7e0a546 identifies exact starting commit 7e0a546540d98ba3033251e222867cbaa934afc5."
+    },
+    {
+      "gate": "SCHEDULER_WORKTREE_ISOLATED",
+      "result": "PASS",
+      "evidence": "Scheduler remains at the original checkout and source development uses sibling branch historical-source-qualification-v1."
+    },
+    {
+      "gate": "V1_RESEARCH_DATA_SCOPE_FROZEN",
+      "result": "PASS",
+      "evidence": "Content-addressed V1 scope fixes price-volume common-stock structural-universe data and next-session execution semantics."
+    },
+    {
+      "gate": "LEGACY_HISTORICAL_DATA_QUARANTINED",
+      "result": "PASS",
+      "evidence": "All 13,724,185 legacy bar rows remain LEGACY_DISCOVERY and current-identity-seeded; gateway and canonical loader deny unadmitted evidence."
+    },
+    {
+      "gate": "SOURCE_CONTRACT_FROZEN",
+      "result": "PASS",
+      "evidence": "Historical source contract and zero-tolerance admission policy are content addressed."
+    },
+    {
+      "gate": "SOURCE_ADMISSION_GATEWAY",
+      "result": "PASS",
+      "evidence": "Deterministic descriptors validations reason codes admissions bundle checks path binding and idempotence pass source-independent tests."
+    },
+    {
+      "gate": "RAW_OHLCV_SEMANTICS_QUALIFIED",
+      "result": "BLOCKED",
+      "evidence": "Raw request semantics are declared, but the only complete local history is current-identity-seeded legacy discovery and lacks qualified historical timestamp revision universe and license semantics."
+    },
+    {
+      "gate": "STABLE_HISTORICAL_SECURITY_IDS",
+      "result": "BLOCKED",
+      "evidence": "The only accepted identity source has 14,667 stable IDs at one 2026 snapshot and no earlier accepted snapshot."
+    },
+    {
+      "gate": "HISTORICAL_TICKER_INTERVALS",
+      "result": "BLOCKED",
+      "evidence": "No admitted source proves historical ticker validity intervals or ticker reuse across the bar range."
+    },
+    {
+      "gate": "HISTORICAL_EXCHANGE_LISTING_INTERVALS",
+      "result": "BLOCKED",
+      "evidence": "No admitted source proves historical exchange or listing validity intervals across the bar range."
+    },
+    {
+      "gate": "SECURITY_TYPE_CLASSIFICATION",
+      "result": "BLOCKED",
+      "evidence": "The explicit V1 taxonomy and common-stock-only policy pass mechanically, but historical classifications are not source qualified."
+    },
+    {
+      "gate": "ACTIVE_AND_DELISTED_COVERAGE",
+      "result": "BLOCKED",
+      "evidence": "The 4,103 delisted listing rows are ticker-keyed 2026 reconstruction rows, not a complete unique stable-ID historical census."
+    },
+    {
+      "gate": "TICKER_REUSE_RECONCILIATION",
+      "result": "BLOCKED",
+      "evidence": "Nonoverlapping reuse mechanics pass deterministic tests, but real ticker-reuse lineage cannot be reconciled without a historical master."
+    },
+    {
+      "gate": "CORPORATE_ACTION_SOURCE_COVERAGE",
+      "result": "BLOCKED",
+      "evidence": "The 2,003 captured rows do not prove complete effective-event coverage or historical publication and revision vintages."
+    },
+    {
+      "gate": "CORPORATE_ACTION_RECONCILIATION",
+      "result": "BLOCKED",
+      "evidence": "Stable-ID linkage event uniqueness revisions and full asset-session coverage cannot be reconciled from the available process-date captures."
+    },
+    {
+      "gate": "DELISTING_TERMINAL_EVENT_REPRESENTATION",
+      "result": "BLOCKED",
+      "evidence": "The contract can represent source terms without outcomes, but no complete stable-ID-linked terminal-event package is available."
+    },
+    {
+      "gate": "SESSION_DATE_SEMANTICS",
+      "result": "BLOCKED",
+      "evidence": "XNYS 4.13.2 sessions pass with 9,049 unique valid boundaries, but the legacy daily bars lack admitted source timestamp/session semantics."
+    },
+    {
+      "gate": "CAUSAL_STRUCTURAL_UNIVERSE",
+      "result": "BLOCKED",
+      "evidence": "The cutoff-safe structural-universe interface passes fixtures, but qualified listing identity type and terminal sources are missing."
+    },
+    {
+      "gate": "CAUSAL_PRICE_VOLUME_ELIGIBILITY_INPUTS",
+      "result": "BLOCKED",
+      "evidence": "The source-independent input interface preserves close volume dollar volume history staleness and halt state, but no admitted real bars may populate it."
+    },
+    {
+      "gate": "CANONICAL_PANEL_REBUILT_FROM_QUALIFIED_SOURCES",
+      "result": "BLOCKED",
+      "evidence": "No real canonical panel was built because four mandatory security-level source families fail admission."
+    },
+    {
+      "gate": "FULL_LINEAGE_AND_CONTENT_HASHES",
+      "result": "BLOCKED",
+      "evidence": "The local release hashes verify, but no complete five-family source-qualified bundle and transformation lineage exists."
+    },
+    {
+      "gate": "FULL_CORPUS_IDENTITY_VALIDATION",
+      "result": "BLOCKED",
+      "evidence": "The one accepted 2026 identity snapshot validates internally but is not a historical security-master corpus."
+    },
+    {
+      "gate": "FULL_CORPUS_BAR_INTEGRITY_VALIDATION",
+      "result": "BLOCKED",
+      "evidence": "All 13,724,185 legacy rows were scanned for OHLC and volume validity, but duplicate and missing-session checks cannot be completed without qualified historical listing intervals."
+    },
+    {
+      "gate": "REAL_SOURCE_PREFIX_INVARIANCE",
+      "result": "BLOCKED",
+      "evidence": "No admitted real-source bundle exists; fixture prefix invariance passes but cannot substitute."
+    },
+    {
+      "gate": "REAL_SOURCE_FUTURE_MUTATION_INVARIANCE",
+      "result": "BLOCKED",
+      "evidence": "No admitted real-source bundle exists; fixture future-mutation invariance passes but cannot substitute."
+    },
+    {
+      "gate": "CURRENT_SNAPSHOT_POISONING_INVARIANCE",
+      "result": "BLOCKED",
+      "evidence": "The deterministic interface ignores later current snapshots, but a real historical panel cannot be tested because no historical master is admitted."
+    },
+    {
+      "gate": "REAL_SOURCE_UNIVERSE_INVARIANCE",
+      "result": "BLOCKED",
+      "evidence": "No admitted real structural-universe source exists; source-independent universe invariance remains passing."
+    },
+    {
+      "gate": "REVISION_ISOLATION",
+      "result": "BLOCKED",
+      "evidence": "Bitemporal fixture revision isolation passes, but historical provider vintages required for real-source verification are unavailable."
+    },
+    {
+      "gate": "OUTCOME_FIREWALL_REMAINS_CLOSED",
+      "result": "PASS",
+      "evidence": "Default denial remains active and source-qualified access additionally requires exact clean admission and storage binding."
+    },
+    {
+      "gate": "NO_REAL_OUTCOMES_CREATED",
+      "result": "PASS",
+      "evidence": "The audit and implementation accessed no outcomes or labels and created no real outcome performance or holdout artifact."
+    },
+    {
+      "gate": "CLEAN_REPRODUCIBLE_BUILD",
+      "result": "PASS",
+      "evidence": "The verified Python 3.11.9 and pytest 9.0.3 environment passed the complete 799-test corpus with 2 documented platform skips and 0 failures; deterministic admission and idempotence checks are included."
+    },
+    {
+      "gate": "FINAL_WORKTREE_CLEAN",
+      "result": "PASS",
+      "evidence": "All intentional tracked changes are committed on the isolated source-qualification branch and the required post-commit independent audit verifies an empty Git status."
+    }
+  ],
+  "out_of_scope_v1_gates": [
+    {
+      "gate": "POINT_IN_TIME_FUNDAMENTALS",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "EARNINGS_TIMESTAMPS",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "ANALYST_VINTAGES",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "HISTORICAL_SECTOR_INDUSTRY_CLASSIFICATIONS",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "SHARES_OUTSTANDING",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "POINT_IN_TIME_MARKET_CAPITALIZATION",
+      "result": "OUT_OF_SCOPE_V1"
+    },
+    {
+      "gate": "HISTORICAL_INDEX_MEMBERSHIP",
+      "result": "OUT_OF_SCOPE_V1"
+    }
+  ],
+  "blocking_source_requirements": [
+    "COMPLETE_EFFECTIVE_EVENT_CORPORATE_ACTION_AND_REVISION_SOURCE",
+    "COMPLETE_STABLE_ID_LINKED_DELISTING_AND_TERMINAL_EVENT_SOURCE",
+    "HISTORICAL_SECURITY_MASTER_WITH_TICKER_EXCHANGE_TYPE_AND_LISTING_INTERVALS",
+    "LICENSE_CLASSIFICATION_PERMITTING_LOCAL_RESEARCH_USE",
+    "RAW_UNADJUSTED_SURVIVORSHIP_SAFE_DAILY_OHLCV_WITH_QUALIFIED_SESSION_SEMANTICS"
+  ],
+  "required_later_action": "SEPARATE_SOURCE_ACQUISITION_AUTHORIZATION_THEN_SEPARATE_REAL_OUTCOME_SPECIFICATION_AND_TRAINING_WINDOW_UNLOCK",
+  "gate_id": "ec2722aef776d9989377331a4a3a513913b2b57ea58b23a0c4d117e249018666"
+}

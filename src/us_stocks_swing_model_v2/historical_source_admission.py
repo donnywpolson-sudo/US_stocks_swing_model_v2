@@ -401,6 +401,63 @@ def load_historical_source_qualification_report(path: Path) -> dict[str, object]
     return payload
 
 
+def load_historical_source_qualification_audit_result(
+    path: Path,
+) -> dict[str, object]:
+    payload = load_content_addressed_source_record(path, id_field="record_id")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("project") != PROJECT
+        or payload.get("record_type")
+        != "HISTORICAL_SOURCE_QUALIFICATION_AUDIT_RESULT_V1"
+        or payload.get("phase") != SOURCE_CONTRACT_PHASE
+        or payload.get("exit_code") != 0
+        or payload.get("attempt_index") != 1
+        or payload.get("invocation_limit") != 1
+    ):
+        raise ContractError("historical source qualification audit result differs")
+    claims = payload.get("claims")
+    if (
+        type(claims) is not dict
+        or claims.get("read_only") is not True
+        or claims.get("files_written") != 0
+        or claims.get("network_requests") != 0
+        or claims.get("automatic_retry_authorized") is not False
+        or any(
+            claims.get(name) is not False
+            for name in (
+                "credentials_accessed",
+                "outcomes_accessed",
+                "labels_accessed",
+                "training_performed",
+                "evaluation_performed",
+                "backtesting_performed",
+            )
+        )
+    ):
+        raise ContractError("historical source audit crossed its authority boundary")
+    bars = payload.get("historical_bar_census")
+    if (
+        type(bars) is not dict
+        or bars.get("row_count") != 13724185
+        or bars.get("evidence_class_counts") != {"LEGACY_DISCOVERY": 13724185}
+        or bars.get("input_quality_state_counts")
+        != {"CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED": 13724185}
+        or bars.get("point_in_time_safe_true_rows") != 0
+        or bars.get("historical_membership_proven_true_rows") != 0
+        or not str(bars.get("admission_status", "")).startswith("QUARANTINED_")
+    ):
+        raise ContractError("historical source audit overstates legacy bar evidence")
+    conclusion = payload.get("source_admission_conclusion")
+    if (
+        type(conclusion) is not dict
+        or conclusion.get("status") != "BLOCKED"
+        or conclusion.get("canonical_panel_build_authorized") is not False
+    ):
+        raise ContractError("historical source audit conclusion differs")
+    return payload
+
+
 def load_historical_source_readiness_gate(path: Path) -> dict[str, object]:
     payload = load_content_addressed_source_record(path, id_field="gate_id")
     if (
@@ -1542,11 +1599,33 @@ def build_structural_universe_view(
         or minimum_history_sessions < 1
     ):
         raise ContractError("minimum history must be a positive integer or unresolved")
+    all_identity_rows = tuple(identity_rows)
     identities = visible_identity_as_of(
-        identity_rows,
+        all_identity_rows,
         session=session,
         signal_cutoff=cutoff,
     )
+    visible_ids = {row.stable_security_id for row in identities}
+    known_future: dict[str, HistoricalIdentityInterval] = {}
+    for row in all_identity_rows:
+        row.validate()
+        if (
+            row.stable_security_id in visible_ids
+            or row.effective_start <= session
+            or row.availability.usable_time > cutoff
+        ):
+            continue
+        prior = known_future.get(row.stable_security_id)
+        if prior is None or (
+            row.effective_start,
+            -row.revision_number,
+            row.row_id,
+        ) < (
+            prior.effective_start,
+            -prior.revision_number,
+            prior.row_id,
+        ):
+            known_future[row.stable_security_id] = row
     materialized_bars = tuple(bars)
     for bar in materialized_bars:
         bar.validate()
@@ -1631,6 +1710,40 @@ def build_structural_universe_view(
                 halted=halted,
                 reason_codes=tuple(sorted(reasons)),
                 usable_at=usable_at,
+                row_id=sha256_bytes(canonical_json_bytes(unsigned)),
+            )
+        )
+    for identity in known_future.values():
+        unsigned = {
+            "stable_security_id": identity.stable_security_id,
+            "ticker": identity.ticker,
+            "mic": identity.mic,
+            "security_type": identity.security_type,
+            "session": session.isoformat(),
+            "structural_eligible": False,
+            "completed_session_close": None,
+            "completed_session_volume": None,
+            "completed_session_dollar_volume": None,
+            "valid_observation_count": 0,
+            "halted": False,
+            "reason_codes": ["NOT_YET_LISTED"],
+            "usable_at": iso_z(identity.availability.usable_time),
+        }
+        result.append(
+            StructuralUniverseRow(
+                stable_security_id=identity.stable_security_id,
+                ticker=identity.ticker,
+                mic=identity.mic,
+                security_type=identity.security_type,
+                session=session,
+                structural_eligible=False,
+                completed_session_close=None,
+                completed_session_volume=None,
+                completed_session_dollar_volume=None,
+                valid_observation_count=0,
+                halted=False,
+                reason_codes=("NOT_YET_LISTED",),
+                usable_at=identity.availability.usable_time,
                 row_id=sha256_bytes(canonical_json_bytes(unsigned)),
             )
         )

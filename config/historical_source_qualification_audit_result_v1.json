@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "HISTORICAL_SOURCE_QUALIFICATION_AUDIT_RESULT_V1",
+  "phase": "HISTORICAL_SOURCE_CONTRACT_QUALIFICATION_PIT_DATA_V1",
+  "plan_id": "9e8d578e872b9b6b172774c7cc675125d3df0749fe4239600983b9eb942ad785",
+  "stdout_result_id": "fb69a9d915c23b3081e9f76d260758ace4ab818e41ef546cadbf1c3c18fd14e2",
+  "attempt_index": 1,
+  "invocation_limit": 1,
+  "exit_code": 0,
+  "duration_seconds": 125.7,
+  "full_stdout_persisted": false,
+  "code_commit": "f7498417e702edde999296c682a38420b0f18b96",
+  "implementation_commit": "6d22491fc629423e7361788d02ff78a80150c6d8",
+  "claims": {
+    "read_only": true,
+    "network_requests": 0,
+    "credentials_accessed": false,
+    "outcomes_accessed": false,
+    "labels_accessed": false,
+    "training_performed": false,
+    "evaluation_performed": false,
+    "backtesting_performed": false,
+    "files_written": 0,
+    "automatic_retry_authorized": false
+  },
+  "evidence_checkout": {
+    "branch": "alpaca-free-bounded-long-short",
+    "head": "7e0a546540d98ba3033251e222867cbaa934afc5",
+    "worktree_clean": true,
+    "capture_hashes": {
+      "config/alpaca_free_automation_acceptance_v1.json": "ca1632267b5e5ff3ad13102c75ed97244ad7b8dabda3e26facc0a0148d4e4425",
+      "config/alpaca_free_bounded_v1.json": "4b767ba595a5bddde0f6cb56e0c980b4645a631112142af9c414acb8887420f9",
+      "scripts/run_alpaca_free_daily_capture.ps1": "6067a79f8fcfb54d9b242a3877b3212135548cbe4ed0d6abaab1e589b26b92fd"
+    }
+  },
+  "release_verification": {
+    "preflight_payload_bytes": 1720542877,
+    "maximum_release_payload_bytes": 2147483648,
+    "releases": [
+      {
+        "dataset": "alpaca_historical_daily_bars",
+        "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+        "source_epoch": "alpaca_sip_current_identity_seeded_20160104_20260710_v1",
+        "role": "legacy_discovery_only",
+        "quality_state": "LEGACY_CAVEATED",
+        "event_start": "2016-01-04",
+        "event_end": "2026-07-10",
+        "row_count": 13724185,
+        "file_count": 5751,
+        "payload_bytes": 1710702044,
+        "schema_fingerprint": "2cb03f9affecad56917f7209465b8486b6af8fd70d64c301dddd8219e72316fd",
+        "all_manifest_files_verified": true
+      },
+      {
+        "dataset": "identity",
+        "release_id": "8b27fb28550e264429ed0dea8017d5ea7f3db5d5e17e2bc5da517738d2025e02",
+        "source_epoch": "nasdaq_alpaca_active_us_equity_v1",
+        "role": "prospective_as_received",
+        "quality_state": "PASS",
+        "event_start": "2026-07-30T16:12:00Z",
+        "event_end": "2026-07-30T17:50:28.233146Z",
+        "row_count": 14667,
+        "file_count": 2,
+        "payload_bytes": 9738362,
+        "schema_fingerprint": "117380a64daa9e4acfb959fec8af76d4c7b49f15cba8aaf97f93e7fb2464194b",
+        "all_manifest_files_verified": true
+      },
+      {
+        "dataset": "xnys_sessions",
+        "release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+        "source_epoch": "xnys_exchange_calendars_4_13_2",
+        "role": "derived_causal",
+        "quality_state": "PASS",
+        "event_start": "2000-01-03",
+        "event_end": "2035-12-31",
+        "row_count": 9049,
+        "file_count": 2,
+        "payload_bytes": 102471,
+        "schema_fingerprint": "d90f27cbff20ebd0ae0ac5e95f035bd25435649d41e88d311d9133994adb8ee5",
+        "all_manifest_files_verified": true
+      }
+    ]
+  },
+  "identity_census": {
+    "snapshot_count": 1,
+    "historical_snapshot_count_before_2026": 0,
+    "snapshot_effective_times": [
+      "2026-07-30T17:50:28.233146Z"
+    ],
+    "snapshot_known_times": [
+      "2026-07-30T17:50:28.233146Z"
+    ],
+    "row_count": 14667,
+    "unique_stable_asset_ids": 14667,
+    "unique_symbols": 14667,
+    "duplicate_asset_ids": 0,
+    "duplicate_symbols": 0,
+    "active": 13305,
+    "membership_present": 13074,
+    "eligible": 10072,
+    "security_type_counts": {
+      "ETF": 5058,
+      "STOCK": 5037,
+      "UNKNOWN": 4572
+    },
+    "historical_identity_admission": "BLOCKED_ONE_2026_SNAPSHOT_ONLY"
+  },
+  "historical_bar_census": {
+    "release_id": "86ddd5a847695de56527ed25efbd270e17b30bdf51c2b876caf0a78596419559",
+    "session_start": "2016-01-04",
+    "session_end": "2026-07-10",
+    "partition_count": 11,
+    "row_count": 13724185,
+    "unique_asset_ids": 9321,
+    "unique_provider_symbols": 9321,
+    "schema_variants": 1,
+    "security_type_counts": {
+      "ETF": 5712384,
+      "STOCK": 8011801
+    },
+    "evidence_class_counts": {
+      "LEGACY_DISCOVERY": 13724185
+    },
+    "input_quality_state_counts": {
+      "CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED": 13724185
+    },
+    "point_in_time_safe_true_rows": 0,
+    "historical_membership_proven_true_rows": 0,
+    "invalid_ohlc_rows": 0,
+    "invalid_volume_rows": 0,
+    "negative_volume_rows": 0,
+    "zero_volume_rows": 436652,
+    "duplicate_security_date_check": "NOT_RUN_SOURCE_SEMANTICALLY_QUARANTINED",
+    "missing_session_check": "BLOCKED_NO_QUALIFIED_HISTORICAL_LISTING_INTERVALS",
+    "partitions": [
+      {
+        "year": 2016,
+        "rows": 842106,
+        "bytes": 18379793,
+        "sha256": "917dd56a19e1d79b911ed4ccac31c51d466c784aead8dd93975dad31f502dc75"
+      },
+      {
+        "year": 2017,
+        "rows": 898898,
+        "bytes": 19231813,
+        "sha256": "e5d27f3e991fdadcb4f250b6962f6bf95bc446b30b07434f5fd46d5c6ede0e61"
+      },
+      {
+        "year": 2018,
+        "rows": 970265,
+        "bytes": 20989626,
+        "sha256": "d7e68ae0573191428ec1ba15bad360c99007dccd54f03493af348b88f36718ef"
+      },
+      {
+        "year": 2019,
+        "rows": 1036448,
+        "bytes": 22505200,
+        "sha256": "21eba98a2158cb335926afaddf1768399c9c5ef9801efc97f373e2a53d71a643"
+      },
+      {
+        "year": 2020,
+        "rows": 1121235,
+        "bytes": 24666293,
+        "sha256": "e0c6b18209529c0b3051549ed41ec5e6046be6870217996fa91b34df90c995ad"
+      },
+      {
+        "year": 2021,
+        "rows": 1264967,
+        "bytes": 28104673,
+        "sha256": "90431e6cb91c13a3a750c8ec60f74c9f38591bd467d391d813166b37bb542a50"
+      },
+      {
+        "year": 2022,
+        "rows": 1399519,
+        "bytes": 31378822,
+        "sha256": "7424b8354c76ea92a2a2d37fd4b88af28a2986242ee29bf2e45eb6a72b3c3476"
+      },
+      {
+        "year": 2023,
+        "rows": 1492163,
+        "bytes": 33418648,
+        "sha256": "482f5289df0e439ff8fd791478744f7fe9d90b5a3b101f5db7aef9db2c69963a"
+      },
+      {
+        "year": 2024,
+        "rows": 1660160,
+        "bytes": 37697492,
+        "sha256": "b506a3d324fc5b0fe9f7887f92941fe118ae392fff8487e7b6bf1fd09e860c95"
+      },
+      {
+        "year": 2025,
+        "rows": 1901454,
+        "bytes": 43846802,
+        "sha256": "ed4f29011031100b93761813fa20e0c691f83b71a5d180bb10b2e6e0c26ada78"
+      },
+      {
+        "year": 2026,
+        "rows": 1136970,
+        "bytes": 26317985,
+        "sha256": "8031cba254e27c3e4659f3049cb6e6ec1a538b0236a3b41d43070075f0307a91"
+      }
+    ],
+    "admission_status": "QUARANTINED_CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED"
+  },
+  "calendar_census": {
+    "release_id": "834ee91a92b21e0c0d053b80f6e0404c14a7d0520417fc83f530b78d475ba3f7",
+    "calendar": "XNYS",
+    "calendar_package": "exchange-calendars",
+    "calendar_version": "4.13.2",
+    "session_start": "2000-01-03",
+    "session_end": "2035-12-31",
+    "row_count": 9049,
+    "duplicate_sessions": 0,
+    "invalid_boundaries": 0,
+    "early_close_sessions": 79,
+    "sessions_sha256": "9268af4703b5709409e3e119b34737542aaeaaee1311ede80d337d44227a2e69",
+    "admission_status": "PASS_QUALIFIED_COMPONENT"
+  },
+  "structured_source_censuses": [
+    {
+      "source_id": "alpha_vantage_listing_status_reconstructed_candidates",
+      "object_count": 7,
+      "row_count": 66017,
+      "bytes": 4789825,
+      "content_hash_census_id": "ed7f9ad17d43c59e60c734c70c8051a286cbe288916c566fb356196d72567b48",
+      "date_start": "1962-01-02",
+      "date_end_raw": "null",
+      "active_rows": 61914,
+      "delisted_rows": 4103,
+      "asset_type_counts": {
+        "ETF": 20622,
+        "Stock": 45395
+      },
+      "admission_status": "BLOCKED_TICKER_KEYED_2026_RECONSTRUCTION"
+    },
+    {
+      "source_id": "alpaca_free_bounded_corporate_action_captures",
+      "object_count": 8,
+      "row_count": 2003,
+      "bytes": 468476,
+      "content_hash_census_id": "fde624b0eec1507872be1e7d1bb658b1c9b8be2c79e30385aa4d6ed0e5b1dceb",
+      "date_start": "2020-03-20",
+      "date_end": "2026-08-13",
+      "event_type_counts": {
+        "cash_dividends": 1924,
+        "cash_mergers": 15,
+        "forward_splits": 8,
+        "name_changes": 16,
+        "partial_calls": 1,
+        "reverse_splits": 28,
+        "stock_dividends": 4,
+        "stock_mergers": 6,
+        "worthless_removals": 1
+      },
+      "admission_status": "BLOCKED_EFFECTIVE_EVENT_AND_HISTORICAL_PUBLICATION_COVERAGE_UNPROVEN"
+    }
+  ],
+  "source_admission_conclusion": {
+    "status": "BLOCKED",
+    "historical_security_master": "BLOCKED_ONE_2026_SNAPSHOT_ONLY",
+    "raw_daily_ohlcv": "QUARANTINED_CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED",
+    "corporate_actions": "BLOCKED_EFFECTIVE_EVENT_AND_HISTORICAL_PUBLICATION_COVERAGE_UNPROVEN",
+    "delisting_terminal_events": "BLOCKED_TICKER_KEYED_RECONSTRUCTION_NOT_STABLE_ID_COMPLETE",
+    "exchange_calendar": "PASS_QUALIFIED_COMPONENT",
+    "canonical_panel_build_authorized": false
+  },
+  "record_id": "1731e025eb4e4395fb44c7f0dbb7ebad7d4b26dccd05dccfa985b6454380149e"
+}

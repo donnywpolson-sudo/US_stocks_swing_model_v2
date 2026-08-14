@@ -9,6 +9,29 @@ The detailed content-addressed report is
 `config/historical_source_qualification_report_v1.json`; the machine-readable
 gate is `config/historical_source_readiness_gate_v2.json`.
 
+## Independent local evidence audit
+
+The frozen one-shot audit completed with exit code 0 in 125.7 seconds. It made
+zero writes and network requests and read no credential, outcome, label,
+training, evaluation, or backtest path. It verified every manifest-declared
+file in three selected releases: 1,720,542,877 payload bytes in total.
+
+The historical bar release contains 13,724,185 rows for 9,321 current-seeded
+asset IDs from 2016-01-04 through 2026-07-10. All 13,724,185 rows are explicitly
+`LEGACY_DISCOVERY`; all carry
+`CURRENT_IDENTITY_SEEDED_PIT_UNRESOLVED`; zero claim historical membership and
+zero claim point-in-time safety. The scan found zero invalid OHLC rows, zero
+invalid or negative-volume rows, and 436,652 zero-volume rows. Duplicate and
+missing-session qualification remains blocked because there are no qualified
+historical listing intervals; basic numerical integrity cannot cure the source
+semantics.
+
+The accepted identity release verifies 14,667 unique stable vendor IDs but has
+only one snapshot, effective and known on 2026-07-30. The calendar verifies
+9,049 unique XNYS sessions from 2000-01-03 through 2035-12-31, 79 early closes,
+zero duplicate sessions, and zero invalid boundaries. The audit receipt is
+`config/historical_source_qualification_audit_result_v1.json`.
+
 ## Evidence classification
 
 | Existing evidence | Classification | Admission result |
@@ -61,3 +84,30 @@ The outcome firewall remains default deny. This phase created no forward
 returns, real labels, realized outcomes, performance artifacts, or holdout
 path; performed no real training, evaluation, or backtest; and added no outcome
 authorization switch.
+
+## Readiness gate
+
+| Gate group | Result | Reason |
+|---|---|---|
+| Foundation preservation, scheduler isolation, V1 scope, legacy quarantine | `PASS` | Exact tag, sibling worktree, content-addressed scope, and default-deny loader controls are present |
+| Source contract and admission gateway | `PASS` | Deterministic zero-tolerance mechanics and reason codes pass fixture tests |
+| Stable historical identity, ticker/exchange intervals, security types | `BLOCKED` | Only one accepted 2026 identity snapshot exists |
+| Raw OHLCV source qualification | `BLOCKED` | Complete local history is current-identity-seeded legacy evidence |
+| Active/delisted coverage and ticker reuse reconciliation | `BLOCKED` | Listing reconstruction is ticker-keyed and captured in 2026 |
+| Corporate actions and terminal events | `BLOCKED` | Effective-event completeness, historical publication times, revision history, and stable-ID linkage are unproved |
+| Session-date semantics | `BLOCKED` | Calendar passes, but bar-provider timestamp/session semantics are not admitted |
+| Real canonical panel and real-source invariance | `BLOCKED` | No complete five-family source bundle exists |
+| Outcome firewall and no-real-outcome boundary | `PASS` | Default denial is intact and no outcomes were accessed or created |
+| Fundamentals, earnings, analysts, sectors, shares, market cap, index membership | `OUT_OF_SCOPE_V1` | V1 is price/volume-only |
+
+The exact 32-gate census and evidence strings are in the machine-readable gate.
+
+## Verification
+
+The complete repository suite passed under the locked Python 3.11.9 and pytest
+9.0.3 environment: 799 passed, 2 documented platform skips, and 0 failures in
+105.62 seconds. The isolated worktree used only an ignored, hash-verified
+eight-file test capsule (209,122 bytes) containing the two accepted calendar
+releases and SIP qualification receipt required by existing tests. It did not
+copy the historical market corpus or modify the scheduler checkout. The test
+capsule is removed after the independent post-commit audit.

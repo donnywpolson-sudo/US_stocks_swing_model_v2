@@ -24,6 +24,9 @@ from us_stocks_swing_model_v2.historical_source_admission import (
     audit_raw_daily_bars,
     build_structural_universe_view,
     load_content_addressed_source_record,
+    load_historical_source_qualification_audit_result,
+    load_historical_source_qualification_report,
+    load_historical_source_readiness_gate,
     load_v1_admission_policy,
     load_v1_source_contract,
     require_qualified_source_bundle,
@@ -33,6 +36,7 @@ from us_stocks_swing_model_v2.historical_source_admission import (
 from us_stocks_swing_model_v2.outcome_firewall import (
     FoundationDataGateway,
     OutcomeAccessDenied,
+    exploratory_import_violations,
 )
 
 
@@ -257,6 +261,15 @@ def test_source_scope_contract_policy_quarantine_and_acquisition_records_are_exa
         ROOT / "config/historical_source_acquisition_requirements_v1.json",
         id_field="requirements_id",
     )
+    audit_result = load_historical_source_qualification_audit_result(
+        ROOT / "config/historical_source_qualification_audit_result_v1.json"
+    )
+    qualification = load_historical_source_qualification_report(
+        ROOT / "config/historical_source_qualification_report_v1.json"
+    )
+    gate = load_historical_source_readiness_gate(
+        ROOT / "config/historical_source_readiness_gate_v2.json"
+    )
 
     assert contract["contract_id"] == CONTRACT_ID
     assert policy["policy_id"] == POLICY_ID
@@ -270,6 +283,14 @@ def test_source_scope_contract_policy_quarantine_and_acquisition_records_are_exa
     )
     assert requirements["this_record_authorizes_bulk_download"] is False
     assert requirements["status"] == "BLOCKED_EXTERNAL_SOURCE_PACKAGE_REQUIRED"
+    assert audit_result["stdout_result_id"] == (
+        "fb69a9d915c23b3081e9f76d260758ace4ab818e41ef546cadbf1c3c18fd14e2"
+    )
+    assert audit_result["historical_bar_census"]["row_count"] == 13_724_185
+    assert qualification["status"] == "BLOCKED"
+    assert qualification["canonical_panel"]["row_count"] == 0
+    assert gate["overall_status"] == "BLOCKED"
+    assert gate["real_outcome_access_authorized"] is False
 
 
 def test_admission_is_idempotent_and_all_mandatory_families_are_required() -> None:
@@ -549,6 +570,51 @@ def test_structural_universe_is_cutoff_safe_and_keeps_threshold_policy_separate(
     assert after == before
 
 
+def test_structural_universe_keeps_known_future_and_terminal_states_in_denominator() -> None:
+    session = date(2021, 6, 1)
+    cutoff = datetime(2021, 6, 1, 20, 5, tzinfo=UTC)
+    known_at = datetime(2021, 5, 1, 20, 0, tzinfo=UTC)
+    not_yet_listed = _identity(
+        "future-security",
+        "NEW",
+        date(2021, 7, 1),
+        None,
+        usable=known_at,
+    )
+    delisted = _identity(
+        "delisted-security",
+        "OLD",
+        date(2020, 1, 2),
+        None,
+        usable=datetime(2020, 1, 2, 22, 0, tzinfo=UTC),
+        listing_state="DELISTED",
+    )
+    inactive = _identity(
+        "inactive-security",
+        "IDLE",
+        date(2020, 1, 2),
+        None,
+        usable=datetime(2020, 1, 2, 22, 0, tzinfo=UTC),
+        listing_state="INACTIVE",
+    )
+    rows = build_structural_universe_view(
+        identity_rows=(not_yet_listed, delisted, inactive),
+        bars=(),
+        session=session,
+        signal_cutoff=cutoff,
+    )
+    by_id = {row.stable_security_id: row for row in rows}
+    assert set(by_id) == {
+        "delisted-security",
+        "future-security",
+        "inactive-security",
+    }
+    assert "DELISTED" in by_id["delisted-security"].reason_codes
+    assert "INACTIVE" in by_id["inactive-security"].reason_codes
+    assert by_id["future-security"].reason_codes == ("NOT_YET_LISTED",)
+    assert all(row.structural_eligible is False for row in rows)
+
+
 def test_canonical_bar_loader_requires_clean_raw_source_admission() -> None:
     source_identifier = "fixture-raw-source"
     admission = _admit(
@@ -611,3 +677,13 @@ def test_new_source_contract_artifacts_contain_no_outcome_unlock() -> None:
         serialized = json.dumps(payload, sort_keys=True)
         assert '"real_outcome_access": true' not in serialized
         assert '"this_record_authorizes_bulk_download": true' not in serialized
+
+    for relative in (
+        "src/us_stocks_swing_model_v2/historical_source_admission.py",
+        "tools/audit_historical_source_qualification.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert exploratory_import_violations(source) == ()
+        assert ".fit(" not in source
+        assert "calculate_sharpe" not in source
+        assert "build_outcome" not in source

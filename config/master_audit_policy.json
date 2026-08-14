@@ -5,8 +5,8 @@
   "expected_repository_root": "C:/Users/donny/Desktop/US_stocks_swing_model_v2",
   "specification_path": "MASTER_AUDIT.md",
   "tracked_corpus": {
-    "expected_path_count": 302,
-    "expected_paths_sha256": "97c26e495a7872639bea001b11fe625494874f385338812748b6422059484ec2"
+    "expected_path_count": 318,
+    "expected_paths_sha256": "78b923ae21377897f4bf333b53cc4e6d6a253eecebc10207f36c2129775c98c6"
   },
   "group_limits": {
     "maximum_numbered_lines": 400,

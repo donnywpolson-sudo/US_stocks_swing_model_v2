@@ -101,10 +101,14 @@ def test_altered_plan_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_strict_calendar_still_fails_closed_on_stale_environment() -> None:
     sources = json.loads((ROOT / "config/sources.json").read_text(encoding="utf-8"))
+    configured_release = Path(sources["qualification_calendar_release"])
+    local_release = (
+        ROOT / "data/vault/accepted/xnys_sessions" / configured_release.name
+    )
     with pytest.raises(IntegrityError, match="manifest closure differs"):
         qualification._calendar_binding(
             ROOT,
-            Path(sources["qualification_calendar_release"]),
+            local_release,
             ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31"],
         )
 
