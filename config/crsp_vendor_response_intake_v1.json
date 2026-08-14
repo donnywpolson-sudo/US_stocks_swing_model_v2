@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "CRSP_VENDOR_RESPONSE_INTAKE_V1",
+  "phase": "CRSP_VENDOR_RESPONSE_ADJUDICATION_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "intake_id": "cf89c6a910555d7dd29145f485d161a9381ab471c4e06b436a43096560cd6d28",
+  "provider_evaluation_commit": "2b2281119295d273ac0f868b20cf9d4aa29f3e24",
+  "provider_evaluation_decision_id": "eda1cc156a76235e3c3a6e84292c29d87233cc2ca197a84fd55f8a7e8a6a2e18",
+  "intake_cutoff": "2026-08-14T04:24:43Z",
+  "search_scope": [
+    "CRSP_ADJUDICATION_WORKTREE_TRACKED_PATHS",
+    "CURRENT_CONVERSATION_ATTACHMENT_SET",
+    "PROVIDER_EVALUATION_WORKTREE_TRACKED_PATHS",
+    "REPOSITORY_DESIGNATED_INTAKE_DIRECTORIES"
+  ],
+  "non_vendor_inputs": [
+    {
+      "input_id": "INPUT-001",
+      "file_name": "pasted-text.txt",
+      "file_type": "text/plain; charset=utf-8",
+      "source": "CURRENT_CONVERSATION_ATTACHMENT_SET",
+      "received_at": "2026-08-14T04:24:43Z",
+      "document_date": null,
+      "version": "UNVERSIONED_USER_PHASE_SPECIFICATION",
+      "sender_class": "USER",
+      "binding_status": "AUTHORITATIVE_USER_PHASE_INSTRUCTION",
+      "classification": "PHASE_SPECIFICATION_NOT_VENDOR_EVIDENCE",
+      "content_sha256": "b1a333b1a5663dfd3d5a6c4d14d193263a580df33d5254f4c5fe0e8474307b30",
+      "bytes": 47433,
+      "duplicate_status": "UNIQUE_IN_SUPPLIED_ATTACHMENT_SET",
+      "superseded_status": "CURRENT_PHASE_SPECIFICATION",
+      "requirement_categories": [
+        "PHASE_SCOPE_AND_AUTHORIZATION_ONLY"
+      ]
+    }
+  ],
+  "vendor_documents": [],
+  "substantive_vendor_document_count": 0,
+  "missing_expected_documents": [
+    "CRSP_BINDING_LICENSE_OR_PROPOSED_AGREEMENT",
+    "CRSP_C6Z_PRODUCT_SCHEDULE_OR_ENTITLEMENT",
+    "CRSP_C6Z_TECHNICAL_RESPONSE_OR_SCHEMA_PACKAGE",
+    "CRSP_DELIVERY_AND_ARCHIVE_ENTITLEMENT",
+    "CRSP_ITEMIZED_QUOTE_OR_ORDER_FORM",
+    "CRSP_WRITTEN_VENDOR_RESPONSE"
+  ],
+  "duplicate_groups": [],
+  "superseded_documents": [],
+  "sensitive_document_handling": {
+    "committed_sensitive_vendor_documents": false,
+    "originals_modified": false,
+    "status": "NO_SENSITIVE_VENDOR_DOCUMENTS_RECEIVED",
+    "tracked_content": "METADATA_AND_HASH_ONLY"
+  },
+  "intake_inventory_complete_for_supplied_set": true,
+  "readiness_status": "NOT_READY",
+  "readiness_reason": "MISSING_VENDOR_RESPONSE_PACKAGE",
+  "inventory_note": "The only supplied attachment is the user-authored phase specification. It is not a CRSP response, quote, license, order form, product schedule, entitlement, or technical evidence.",
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_agreement_acceptance": false,
+    "authorizes_backtesting": false,
+    "authorizes_broker_connectivity": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_data_download": false,
+    "authorizes_commercial_data_ingestion": false,
+    "authorizes_final_holdout_access": false,
+    "authorizes_model_evaluation": false,
+    "authorizes_model_training": false,
+    "authorizes_payment": false,
+    "authorizes_purchase": false,
+    "authorizes_real_outcomes": false,
+    "authorizes_subscription_or_trial": false,
+    "authorizes_trading": false,
+    "authorizes_vendor_correspondence": false
+  }
+}

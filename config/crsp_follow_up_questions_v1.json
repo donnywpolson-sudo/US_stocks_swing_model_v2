@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "CRSP_FOLLOW_UP_QUESTIONS_V1",
+  "phase": "CRSP_VENDOR_RESPONSE_ADJUDICATION_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "question_package_id": "8743c9026e012835c9ca54f67633ffd78da7355f4f5c46a55f04ae6da937766e",
+  "intake_id": "cf89c6a910555d7dd29145f485d161a9381ab471c4e06b436a43096560cd6d28",
+  "evidence_registry_id": "e1f4fcb272e37c1ff396d3e078ba1e9a6f6817578257e6da6232f570dfe88e8e",
+  "status": "NOT_SENT",
+  "do_not_send_automatically": true,
+  "questions": [
+    {
+      "question_id": "Q-01",
+      "gate_ids": [
+        "G01_STABLE_HISTORICAL_SECURITY_IDENTITY",
+        "G02_HISTORICAL_TICKER_VALIDITY",
+        "G03_HISTORICAL_EXCHANGE_LISTING_VALIDITY",
+        "G04_HISTORICAL_SECURITY_TYPE",
+        "G05_ACTIVE_INACTIVE_DELISTED_COVERAGE"
+      ],
+      "question": "Please provide the formal product schedule or written product-specific response confirming that the proposed entitlement is CRSP 1962 US Stock, product code C6Z, CIZ Flat File Format 2.0, and listing every included identity, security-history, exchange, security-type, active, inactive, and delisted table with coverage dates.",
+      "why_mandatory": "The project must prove the exact product, permanent tradable-security identity, historical validity intervals, security classification, and survivorship coverage before purchase.",
+      "current_evidence": "No CRSP vendor response, product schedule, entitlement, or quote was supplied.",
+      "exact_unresolved_point": "The expected C6Z product and its table-level entitlement are not vendor-confirmed.",
+      "acceptable_answer_criteria": "A product-specific schedule or formal written response names C6Z/CIZ 2.0, confirms PERMNO and PERMCO semantics, identifies StkSecurityInfoHist and StkIssuerInfoHist or exact equivalents, and documents active and historical delisted coverage.",
+      "binding_contract_language_required": false,
+      "product_schedule_or_schema_citation_sufficient": true,
+      "sufficient_evidence_type": "INCORPORATED_PRODUCT_SCHEDULE_OR_FORMAL_PRODUCT_SPECIFIC_RESPONSE_WITH_SCHEMA_CITATIONS"
+    },
+    {
+      "question_id": "Q-02",
+      "gate_ids": [
+        "G06_RAW_DAILY_OHLCV",
+        "G09_SESSION_TIMESTAMP_SEMANTICS"
+      ],
+      "question": "Does the quoted C6Z entitlement include original unadjusted DlyOpen, DlyHigh, DlyLow, DlyClose, and DlyVol for all covered common-stock share classes from 2016-01-04 onward, and what are their units, missing-value rules, correction flags, session semantics, timezone, completeness time, and revision behavior?",
+      "why_mandatory": "Raw daily OHLCV and its usable-time semantics are mandatory for source admission and cannot be inferred from a generic daily-data description.",
+      "current_evidence": "No entitlement-specific schema, coverage census, methodology response, or delivery schedule was supplied.",
+      "exact_unresolved_point": "Field inclusion, raw adjustment status, common-stock coverage, session meaning, and usable time are unknown.",
+      "acceptable_answer_criteria": "An entitlement-specific schema and formal response identify all five fields, unadjusted semantics, units, missing values, session/date interpretation, timezone, delivery timing, correction policy, and coverage census.",
+      "binding_contract_language_required": false,
+      "product_schedule_or_schema_citation_sufficient": true,
+      "sufficient_evidence_type": "ENTITLEMENT_SPECIFIC_SCHEMA_METHODOLOGY_AND_COVERAGE_RESPONSE"
+    },
+    {
+      "question_id": "Q-03",
+      "gate_ids": [
+        "G07_CORPORATE_ACTION_COVERAGE",
+        "G08_TERMINAL_EVENT_METADATA"
+      ],
+      "question": "Please identify every corporate-action and terminal-event type included in the quoted C6Z entitlement, the exact StkDistributions and StkDelists fields or equivalents, event identifiers, PERMNO/PERMCO links, announcement/process/effective/release/revision dates, consideration terms, and predecessor/successor relationships.",
+      "why_mandatory": "The source contract requires event-level causal adjustment, identity changes, delisting representation, and terminal metadata without calculating outcomes.",
+      "current_evidence": "No product-specific action, distribution, delisting, or terminal-event entitlement was supplied.",
+      "exact_unresolved_point": "Event census, field completeness, knowledge-time chronology, stable event identity, and terminal terms are unknown.",
+      "acceptable_answer_criteria": "A formal product response and schema enumerate supported event types and fields, coverage, stable identifiers, all available dates, revision chronology, terms, and predecessor/successor links.",
+      "binding_contract_language_required": false,
+      "product_schedule_or_schema_citation_sufficient": true,
+      "sufficient_evidence_type": "PRODUCT_SPECIFIC_EVENT_CENSUS_AND_SCHEMA"
+    },
+    {
+      "question_id": "Q-04",
+      "gate_ids": [
+        "G10_REVISION_VERSION_SEMANTICS",
+        "G11_HISTORICAL_RELEASE_ARCHIVE",
+        "G12_CAUSAL_AVAILABILITY_SEMANTICS",
+        "G13_FULL_PROVENANCE"
+      ],
+      "question": "Does the quoted entitlement include every as-received C6Z release from January 2016 onward, with original files, schemas, manifests, publication times, correction notes, release identifiers, and enough record/release chronology to reconstruct what was usable at each historical cutoff?",
+      "why_mandatory": "The frozen strict source contract requires historical releases or equivalent vintages; current corrected history and release notes alone are insufficient.",
+      "current_evidence": "No archive schedule, release census, manifests, revision chronology, publication metadata, or retention entitlement was supplied.",
+      "exact_unresolved_point": "Historical archive availability, completeness, knowledge-time reconstruction, and lineage are unknown.",
+      "acceptable_answer_criteria": "An incorporated entitlement or formal archive schedule identifies every deliverable from January 2016, version identifiers, manifests, publication times, correction history, delivery method, and continuing access/retention rights.",
+      "binding_contract_language_required": true,
+      "product_schedule_or_schema_citation_sufficient": false,
+      "sufficient_evidence_type": "INCORPORATED_ARCHIVE_ENTITLEMENT_AND_RELEASE_CENSUS"
+    },
+    {
+      "question_id": "Q-05",
+      "gate_ids": [
+        "G14_PROGRAMMATIC_LOCAL_USE",
+        "G15_IMMUTABLE_LOCAL_LANDING",
+        "G16_DERIVED_PANEL_RIGHTS"
+      ],
+      "question": "Do the proposed binding terms permit automated Python and command-line processing, immutable local landing and hashing of original releases, internal normalized and point-in-time canonical panels, internal derived features and models, and nonredistributive internal research use?",
+      "why_mandatory": "The project cannot ingest or reproduce the source if local automation, immutable landing, or internal derivatives are prohibited or merely assumed.",
+      "current_evidence": "No proposed license, addendum, order form, or incorporated data-use terms were supplied.",
+      "exact_unresolved_point": "Programmatic processing, immutable storage, normalized data, derived panels, features, and internal-model rights are unknown.",
+      "acceptable_answer_criteria": "Binding contract language expressly permits the intended single-user local automated workflow, immutable source preservation, and nonredistributive internal derivatives.",
+      "binding_contract_language_required": true,
+      "product_schedule_or_schema_citation_sufficient": false,
+      "sufficient_evidence_type": "PROPOSED_BINDING_LICENSE_OR_PRODUCT_SPECIFIC_ADDENDUM"
+    },
+    {
+      "question_id": "Q-06",
+      "gate_ids": [
+        "G17_BACKUP_RIGHTS",
+        "G18_POST_CANCELLATION_RETENTION"
+      ],
+      "question": "Do the proposed binding terms permit encrypted local backups and disaster-recovery copies and permanent retention after nonrenewal of original releases, archived vintages, schemas, manifests, normalized tables, canonical panels, derived features, model artifacts, and audit records?",
+      "why_mandatory": "Reproducible research requires recoverable source vintages and sufficient retention rights after subscription expiration.",
+      "current_evidence": "No license, retention clause, deletion obligation, backup term, or post-cancellation provision was supplied.",
+      "exact_unresolved_point": "Backup scope, post-cancellation retention, deletion duties, and retention of reconstructive derivatives are unknown.",
+      "acceptable_answer_criteria": "Binding terms specify allowed backup locations and permit sufficient raw and derived retention to reproduce historical research after nonrenewal, or identify an exact required amendment.",
+      "binding_contract_language_required": true,
+      "product_schedule_or_schema_citation_sufficient": false,
+      "sufficient_evidence_type": "PROPOSED_BINDING_LICENSE_WITH_RETENTION_AND_BACKUP_CLAUSES"
+    },
+    {
+      "question_id": "Q-07",
+      "gate_ids": [
+        "G19_INDIVIDUAL_ELIGIBILITY",
+        "G21_EXCHANGE_OBLIGATIONS",
+        "G22_REDISTRIBUTION_RESTRICTIONS"
+      ],
+      "question": "Is an individual, sole practitioner, or noninstitutional researcher eligible for the quoted C6Z package, and what NYSE, Nasdaq, NYSE American, user/device reporting, audit, attribution, publication, redistribution, and separate exchange-agreement obligations apply?",
+      "why_mandatory": "Eligibility and third-party obligations can invalidate an otherwise suitable technical package or add unquoted costs and compliance duties.",
+      "current_evidence": "No customer classification, eligibility confirmation, exchange schedule, or redistribution terms were supplied.",
+      "exact_unresolved_point": "The user's legal eligibility and all exchange, reporting, audit, attribution, publication, and redistribution obligations are unknown.",
+      "acceptable_answer_criteria": "The quote and proposed binding terms identify the permitted customer class and every applicable exchange or third-party obligation, fee, restriction, and reporting duty.",
+      "binding_contract_language_required": true,
+      "product_schedule_or_schema_citation_sufficient": false,
+      "sufficient_evidence_type": "QUOTE_CUSTOMER_CLASSIFICATION_AND_PROPOSED_BINDING_LICENSE_SCHEDULES"
+    },
+    {
+      "question_id": "Q-08",
+      "gate_ids": [
+        "G20_COMPLETE_ITEMIZED_PRICE"
+      ],
+      "question": "Please provide an itemized quote or order form for the exact C6Z package and January 2016 onward archive entitlement showing currency, quote and expiration dates, base subscription, bootstrap/archive, delivery, programmatic-access, exchange, setup, support, update and tax charges, minimum term, renewal price/escalation, cancellation terms, and required companion products.",
+      "why_mandatory": "A purchase decision cannot be ready while material mandatory costs, term, renewal, or bundled-product obligations are unknown.",
+      "current_evidence": "No quote, order form, price schedule, renewal schedule, or cost line item was supplied.",
+      "exact_unresolved_point": "Every initial, first-year, recurring, archive, exchange, setup, tax, and renewal amount is unknown.",
+      "acceptable_answer_criteria": "A current itemized quote tied to C6Z and the required archive identifies all mandatory and optional line items, totals, term, expiration, renewal, cancellation, and tax treatment.",
+      "binding_contract_language_required": false,
+      "product_schedule_or_schema_citation_sufficient": false,
+      "sufficient_evidence_type": "CURRENT_ITEMIZED_QUOTE_OR_INCORPORATED_ORDER_FORM"
+    }
+  ],
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_agreement_acceptance": false,
+    "authorizes_backtesting": false,
+    "authorizes_broker_connectivity": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_data_download": false,
+    "authorizes_commercial_data_ingestion": false,
+    "authorizes_final_holdout_access": false,
+    "authorizes_model_evaluation": false,
+    "authorizes_model_training": false,
+    "authorizes_payment": false,
+    "authorizes_purchase": false,
+    "authorizes_real_outcomes": false,
+    "authorizes_subscription_or_trial": false,
+    "authorizes_trading": false,
+    "authorizes_vendor_correspondence": false
+  }
+}

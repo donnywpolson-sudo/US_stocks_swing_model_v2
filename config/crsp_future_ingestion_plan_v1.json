@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "CRSP_FUTURE_INGESTION_PLAN_V1",
+  "phase": "CRSP_VENDOR_RESPONSE_ADJUDICATION_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "plan_id": "6fdc80f5bc1554594d3859e2f1f5f7cdd9a25ee1f54714041073f6f2914c4bc9",
+  "intake_id": "cf89c6a910555d7dd29145f485d161a9381ab471c4e06b436a43096560cd6d28",
+  "evidence_registry_id": "e1f4fcb272e37c1ff396d3e078ba1e9a6f6817578257e6da6232f570dfe88e8e",
+  "plan_status": "NOT_EXECUTABLE_MISSING_VENDOR_RESPONSE_PACKAGE",
+  "future_phase_title": "Pursue Goal — CRSP Licensed Source Landing, Admission, and Point-in-Time Canonical Panel Construction",
+  "execution_preconditions": [
+    "EXACT_CRSP_PACKAGE_SEPARATELY_PURCHASE_AUTHORIZED",
+    "SIGNED_ENTITLEMENT_AND_EFFECTIVE_LICENSE_VERIFIED",
+    "VENDOR_RESPONSE_ADJUDICATION_MANDATORY_GATES_PASS"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "name": "VERIFY_SIGNED_ENTITLEMENT",
+      "action": "Verify the signed entitlement, incorporated schedules, effective license, exact product, users, machines, retention rights, and dates.",
+      "execution_authorized": false
+    },
+    {
+      "step": 2,
+      "name": "SECURE_CREDENTIAL_HANDLING",
+      "action": "Establish separately approved credential handling without writing secrets to Git, logs, prompts, reports, or manifests.",
+      "execution_authorized": false
+    },
+    {
+      "step": 3,
+      "name": "IMMUTABLE_LANDING_ROOT",
+      "action": "Create the separately authorized immutable licensed-source landing area under the approved storage and license boundary.",
+      "execution_authorized": false
+    },
+    {
+      "step": 4,
+      "name": "AUTHORIZED_DOWNLOAD_CENSUS",
+      "action": "Download only the exact files, releases, manifests, schemas, notes, and documentation authorized by the signed entitlement.",
+      "execution_authorized": false
+    },
+    {
+      "step": 5,
+      "name": "PRESERVE_ORIGINAL_FILES",
+      "action": "Preserve original filenames, archive containers, byte sequences, directory structure, and delivery metadata without transformation.",
+      "execution_authorized": false
+    },
+    {
+      "step": 6,
+      "name": "COMPUTE_SOURCE_HASHES",
+      "action": "Compute content hashes for every landed file and bind them to the source manifest before parsing.",
+      "execution_authorized": false
+    },
+    {
+      "step": 7,
+      "name": "CAPTURE_SCHEMA_VERSIONS",
+      "action": "Capture and hash every delivered schema, data dictionary, missing-value code set, and field version.",
+      "execution_authorized": false
+    },
+    {
+      "step": 8,
+      "name": "CAPTURE_RELEASE_MANIFESTS",
+      "action": "Capture release identifiers, file censuses, manifests, checksums, and delivery timestamps for each as-received release.",
+      "execution_authorized": false
+    },
+    {
+      "step": 9,
+      "name": "CAPTURE_PUBLICATION_CORRECTION_METADATA",
+      "action": "Capture publication times, correction notes, replacement notices, schema changes, and revision chronology.",
+      "execution_authorized": false
+    },
+    {
+      "step": 10,
+      "name": "IMPORT_PERMNO_PERMCO_IDENTITY",
+      "action": "Import PERMNO as tradable-security identity and PERMCO as issuer relationship without conflating their semantics.",
+      "execution_authorized": false
+    },
+    {
+      "step": 11,
+      "name": "IMPORT_HISTORICAL_TICKER_INTERVALS",
+      "action": "Import effective historical ticker intervals, validate reuse, and keep unrelated securities and share classes distinct.",
+      "execution_authorized": false
+    },
+    {
+      "step": 12,
+      "name": "IMPORT_HISTORICAL_EXCHANGE_LISTING_INTERVALS",
+      "action": "Import exchange, venue, listing, OTC-transition, relisting, inactive, and delisting intervals with documented boundary semantics.",
+      "execution_authorized": false
+    },
+    {
+      "step": 13,
+      "name": "IMPORT_SECURITY_TYPES",
+      "action": "Map documented CRSP security and share codes to the frozen V1 taxonomy and quarantine every ambiguous classification.",
+      "execution_authorized": false
+    },
+    {
+      "step": 14,
+      "name": "IMPORT_RAW_OHLCV",
+      "action": "Import only qualified original unadjusted daily open, high, low, close, and volume observations with source revision and session metadata.",
+      "execution_authorized": false
+    },
+    {
+      "step": 15,
+      "name": "IMPORT_DISTRIBUTIONS_CORPORATE_ACTIONS",
+      "action": "Import distributions and corporate actions with source IDs, terms, effective dates, knowledge times, release identity, and revisions.",
+      "execution_authorized": false
+    },
+    {
+      "step": 16,
+      "name": "IMPORT_DELISTING_TERMINAL_EVENTS",
+      "action": "Import delisting and terminal-event metadata, reasons, terms, statuses, and predecessor/successor identifiers without outcome calculations.",
+      "execution_authorized": false
+    },
+    {
+      "step": 17,
+      "name": "QUARANTINE_OUTCOME_LIKE_FIELDS",
+      "action": "Quarantine vendor return fields including DlyRet and DelRet from source-admission, exploratory, feature, and canonical-panel interfaces.",
+      "execution_authorized": false
+    },
+    {
+      "step": 18,
+      "name": "BIND_EXCHANGE_CALENDARS",
+      "action": "Bind source sessions to accepted exchange calendars and classify every unexpected, missing, early-close, or timezone discrepancy.",
+      "execution_authorized": false
+    },
+    {
+      "step": 19,
+      "name": "RUN_SOURCE_ADMISSION_GATEWAY",
+      "action": "Run the maintained fail-closed source-admission gateway against exact source, schema, license, archive, and revision metadata.",
+      "execution_authorized": false
+    },
+    {
+      "step": 20,
+      "name": "RUN_FULL_CORPUS_VALIDATION",
+      "action": "Run identity, interval, security-type, bar-integrity, survivorship, action, terminal, timestamp, lineage, and revision checks across the full corpus.",
+      "execution_authorized": false
+    },
+    {
+      "step": 21,
+      "name": "QUARANTINE_UNRESOLVED_RECORDS",
+      "action": "Quarantine every invalid, ambiguous, incomplete, unlicensed, outcome-bearing, or causally unresolved record with explicit reason codes and counts.",
+      "execution_authorized": false
+    },
+    {
+      "step": 22,
+      "name": "BUILD_CANONICAL_PANEL",
+      "action": "Build the source-qualified point-in-time stock-date panel only after every mandatory source family passes admission.",
+      "execution_authorized": false
+    },
+    {
+      "step": 23,
+      "name": "RUN_REAL_SOURCE_PREFIX_INVARIANCE",
+      "action": "Verify that source-truncated and full-source builds are identical through deterministic historical cutoffs.",
+      "execution_authorized": false
+    },
+    {
+      "step": 24,
+      "name": "RUN_REAL_SOURCE_FUTURE_MUTATION_INVARIANCE",
+      "action": "Mutate records strictly after cutoff and prove no historical identity, universe, event, bar, or input at or before cutoff changes.",
+      "execution_authorized": false
+    },
+    {
+      "step": 25,
+      "name": "RUN_CURRENT_SNAPSHOT_POISONING",
+      "action": "Corrupt or remove current identity snapshots in isolation and prove qualified historical results are unaffected.",
+      "execution_authorized": false
+    },
+    {
+      "step": 26,
+      "name": "RUN_REVISION_ISOLATION",
+      "action": "Prove later source releases and corrections cannot rewrite an earlier as-of historical view.",
+      "execution_authorized": false
+    },
+    {
+      "step": 27,
+      "name": "RERUN_SOURCE_READINESS_GATE",
+      "action": "Recompute historical_source_readiness_gate_v2 from admitted real-source evidence without weakening any mandatory gate.",
+      "execution_authorized": false
+    },
+    {
+      "step": 28,
+      "name": "KEEP_REAL_OUTCOMES_DISABLED",
+      "action": "Verify the outcome firewall remains default-deny; source readiness does not unlock labels, outcomes, training, evaluation, backtesting, or holdout access.",
+      "execution_authorized": false
+    }
+  ],
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_agreement_acceptance": false,
+    "authorizes_backtesting": false,
+    "authorizes_broker_connectivity": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_data_download": false,
+    "authorizes_commercial_data_ingestion": false,
+    "authorizes_final_holdout_access": false,
+    "authorizes_model_evaluation": false,
+    "authorizes_model_training": false,
+    "authorizes_payment": false,
+    "authorizes_purchase": false,
+    "authorizes_real_outcomes": false,
+    "authorizes_subscription_or_trial": false,
+    "authorizes_trading": false,
+    "authorizes_vendor_correspondence": false
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "CRSP_VENDOR_EVIDENCE_REGISTRY_V1",
+  "phase": "CRSP_VENDOR_RESPONSE_ADJUDICATION_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "registry_id": "e1f4fcb272e37c1ff396d3e078ba1e9a6f6817578257e6da6232f570dfe88e8e",
+  "intake_id": "cf89c6a910555d7dd29145f485d161a9381ab471c4e06b436a43096560cd6d28",
+  "vendor_evidence_status": "NO_VENDOR_EVIDENCE_RECEIVED",
+  "vendor_evidence": [],
+  "non_vendor_input_refs": [
+    {
+      "input_id": "INPUT-001",
+      "content_sha256": "b1a333b1a5663dfd3d5a6c4d14d193263a580df33d5254f4c5fe0e8474307b30",
+      "classification": "PHASE_SPECIFICATION_NOT_VENDOR_EVIDENCE"
+    }
+  ],
+  "evidence_hierarchy": [
+    "01_EXECUTABLE_OR_SIGNED_CONTRACT_LANGUAGE",
+    "02_PRODUCT_SPECIFIC_ADDENDUM",
+    "03_INCORPORATED_ORDER_FORM",
+    "04_FORMAL_PRODUCT_SPECIFIC_VENDOR_RESPONSE",
+    "05_CURRENT_OFFICIAL_SCHEMA_OR_DATA_DICTIONARY",
+    "06_CURRENT_OFFICIAL_METHODOLOGY_GUIDE",
+    "07_CURRENT_OFFICIAL_PRODUCT_DOCUMENTATION",
+    "08_CURRENT_OFFICIAL_PRICING_DOCUMENT",
+    "09_GENERAL_OFFICIAL_MARKETING_MATERIAL",
+    "10_PRIOR_PUBLIC_EVIDENCE_REGISTRY"
+  ],
+  "adjudication_permitted": false,
+  "adjudication_blocker": "MISSING_VENDOR_RESPONSE_PACKAGE",
+  "public_evidence_reuse_policy": "Prior public evidence remains contextual only and cannot substitute for the missing quote, license, product schedule, archive entitlement, or written vendor response.",
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_agreement_acceptance": false,
+    "authorizes_backtesting": false,
+    "authorizes_broker_connectivity": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_data_download": false,
+    "authorizes_commercial_data_ingestion": false,
+    "authorizes_final_holdout_access": false,
+    "authorizes_model_evaluation": false,
+    "authorizes_model_training": false,
+    "authorizes_payment": false,
+    "authorizes_purchase": false,
+    "authorizes_real_outcomes": false,
+    "authorizes_subscription_or_trial": false,
+    "authorizes_trading": false,
+    "authorizes_vendor_correspondence": false
+  }
+}

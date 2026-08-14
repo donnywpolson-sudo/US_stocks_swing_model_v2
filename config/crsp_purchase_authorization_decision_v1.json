@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "project": "US_stocks_swing_model_v2",
+  "record_type": "CRSP_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "phase": "CRSP_VENDOR_RESPONSE_ADJUDICATION_PURCHASE_AUTHORIZATION_DECISION_V1",
+  "decision_id": "dbf99be52b6a2833f2d7d4dc23b33b7dc8615621af9a8b5a89bacb488da80c82",
+  "intake_id": "cf89c6a910555d7dd29145f485d161a9381ab471c4e06b436a43096560cd6d28",
+  "evidence_registry_id": "e1f4fcb272e37c1ff396d3e078ba1e9a6f6817578257e6da6232f570dfe88e8e",
+  "question_package_id": "8743c9026e012835c9ca54f67633ffd78da7355f4f5c46a55f04ae6da937766e",
+  "future_ingestion_plan_id": "6fdc80f5bc1554594d3859e2f1f5f7cdd9a25ee1f54714041073f6f2914c4bc9",
+  "decision_date": "2026-08-13",
+  "status": "REQUIRES_FOLLOW_UP",
+  "reason": "MISSING_VENDOR_RESPONSE_PACKAGE",
+  "purchase_now": "PROHIBITED",
+  "recommended_purchase": null,
+  "expected_candidate": {
+    "provider": "Morningstar/CRSP",
+    "product": "CRSP 1962 US Stock",
+    "product_code": "C6Z",
+    "format": "CIZ_FLAT_FILE_FORMAT_2_0",
+    "status": "PRIOR_EVALUATION_EXPECTATION_NOT_VENDOR_CONFIRMED"
+  },
+  "technical_adjudication": "NOT_PERFORMED_MISSING_VENDOR_RESPONSE_PACKAGE",
+  "contract_adjudication": "NOT_PERFORMED_MISSING_VENDOR_RESPONSE_PACKAGE",
+  "pricing_adjudication": {
+    "status": "UNRESOLVED",
+    "currency": null,
+    "initial_cost": null,
+    "first_year_cost": null,
+    "recurring_annual_cost": null,
+    "archive_cost": null,
+    "exchange_fees": null,
+    "setup_fees": null,
+    "minimum_term": null,
+    "quote_expiration": null
+  },
+  "contradiction_analysis": {
+    "status": "NOT_EVALUABLE_MISSING_VENDOR_RESPONSE_PACKAGE",
+    "contradictions": []
+  },
+  "mandatory_gate_results": [
+    {
+      "gate_id": "G01_STABLE_HISTORICAL_SECURITY_IDENTITY",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No product-specific vendor evidence confirms PERMNO/PERMCO scope, stability, share-class separation, or ticker-reuse handling.",
+      "required_question_ids": ["Q-01"]
+    },
+    {
+      "gate_id": "G02_HISTORICAL_TICKER_VALIDITY",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No quoted entitlement or schema confirms historical ticker intervals and effective-date semantics.",
+      "required_question_ids": ["Q-01"]
+    },
+    {
+      "gate_id": "G03_HISTORICAL_EXCHANGE_LISTING_VALIDITY",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No supplied schedule confirms historical exchange, listing, OTC-transition, relisting, or inactive intervals.",
+      "required_question_ids": ["Q-01"]
+    },
+    {
+      "gate_id": "G04_HISTORICAL_SECURITY_TYPE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No entitlement-specific classification codes or historical security-type semantics were supplied.",
+      "required_question_ids": ["Q-01"]
+    },
+    {
+      "gate_id": "G05_ACTIVE_INACTIVE_DELISTED_COVERAGE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No vendor package establishes active, previously active, bankrupt, acquired, failed, inactive, and delisted history coverage.",
+      "required_question_ids": ["Q-01"]
+    },
+    {
+      "gate_id": "G06_RAW_DAILY_OHLCV",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No supplied schema or quote establishes original unadjusted DlyOpen, DlyHigh, DlyLow, DlyClose, and DlyVol coverage.",
+      "required_question_ids": ["Q-02"]
+    },
+    {
+      "gate_id": "G07_CORPORATE_ACTION_COVERAGE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No product-specific event census, fields, identifiers, dates, terms, or revision chronology was supplied.",
+      "required_question_ids": ["Q-03"]
+    },
+    {
+      "gate_id": "G08_TERMINAL_EVENT_METADATA",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No delisting or terminal-event entitlement, terms, predecessor/successor links, or coverage census was supplied.",
+      "required_question_ids": ["Q-03"]
+    },
+    {
+      "gate_id": "G09_SESSION_TIMESTAMP_SEMANTICS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No vendor response establishes session date, timezone, completion time, publication time, or correction behavior.",
+      "required_question_ids": ["Q-02"]
+    },
+    {
+      "gate_id": "G10_REVISION_VERSION_SEMANTICS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No release archive, schema-version history, manifest chain, or revision chronology was supplied.",
+      "required_question_ids": ["Q-04"]
+    },
+    {
+      "gate_id": "G11_HISTORICAL_RELEASE_ARCHIVE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No entitlement confirms every as-received C6Z release and manifest from January 2016 onward.",
+      "required_question_ids": ["Q-04"]
+    },
+    {
+      "gate_id": "G12_CAUSAL_AVAILABILITY_SEMANTICS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No publication, processing, release, event knowledge-time, or historical usable-time evidence was supplied.",
+      "required_question_ids": ["Q-04"]
+    },
+    {
+      "gate_id": "G13_FULL_PROVENANCE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No delivery manifest, release identifier, checksum, correction note, or immutable archive entitlement was supplied.",
+      "required_question_ids": ["Q-04"]
+    },
+    {
+      "gate_id": "G14_PROGRAMMATIC_LOCAL_USE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No binding license confirms Python, command-line, automated processing, or nonredistributive internal research rights.",
+      "required_question_ids": ["Q-05"]
+    },
+    {
+      "gate_id": "G15_IMMUTABLE_LOCAL_LANDING",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No binding term permits immutable local source copies, hashing, manifests, or approved local storage.",
+      "required_question_ids": ["Q-05"]
+    },
+    {
+      "gate_id": "G16_DERIVED_PANEL_RIGHTS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No binding term permits internal normalized tables, canonical panels, derived features, or internal models.",
+      "required_question_ids": ["Q-05"]
+    },
+    {
+      "gate_id": "G17_BACKUP_RIGHTS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No proposed agreement addresses local backups, disaster recovery, external drives, or encrypted copies.",
+      "required_question_ids": ["Q-06"]
+    },
+    {
+      "gate_id": "G18_POST_CANCELLATION_RETENTION",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No proposed agreement establishes raw, archive, schema, manifest, derived-panel, or audit-record retention after nonrenewal.",
+      "required_question_ids": ["Q-06"]
+    },
+    {
+      "gate_id": "G19_INDIVIDUAL_ELIGIBILITY",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No quote or binding term confirms eligibility for an individual, sole practitioner, or noninstitutional researcher.",
+      "required_question_ids": ["Q-07"]
+    },
+    {
+      "gate_id": "G20_COMPLETE_ITEMIZED_PRICE",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No quote, currency, term, initial, archive, delivery, exchange, setup, renewal, tax, or cancellation amount was supplied.",
+      "required_question_ids": ["Q-08"]
+    },
+    {
+      "gate_id": "G21_EXCHANGE_OBLIGATIONS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No NYSE, Nasdaq, NYSE American, declaration, reporting, device, user, audit, or exchange-fee obligations were supplied.",
+      "required_question_ids": ["Q-07"]
+    },
+    {
+      "gate_id": "G22_REDISTRIBUTION_RESTRICTIONS",
+      "status": "UNRESOLVED",
+      "evidence_ids": [],
+      "limitation": "No binding terms establish redistribution, publication, attribution, internal-report, or nonredistributive-result restrictions.",
+      "required_question_ids": ["Q-07"]
+    }
+  ],
+  "conditional_acquisition_manifest_created": false,
+  "conditional_acquisition_manifest": null,
+  "decision_rationale": "The only supplied attachment is the user-authored phase specification. With no substantive CRSP response, quote, proposed agreement, product schedule, archive entitlement, or technical package, every mandatory gate remains unresolved and purchase is prohibited.",
+  "phase_execution_attestation": {
+    "account_created": false,
+    "agreement_accepted_or_signed": false,
+    "commercial_data_downloaded": false,
+    "commercial_data_ingested": false,
+    "commercial_portal_authenticated": false,
+    "model_training_or_evaluation_performed": false,
+    "outcomes_created_or_accessed": false,
+    "payment_submitted": false,
+    "provider_contact_sent": false,
+    "purchase_or_subscription_started": false,
+    "real_canonical_panel_built": false,
+    "trial_started": false
+  },
+  "authorization_boundary": {
+    "authorizes_account_creation": false,
+    "authorizes_agreement_acceptance": false,
+    "authorizes_backtesting": false,
+    "authorizes_broker_connectivity": false,
+    "authorizes_canonical_panel_construction": false,
+    "authorizes_commercial_data_download": false,
+    "authorizes_commercial_data_ingestion": false,
+    "authorizes_final_holdout_access": false,
+    "authorizes_model_evaluation": false,
+    "authorizes_model_training": false,
+    "authorizes_payment": false,
+    "authorizes_purchase": false,
+    "authorizes_real_outcomes": false,
+    "authorizes_subscription_or_trial": false,
+    "authorizes_trading": false,
+    "authorizes_vendor_correspondence": false
+  }
+}
