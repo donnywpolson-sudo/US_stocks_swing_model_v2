@@ -672,38 +672,18 @@ def test_five_cohort_oracle_rejects_overallocated_cohort() -> None:
         reconstruct_five_cohort_economics(tuple(direction_books))
 
 
-def test_audit_specs_bind_every_broader_remediation_control() -> None:
+def test_traceability_binds_reusable_synthetic_audit_controls_directly() -> None:
     root = Path(__file__).resolve().parents[1]
-    master = (root / "MASTER_AUDIT.md").read_text(encoding="utf-8")
-    meta = (root / "META_MASTER_AUDIT.md").read_text(encoding="utf-8")
     traceability = (root / "docs" / "AUDIT_TRACEABILITY.md").read_text(
         encoding="utf-8"
     )
 
     for required in (
-        "audit_controls.assess_traceability_matrix",
-        "audit_controls.ProviderLineageEvidence",
-        "audit_controls.ProspectiveControlProtocol",
-        "research.economics.reconstruct_five_cohort_economics",
-        "audit_controls.scan_declared_audit_surfaces",
-        "`git`, `logs`, `reports`,",
-        "`caches`, `artifacts`, and `admitted_evidence`",
-    ):
-        assert required in master
-
-    for required in (
-        "audit_controls.assess_traceability_matrix",
-        "`audit_controls.ProspectiveControlProtocol`",
-        "`research.economics.reconstruct_five_cohort_economics`",
-        "`admitted_evidence`",
-        "raw provider bytes",
-    ):
-        assert required in meta
-
-    for required in (
         "`audit_controls.py`",
+        "`trials.py`",
         "`research/economics.py`",
         "`tests/test_meta_audit_remediation.py`",
+        "`caches`, `artifacts`, and `admitted_evidence`",
         "retained real-project scan requires separate authorization",
         "no provider request or source activation",
         "no alpha, evaluation, capacity, or deployment claim",
@@ -711,30 +691,21 @@ def test_audit_specs_bind_every_broader_remediation_control() -> None:
         assert required in traceability
 
 
-def test_meta_audit_targets_the_master_specification_not_project_readiness() -> None:
+def test_retired_audit_specs_and_configs_are_absent_and_non_authorizing() -> None:
     root = Path(__file__).resolve().parents[1]
-    meta = (root / "META_MASTER_AUDIT.md").read_text(encoding="utf-8")
-    normalized = " ".join(meta.split())
+    retired = (
+        "MASTER_AUDIT.md",
+        "META_MASTER_AUDIT.md",
+        "config/master_audit_policy.json",
+        "config/meta_audit_reference_corpus.json",
+    )
+    assert all(not (root / relative).exists() for relative in retired)
 
-    for required in (
-        "Version: `1.1.0`",
-        "Mode: `MASTER_SPECIFICATION_REVIEW`",
-        "exactly one review target",
-        "They are not additional audit targets.",
-        "are not Meta findings when the Master correctly requires",
-        "`SPECIFICATION_SATISFACTORY`",
-        "`SPECIFICATION_AMENDMENTS_REQUIRED`",
-        "`SPECIFICATION_REVIEW_INCOMPLETE`",
-        "unified diff against the frozen Master bytes",
-        "reports/generated/meta_master_spec_review/<report-sha256>.md",
-    ):
-        assert required in normalized
-
-    assert (
-        "`SUPPORTABLE`, `BLOCKED`, and `INSUFFICIENT_EVIDENCE` are reserved "
-        "for a later project-targeted Master Audit"
-    ) in normalized
-    assert "The review must not apply those amendments." in normalized
+    workflow = (root / "docs/AUDIT_WORKFLOW.md").read_text(encoding="utf-8")
+    normalized = " ".join(workflow.split())
+    assert "Historical versions remain available through Git history" in normalized
+    assert "does not restore the retired interfaces" in normalized
+    assert "must not reuse or infer authority" in normalized
 
 
 def test_meta_audit_v2_groups_are_bounded_blind_first_and_identity_bound(

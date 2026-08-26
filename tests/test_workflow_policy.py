@@ -39,7 +39,7 @@ def test_agents_retains_the_binding_action_and_safety_boundaries() -> None:
         assert agents.count(f"| `{action_class}` |") == 1
     for boundary in (
         "Do not commit, push, or cut over unless",
-        "Never read, print, copy, move, edit, or commit secrets",
+        "do not access `api.env` or another local environment file unless",
         "data/**",
         "accepted release",
     ):
@@ -53,24 +53,17 @@ def test_agents_retains_the_binding_action_and_safety_boundaries() -> None:
     assert "## Action Classes" not in audit
 
 
-def test_agents_define_scope_simplicity_and_completion_structurally() -> None:
+def test_agents_define_project_specific_scope_and_simplicity() -> None:
     agents = _read("AGENTS.md")
     normalized = " ".join(agents.split())
 
-    assert "### Scope, Simplicity, And Completion" in agents
-    assert "Follow established repository architecture when it fits" in normalized
-    assert "Prefer a direct, well-tested solution" in agents
-    assert "new dependency, public API or schema" in normalized
-    assert "explain why a smaller alternative is insufficient" in normalized
-    assert "Localized work should proceed directly" in agents
-    assert "Use one agent by default" in normalized
-    assert "Update documentation and comments only for" in agents
-    assert "Do not add a fallback that conceals a visible failure" in normalized
-    assert "Stop when the requested behavior and acceptance criteria are satisfied" in normalized
-    assert "one final diff review finds no accidental scope growth" in normalized
-    assert "Report optional improvements without implementing them" in normalized
-    assert "more than five tracked paths" not in agents
-    assert "more than one new implementation concept" not in agents
+    assert "### Project-Specific KISS Boundary" in agents
+    assert "Change one pipeline stage or research question at a time" in normalized
+    assert "Reuse the existing data contracts, configuration, feature definitions" in normalized
+    assert "Do not introduce additional indicators, model families" in normalized
+    assert "Preserve time-aware validation, leakage controls, determinism" in normalized
+    assert "Use exact paths. Never use `git add .` or `git add -A`." in normalized
+    assert "Use the smallest coherent change that satisfies the outcome" not in normalized
 
 
 def test_workflow_routes_to_the_canonical_checklist_without_prompt_churn() -> None:
@@ -88,7 +81,8 @@ def test_workflow_routes_to_the_canonical_checklist_without_prompt_churn() -> No
     assert "Use this checklist for every task" not in agents
     assert "## Action Classes" not in audit
     assert "## Handoffs" not in audit
-    assert "Do not create or update it for ordinary same-thread work." in normalized_agents
+    assert "CODEX_HANDOFF.md` is optional, transfer-only coordination context" in normalized_agents
+    assert "Read it only for a fresh-thread transfer" in normalized_agents
 
 
 def test_current_state_is_a_non_authoritative_snapshot_linked_from_orientation() -> None:

@@ -1,4 +1,4 @@
-"""Content-addressed, no-write Master Audit planning and read interface."""
+"""Reusable synthetic audit mechanics for the retired repository interface."""
 
 from __future__ import annotations
 
@@ -13,6 +13,12 @@ import shutil
 import subprocess
 import sys
 from typing import Any, Iterable, Mapping
+
+
+RETIRED_INTERFACE_ERROR = (
+    "The repository Master Audit specification and checked-in execution "
+    "contract are retired"
+)
 
 
 if __package__ in {None, ""}:  # Support the exact direct-script audit command.
@@ -751,49 +757,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
-    root = _repo_root()
-    if args.plan:
-        if args.approved_envelope_id or args.group is not None:
-            parser().error("--plan does not accept approval or group arguments")
-        print(json.dumps(build_envelope(root, args.target_state), indent=2, sort_keys=True))
-        return 0
-    if not args.approved_envelope_id:
-        parser().error("--dispatch and --mode require --approved-envelope-id")
-    envelope = _approved_envelope(root, args.target_state, args.approved_envelope_id)
-    if args.dispatch:
-        if args.group is not None:
-            parser().error("--dispatch does not accept --group")
-        print(json.dumps(build_dispatch(envelope), indent=2, sort_keys=True))
-        return 0
-    if args.mode == "ReadGroup":
-        if args.group is None:
-            parser().error("ReadGroup requires --group")
-        sys.stdout.write(render_group(root, envelope, args.group))
-        return 0
-    if args.group is not None:
-        parser().error("--group is valid only for ReadGroup")
-    if args.mode == "VerifyReleases":
-        output = {
-            **_summary(envelope, "MASTER_AUDIT_RELEASES_VERIFIED_NO_WRITES"),
-            "accepted_releases": envelope["accepted_releases"],
-        }
-    elif args.mode == "PlanGroups":
-        output = {
-            **_summary(envelope, "MASTER_AUDIT_GROUP_PLAN_NO_WRITES"),
-            "groups": envelope["qualitative_review"]["groups"],
-        }
-    elif args.mode == "HostProfile":
-        output = {
-            **_summary(envelope, "MASTER_AUDIT_HOST_PROFILE_NO_WRITES"),
-            "runtime": envelope["runtime"],
-        }
-    elif args.mode == "FinalPreflight":
-        output = _summary(envelope, "MASTER_AUDIT_FINAL_PREFLIGHT_NO_WRITES")
-    else:
-        output = _summary(envelope, "MASTER_AUDIT_PREFLIGHT_NO_WRITES")
-    print(json.dumps(output, indent=2, sort_keys=True))
-    return 0
+    del argv
+    raise ContractError(RETIRED_INTERFACE_ERROR)
 
 
 if __name__ == "__main__":

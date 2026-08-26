@@ -10,15 +10,15 @@ from us_stocks_swing_model_v2.common import canonical_json_bytes, sha256_bytes
 from us_stocks_swing_model_v2.errors import ContractError
 from us_stocks_swing_model_v2.master_audit import (
     GROUP_FOOTER,
+    RETIRED_INTERFACE_ERROR,
     FileBinding,
     _accepted_release_binding,
-    _command_contract,
     _secret_like,
     _tracked_paths,
     build_dispatch,
     build_envelope,
     build_read_groups,
-    load_policy,
+    main,
 )
 from us_stocks_swing_model_v2.releases import (
     AtomicReleasePublisher,
@@ -29,61 +29,31 @@ from us_stocks_swing_model_v2.releases import (
 REPO = Path(__file__).parents[1]
 
 
-def test_checked_in_master_audit_policy_is_current_and_no_write() -> None:
-    policy = load_policy(REPO)
-    tracked_paths = _tracked_paths(REPO, policy)
-    tracked_policy = policy["tracked_corpus"]
-    assert len(tracked_paths) == tracked_policy["expected_path_count"]
-    assert (
-        sha256_bytes(canonical_json_bytes(tracked_paths))
-        == tracked_policy["expected_paths_sha256"]
-    )
-    assert policy["mode"] == "MASTER_AUDIT_PLAN_ONLY_NO_WRITES"
-    assert set(policy["targets"]) == {
-        "REBUILD_COMPLETE",
-        "HISTORICAL_RESEARCH_READY",
-    }
-    assert policy["output"] == {
-        "destination": "CONVERSATION_ONLY",
-        "retained_report": False,
-        "generated_artifact_write": False,
-    }
-    assert policy["targets"]["HISTORICAL_RESEARCH_READY"][
-        "requires_completed_target"
-    ] == "REBUILD_COMPLETE"
-    historical_paths = set(
-        policy["targets"]["HISTORICAL_RESEARCH_READY"]["review_paths"]
-    )
-    assert {
-        "src/us_stocks_swing_model_v2/gates.py",
-        "src/us_stocks_swing_model_v2/research/contracts.py",
-        "src/us_stocks_swing_model_v2/research/economics.py",
-        "src/us_stocks_swing_model_v2/research/multiple_testing.py",
-        "src/us_stocks_swing_model_v2/research/power.py",
-        "src/us_stocks_swing_model_v2/research/sleeves.py",
-        "tests/test_firewall_bundle_inference.py",
-        "tests/test_meta_audit_remediation.py",
-        "tests/test_research_dsr_cscv_power.py",
-        "tests/test_research_hac_bootstrap_rw.py",
-    } <= historical_paths
-    assert "august_raw_capture" in policy["prohibitions"]
+def test_checked_in_master_and_meta_audit_contracts_are_retired() -> None:
+    for relative in (
+        "MASTER_AUDIT.md",
+        "META_MASTER_AUDIT.md",
+        "config/master_audit_policy.json",
+        "config/meta_audit_reference_corpus.json",
+    ):
+        assert not (REPO / relative).exists()
+
+    workflow = (REPO / "docs/AUDIT_WORKFLOW.md").read_text(encoding="utf-8")
+    assert "## Retired Root Audit Contracts" in workflow
+    assert "fresh, explicit contract" in workflow
 
 
-def test_policy_uses_exact_release_ids_without_discovery_roots() -> None:
-    policy = load_policy(REPO)
-    for target in policy["targets"].values():
-        releases = target["accepted_releases"]
-        assert releases == sorted(set(releases))
-        for relative in releases:
-            parts = relative.split("/")
-            assert parts[:3] == ["data", "vault", "accepted"]
-            assert len(parts) == 5
-            assert len(parts[-1]) == 64
-    source = (REPO / "src/us_stocks_swing_model_v2/master_audit.py").read_text(
-        encoding="utf-8"
+def test_repository_master_audit_cli_retires_before_repository_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_access() -> Path:
+        raise AssertionError("repository access must not occur")
+
+    monkeypatch.setattr(
+        "us_stocks_swing_model_v2.master_audit._repo_root", unexpected_access
     )
-    assert ".rglob(" not in source
-    assert "glob(" not in source
+    with pytest.raises(ContractError, match="execution contract are retired"):
+        main(["--target-state", "REBUILD_COMPLETE", "--plan"])
 
 
 def test_read_groups_are_bounded_and_footer_terminated(tmp_path: Path) -> None:
@@ -237,26 +207,16 @@ def test_compact_dispatch_binds_commands_and_all_false_authorities() -> None:
     assert first["dispatch_id"] == sha256_bytes(canonical_json_bytes(unsigned))
 
 
-def test_full_test_command_keeps_complete_failures_transport_bounded() -> None:
-    policy = load_policy(REPO)
-    contract = _command_contract(
-        root=REPO,
-        target_state="REBUILD_COMPLETE",
-        group_count=1,
-        policy=policy,
+def test_retired_cli_error_is_stable_and_explicit() -> None:
+    assert RETIRED_INTERFACE_ERROR == (
+        "The repository Master Audit specification and checked-in execution "
+        "contract are retired"
     )
-    command = next(
-        item for item in contract["commands"] if item["name"] == "RunFullTests"
-    )
-    assert command["argv"][-2:] == ["-q", "--tb=line"]
-    assert command["expected_exit"] == "REPORTABLE_NONZERO"
-    assert command["output_max_utf8_bytes"] == 200000
 
 
-def test_master_audit_cli_source_has_direct_entrypoint() -> None:
+def test_master_audit_cli_source_has_retired_direct_entrypoint() -> None:
     source = (REPO / "src/us_stocks_swing_model_v2/master_audit.py").read_text(
         encoding="utf-8"
     )
     assert 'if __name__ == "__main__":' in source
-    assert "--approved-envelope-id" in source
-    assert '"ReadGroup"' in source
+    assert "raise ContractError(RETIRED_INTERFACE_ERROR)" in source
