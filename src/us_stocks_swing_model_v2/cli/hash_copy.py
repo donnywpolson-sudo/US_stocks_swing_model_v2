@@ -25,7 +25,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument(
         "--controlled-rebuild-authorization",
         type=Path,
-        help="repository-pinned authority for the completed controlled rebuild",
+        help="retired historical controlled-rebuild input; always rejected",
     )
     value.add_argument("--execute", action="store_true", help="requires HASH_COPY_APPROVED=YES")
     value.add_argument(
@@ -38,6 +38,10 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.controlled_rebuild_authorization is not None:
+        raise PermissionError(
+            "controlled rebuild authorization is retired historical evidence only"
+        )
     config = load_migration_config(args.config)
     plan = plan_migration(config)
     summary: dict[str, object] = {

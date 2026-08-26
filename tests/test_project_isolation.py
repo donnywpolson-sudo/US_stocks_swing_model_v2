@@ -6,6 +6,7 @@ import re
 import pytest
 
 from us_stocks_swing_model_v2.common import require_contained_path
+from us_stocks_swing_model_v2.cli.hash_copy import main as hash_copy_main
 from us_stocks_swing_model_v2.errors import ContractError
 
 
@@ -314,3 +315,41 @@ def test_active_containment_guard_rejects_foreign_roots(foreign_name: str) -> No
     foreign = Path.home() / "Desktop" / foreign_name / "forbidden-write.json"
     with pytest.raises(ContractError, match="escapes its approved root"):
         require_contained_path(foreign, active, must_exist=False)
+
+
+def test_active_code_and_configuration_do_not_bind_the_retired_legacy_root() -> None:
+    root = Path(__file__).resolve().parents[1]
+    retired_root = re.compile(
+        r"c:/users/donny/desktop/us_stocks_swing_model(?!_v2)",
+        re.IGNORECASE,
+    )
+    historical_config_allowlist = {
+        "config/controlled_rebuild_authorization.json",
+        "config/legacy_baseline.json",
+    }
+    candidates = list((root / "src").rglob("*.py"))
+    candidates.extend((root / "config").glob("*.json"))
+    violations = []
+    for path in sorted(candidates):
+        relative = path.relative_to(root).as_posix()
+        if relative in historical_config_allowlist:
+            continue
+        normalized = path.read_text(encoding="utf-8").replace("\\", "/").casefold()
+        if retired_root.search(normalized):
+            violations.append(relative)
+    assert violations == []
+
+
+def test_controlled_rebuild_cli_retires_before_reading_any_config(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(PermissionError, match="retired historical evidence only"):
+        hash_copy_main(
+            [
+                "--config",
+                str(tmp_path / "missing-migration-config.json"),
+                "--controlled-rebuild-authorization",
+                str(tmp_path / "missing-rebuild-authorization.json"),
+                "--execute",
+            ]
+        )

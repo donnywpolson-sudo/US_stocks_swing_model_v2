@@ -18,10 +18,11 @@ from .common import (
     sha256_file,
 )
 from .errors import ContractError, IntegrityError
+from .releases import verify_accepted_release
 
 
 POLICY_PATH = Path("config/alpaca_archive_rehabilitation_policy.json")
-PLAN_MODE = "ALPACA_LEGACY_ARCHIVE_REHABILITATION_PLAN_ONLY_NO_WRITES"
+RETIRED_MODE = "ALPACA_LEGACY_ARCHIVE_REHABILITATION_RETIRED_ACCEPTED_RELEASE_ONLY"
 BAR_KEYS = {"c", "h", "l", "n", "o", "t", "v", "vw"}
 
 
@@ -393,7 +394,7 @@ def load_alpaca_archive_rehabilitation_policy(
         "policy_version",
         "project",
         "mode",
-        "legacy_archive_root",
+        "accepted_release",
         "input_contract",
         "evidence_boundary",
         "prospective_release",
@@ -403,11 +404,10 @@ def load_alpaca_archive_rehabilitation_policy(
     }
     policy = _strict_mapping(payload, required, "rehabilitation policy")
     if (
-        policy["schema_version"] != 1
-        or policy["policy_version"] != "1.0.0"
+        policy["schema_version"] != 2
+        or policy["policy_version"] != "2.0.0"
         or policy["project"] != "US_stocks_swing_model_v2"
-        or policy["mode"] != PLAN_MODE
-        or type(policy["legacy_archive_root"]) is not str
+        or policy["mode"] != RETIRED_MODE
     ):
         raise ContractError("rehabilitation policy identity differs")
     authorities = policy["authorities"]
@@ -428,56 +428,88 @@ def load_alpaca_archive_rehabilitation_policy(
         }
     ):
         raise ContractError("rehabilitation policy weakens the legacy-universe boundary")
+    accepted = policy["accepted_release"]
+    if (
+        type(accepted) is not dict
+        or set(accepted)
+        != {
+            "accepted_root",
+            "relative_directory",
+            "release_id",
+            "required_file_count",
+            "required_payload_bytes",
+        }
+        or accepted["accepted_root"] != "data/vault/accepted"
+        or accepted["relative_directory"]
+        != (
+            "alpaca_legacy_daily_bars/"
+            "20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1"
+        )
+        or accepted["release_id"]
+        != "20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1"
+        or accepted["required_file_count"] != 201
+        or accepted["required_payload_bytes"] != 99_868_172
+    ):
+        raise ContractError("rehabilitation accepted-release binding differs")
     return policy, sha256_bytes(canonical_json_bytes(policy))
 
 
-def build_alpaca_archive_rehabilitation_plan(
-    archive_root: Path,
-    *,
+def verify_rehabilitated_alpaca_release(
     repository_root: Path,
 ) -> dict[str, Any]:
     root = Path(repository_root).resolve(strict=True)
     policy, policy_id = load_alpaca_archive_rehabilitation_policy(root)
-    if _exact_windows_path(archive_root) != _exact_windows_path(
-        policy["legacy_archive_root"]
+    binding = policy["accepted_release"]
+    accepted_root = require_contained_path(
+        root / binding["accepted_root"], root, must_exist=True
+    )
+    release_dir = require_contained_path(
+        accepted_root / binding["relative_directory"],
+        accepted_root,
+        must_exist=True,
+    )
+    manifest = verify_accepted_release(
+        release_dir,
+        accepted_root=accepted_root,
+    )
+    payload_bytes = sum(entry.size for entry in manifest.files)
+    required_paths = {"bars.parquet", "rehabilitation_receipt.json", "source_evidence_manifest.json"}
+    manifest_paths = {entry.path for entry in manifest.files}
+    prospective = policy["prospective_release"]
+    if (
+        manifest.release_id != binding["release_id"]
+        or manifest.dataset != prospective["dataset"]
+        or manifest.source_epoch != prospective["source_epoch"]
+        or manifest.role != prospective["role"]
+        or manifest.quality_state != prospective["quality_state"]
+        or manifest.row_count != policy["input_contract"]["expected_row_count"]
+        or len(manifest.files) != binding["required_file_count"]
+        or payload_bytes != binding["required_payload_bytes"]
+        or not required_paths <= manifest_paths
     ):
-        raise ContractError("legacy Alpaca archive root differs from policy")
-    source = policy["input_contract"]
-    expectations = ArchiveExpectations(
-        source=source["source"],
-        source_route_name=source["source_route_name"],
-        feed=source["feed"],
-        timeframe=source["timeframe"],
-        adjustment=source["adjustment"],
-        request_start_date=source["request_start_date"],
-        request_end_date=source["request_end_date"],
-        symbol_count=source["expected_symbol_count"],
-        page_count=source["expected_page_count"],
-        chunk_count=source["expected_chunk_count"],
-        row_count=source["expected_row_count"],
-        event_start=source["expected_event_start"],
-        event_end=source["expected_event_end"],
-        compressed_bytes=source["expected_compressed_bytes"],
-        uncompressed_bytes=source["expected_uncompressed_bytes"],
-    )
-    inventory = inspect_alpaca_archive(
-        Path(archive_root),
-        expectations=expectations,
-        metadata_evidence_files=source["metadata_evidence_files"],
-    )
+        raise IntegrityError("rehabilitated accepted release differs from policy")
     unsigned = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": "US_stocks_swing_model_v2",
-        "mode": PLAN_MODE,
+        "mode": RETIRED_MODE,
         "policy_id": policy_id,
+        "accepted_release": {
+            "directory": release_dir.relative_to(root).as_posix(),
+            "release_id": manifest.release_id,
+            "dataset": manifest.dataset,
+            "role": manifest.role,
+            "quality_state": manifest.quality_state,
+            "row_count": manifest.row_count,
+            "file_count": len(manifest.files),
+            "payload_bytes": payload_bytes,
+        },
         "legacy_universe_boundary": policy["legacy_universe_boundary"],
-        "inventory": inventory,
         "evidence_boundary": policy["evidence_boundary"],
-        "prospective_release": policy["prospective_release"],
+        "prospective_release": prospective,
         "authorities": policy["authorities"],
         "stop_conditions": policy["stop_conditions"],
     }
     return {
         **unsigned,
-        "plan_id": sha256_bytes(canonical_json_bytes(unsigned)),
+        "verification_id": sha256_bytes(canonical_json_bytes(unsigned)),
     }

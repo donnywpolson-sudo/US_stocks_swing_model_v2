@@ -1,9 +1,15 @@
 {
-  "schema_version": 1,
-  "policy_version": "1.0.0",
+  "schema_version": 2,
+  "policy_version": "2.0.0",
   "project": "US_stocks_swing_model_v2",
-  "mode": "ALPACA_LEGACY_ARCHIVE_REHABILITATION_PLAN_ONLY_NO_WRITES",
-  "legacy_archive_root": "C:/Users/donny/Desktop/US_stocks_swing_model/data/providers/alpaca_sip_v1",
+  "mode": "ALPACA_LEGACY_ARCHIVE_REHABILITATION_RETIRED_ACCEPTED_RELEASE_ONLY",
+  "accepted_release": {
+    "accepted_root": "data/vault/accepted",
+    "relative_directory": "alpaca_legacy_daily_bars/20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",
+    "release_id": "20f0fe6c054db312d83ce479c7bd14ea83be501bc19c17dfc83af830ba68c2e1",
+    "required_file_count": 201,
+    "required_payload_bytes": 99868172
+  },
   "input_contract": {
     "source": "alpaca_sip_v1",
     "source_route_name": "historical_stock_bars",
@@ -83,17 +89,9 @@
     "research": false
   },
   "stop_conditions": [
-    "legacy_archive_root_mismatch",
+    "accepted_release_identity_or_containment_mismatch",
     "link_reparse_or_hardlink",
-    "missing_extra_or_malformed_provenance",
-    "missing_extra_or_tampered_native_page",
-    "decompressed_hash_or_size_mismatch",
-    "request_contract_mismatch",
-    "page_schema_or_bar_schema_mismatch",
-    "duplicate_or_unsorted_symbol_timestamp",
-    "row_symbol_page_chunk_or_pagination_census_mismatch",
-    "metadata_evidence_missing_or_tampered_during_read",
-    "derived_parquet_requested_as_input",
+    "accepted_release_manifest_hash_size_or_census_mismatch",
     "legacy_universe_promoted_or_relabelled",
     "write_publication_research_or_activation_requested"
   ]

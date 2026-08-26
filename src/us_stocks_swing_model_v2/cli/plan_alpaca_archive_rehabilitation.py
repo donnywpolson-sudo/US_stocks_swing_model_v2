@@ -5,8 +5,7 @@ import json
 from pathlib import Path
 
 from ..alpaca_archive_rehabilitation import (
-    build_alpaca_archive_rehabilitation_plan,
-    load_alpaca_archive_rehabilitation_policy,
+    verify_rehabilitated_alpaca_release,
 )
 
 
@@ -17,8 +16,8 @@ def _repo_root() -> Path:
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(
         description=(
-            "Inspect the exact retired Alpaca SIP archive and emit one "
-            "metadata-only rehabilitation plan; never writes or publishes"
+            "Verify the immutable V2 accepted release that replaced the retired "
+            "external Alpaca archive; never writes or publishes"
         )
     )
     value.add_argument("--repo-root", type=Path, default=_repo_root())
@@ -27,12 +26,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    policy, _policy_id = load_alpaca_archive_rehabilitation_policy(args.repo_root)
-    plan = build_alpaca_archive_rehabilitation_plan(
-        Path(policy["legacy_archive_root"]),
-        repository_root=args.repo_root,
-    )
-    print(json.dumps(plan, indent=2, sort_keys=True))
+    verification = verify_rehabilitated_alpaca_release(args.repo_root)
+    print(json.dumps(verification, indent=2, sort_keys=True))
     return 0
 
 

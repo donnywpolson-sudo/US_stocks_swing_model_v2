@@ -73,12 +73,10 @@ MIGRATION_IMPLEMENTATION_PATHS = (
 
 @dataclass(frozen=True, init=False)
 class ControlledRebuildAuthorization:
-    """Exact user-task authority for this one non-alpha rebuild copy.
+    """Retired receipt for the completed non-alpha rebuild copy.
 
-    This historical task receipt cannot satisfy trial, evaluation, sealing, or
-    production gates. Its only
-    consumer is the controlled hash-copy path below, where it is combined with
-    the reviewed plan, inventory, implementation closure, and approval.
+    The receipt remains parseable as historical evidence but cannot authorize
+    another copy or cause the retired source root to be resolved.
     """
 
     path: str
@@ -194,21 +192,9 @@ class ControlledRebuildAuthorization:
             raise PermissionError("controlled rebuild authority changed after loading")
 
     def validate_plan(self, plan: "MigrationPlan") -> None:
-        self.validate_file()
-        active = Path(self.active_root).resolve(strict=True)
-        legacy = Path(self.legacy_root).resolve(strict=True)
-        if active != Path(__file__).resolve().parents[2]:
-            raise PermissionError("controlled rebuild authority active root differs")
-        if Path(plan.allowed_vault_root).resolve(strict=True) != active:
-            raise PermissionError("migration vault root differs from controlled rebuild authority")
-        destination = Path(plan.destination_vault).resolve(strict=False)
-        try:
-            destination.relative_to(active)
-        except ValueError as exc:
-            raise PermissionError("migration destination escapes the controlled rebuild") from exc
-        source_roots = tuple(Path(value).resolve(strict=True) for value in plan.allowed_source_roots)
-        if source_roots != (legacy,):
-            raise PermissionError("migration sources differ from controlled rebuild authority")
+        raise PermissionError(
+            "controlled rebuild authorization is retired historical evidence only"
+        )
 
 
 @dataclass(frozen=True)
