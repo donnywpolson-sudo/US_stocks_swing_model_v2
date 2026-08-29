@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 
 import numpy as np
 
@@ -13,6 +12,7 @@ from .builder import InnerBuilderFold, OuterBuilderRequest, build_frozen_outer_p
 from .contracts import (
     ResearchContractError,
     SyntheticOnlyPermit,
+    canonical_bytes,
     finite_float64,
     require_synthetic_permit,
     require_unique_ascii_ids,
@@ -25,16 +25,6 @@ EXECUTOR_ENTRYPOINT = (
     "us_stocks_swing_model_v2.research.executor:execute_synthetic_nested_wfa"
 )
 EXECUTOR_MECHANICS_VERSION = "synthetic_nested_wfa_linear_distribution_v1"
-
-
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("ascii")
 
 
 @dataclass(frozen=True)
@@ -63,7 +53,7 @@ def synthetic_fixture_vector(dataset: SyntheticResearchDataset) -> np.ndarray:
 
     dataset.validate()
     metadata = hashlib.sha256(
-        _canonical_bytes(
+        canonical_bytes(
             {
                 "sample_ids": list(dataset.sample_ids),
                 "feature_names": list(dataset.feature_names),
@@ -178,7 +168,7 @@ class SyntheticResearchExecution:
             or self.candidate_eligible is not False
         ):
             raise ResearchContractError("execution loses its synthetic non-alpha boundary")
-        expected = hashlib.sha256(_canonical_bytes(self.unsigned_dict())).hexdigest()
+        expected = hashlib.sha256(canonical_bytes(self.unsigned_dict())).hexdigest()
         if self.execution_id != expected:
             raise ResearchContractError("execution ID differs from its content")
 
@@ -292,7 +282,7 @@ def execute_synthetic_nested_wfa(
         plan=plan,
         prediction_artifacts=frozen,
         evaluations=evaluations,
-        execution_id=hashlib.sha256(_canonical_bytes(provisional.unsigned_dict())).hexdigest(),
+        execution_id=hashlib.sha256(canonical_bytes(provisional.unsigned_dict())).hexdigest(),
     )
     execution.validate()
     return execution

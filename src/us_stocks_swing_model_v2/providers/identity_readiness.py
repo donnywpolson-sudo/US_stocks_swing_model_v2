@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,6 +11,7 @@ from urllib.request import Request
 from ..clock import TrustedClock, require_trusted_clock
 from ..common import (
     canonical_json_bytes,
+    load_independent_json_object,
     iso_z,
     parse_utc_z,
     reject_link,
@@ -82,19 +82,6 @@ REMEDIATION_FIELDS = set(HISTORICAL_REMEDIATION)
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    reject_link(path)
-    if not path.is_file() or path.stat().st_nlink != 1:
-        raise IntegrityError(f"{label} must be an independent plain file")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if type(payload) is not dict:
-        raise IntegrityError(f"{label} must be one JSON object")
-    return payload
 
 
 def _validate_policy_shape(policy: Mapping[str, Any]) -> None:
@@ -256,7 +243,7 @@ def load_alpaca_asset_projection_policy(
     root = Path(repo_root or _repo_root()).resolve(strict=True)
     path = root / ALPACA_ASSET_PROJECTION_POLICY_PATH
     require_contained_path(path, root)
-    policy = _json_object(path, label="Alpaca asset projection policy")
+    policy = load_independent_json_object(path, label="Alpaca asset projection policy")
     if set(policy) != {
         "schema_version",
         "project",
@@ -319,7 +306,7 @@ def load_identity_readiness_policy(
     root = Path(repo_root or _repo_root()).resolve(strict=True)
     path = root / POLICY_PATH
     require_contained_path(path, root)
-    policy = _json_object(path, label="Nasdaq identity readiness policy")
+    policy = load_independent_json_object(path, label="Nasdaq identity readiness policy")
     _validate_policy_shape(policy)
     unsigned = {key: value for key, value in policy.items() if key != "policy_id"}
     if policy["policy_id"] != sha256_bytes(canonical_json_bytes(unsigned)):
@@ -703,7 +690,7 @@ def assess_identity_inputs(
 ) -> IdentityInputAssessment:
     root = Path(repo_root or _repo_root()).resolve(strict=True)
     policy = load_identity_readiness_policy(root)
-    source_config = _json_object(
+    source_config = load_independent_json_object(
         root / "config" / "sources.json",
         label="source configuration",
     )
@@ -757,7 +744,7 @@ def verify_alpaca_asset_snapshot(
     """Reverify one landed snapshot and its projection without writes."""
 
     root = Path(repo_root or _repo_root()).resolve(strict=True)
-    source_config = _json_object(
+    source_config = load_independent_json_object(
         root / "config" / "sources.json",
         label="source configuration",
     )

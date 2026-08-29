@@ -37,6 +37,7 @@ from us_stocks_swing_model_v2.research import (
 from us_stocks_swing_model_v2.research import evaluator as evaluator_module
 from us_stocks_swing_model_v2.research import builder as builder_module
 from us_stocks_swing_model_v2.research.builder import build_frozen_outer_predictions
+from us_stocks_swing_model_v2.research.contracts import canonical_bytes
 
 
 def _fit_free_ast_violations(
@@ -532,7 +533,7 @@ def test_execution_rejects_separately_consistent_evaluation_census_replacement()
     replacement = replace(
         replacement,
         evaluation_id=hashlib.sha256(
-            evaluator_module._canonical_bytes(replacement.unsigned_dict())
+            canonical_bytes(replacement.unsigned_dict())
         ).hexdigest(),
     )
     replacement.validate()
@@ -544,7 +545,7 @@ def test_execution_rejects_separately_consistent_evaluation_census_replacement()
     forged = replace(
         forged,
         execution_id=hashlib.sha256(
-            executor_module._canonical_bytes(forged.unsigned_dict())
+            canonical_bytes(forged.unsigned_dict())
         ).hexdigest(),
     )
     with pytest.raises(ResearchContractError, match="fold bindings differ"):

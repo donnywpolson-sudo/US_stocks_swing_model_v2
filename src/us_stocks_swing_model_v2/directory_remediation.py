@@ -6,19 +6,38 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import time
 from typing import Any
 
 from .common import atomic_write, atomic_write_new, canonical_json_bytes, require_contained_path, sha256_bytes, sha256_file
 from .errors import ContractError
-from .legacy_cleanup import APPROVED_CLEANUP_PLAN_ID, POLICY_PATH, WORK_ROOT, repository_binding
 
 
+POLICY_PATH = "config/legacy_cleanup_policy.json"
+WORK_ROOT = "data/w/legacy_cleanup"
+APPROVED_CLEANUP_PLAN_ID = "30c1dc0d506cdda1fc8d5349f27ae2b97bdba489f98a2e7c051650b471817f5a"
 FAILED_EXECUTOR_COMMIT = "2d4c040ba769985baacbe5c3de5cd67bccf0f6e0"
 EXPECTED_DIRECTORY_COUNT = 72
 REMEDIATION_ROOT = "data/w/legacy_directory_remediation"
 TIMEOUT_SECONDS = 300
+
+
+def repository_binding(root: Path, *, expected_commit: str) -> dict[str, str]:
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ("git", *args), cwd=root, check=True, text=True, capture_output=True
+        ).stdout.strip()
+
+    if Path(git("rev-parse", "--show-toplevel")).resolve(strict=True) != root:
+        raise ContractError("cleanup repository root differs")
+    if git("status", "--porcelain=v1"):
+        raise ContractError("cleanup plan requires a clean repository")
+    commit = git("rev-parse", "HEAD")
+    if commit != expected_commit:
+        raise ContractError("cleanup plan commit differs")
+    return {"commit": commit, "tree": git("rev-parse", "HEAD^{tree}")}
 
 
 def _normal(value: str) -> str:

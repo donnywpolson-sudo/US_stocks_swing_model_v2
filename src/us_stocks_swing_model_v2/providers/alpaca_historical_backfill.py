@@ -16,6 +16,7 @@ from ..clock import TrustedClock, require_trusted_clock
 from ..common import (
     canonical_json_bytes,
     iso_z,
+    load_independent_json_object,
     parse_utc_z,
     require_sha256,
     sha256_bytes,
@@ -60,16 +61,6 @@ CONFIG_CLOSURE_PATHS = (
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise ContractError(f"{label} root must be an object")
-    return value
 
 
 def _run_git(root: Path, *arguments: str) -> str:
@@ -121,7 +112,7 @@ def load_historical_backfill_policy(
     repo_root: Path | None = None,
 ) -> tuple[dict[str, Any], str]:
     root = (repo_root or _repo_root()).resolve(strict=True)
-    policy = _json_object(root / POLICY_PATH, label="historical backfill policy")
+    policy = load_independent_json_object(root / POLICY_PATH, label="historical backfill policy")
     if (
         policy.get("schema_version") != 1
         or policy.get("project") != PROJECT
@@ -191,7 +182,7 @@ def _active_source_binding(root: Path, policy: Mapping[str, Any]) -> dict[str, s
     path = root / binding["path"]
     if sha256_file(path) != binding["sha256"]:
         raise IntegrityError("historical backfill source configuration changed")
-    source = _json_object(path, label="source configuration").get("sources", {}).get(
+    source = load_independent_json_object(path, label="source configuration").get("sources", {}).get(
         policy["source_key"]
     )
     if (
@@ -232,7 +223,7 @@ def _identity_rows(
         != binding["identity_snapshots_sha256"]
     ):
         raise IntegrityError("historical backfill identity release binding differs")
-    payload = _json_object(directory / "identity_snapshots.json", label="identity release")
+    payload = load_independent_json_object(directory / "identity_snapshots.json", label="identity release")
     snapshots = payload.get("snapshots")
     if (
         not isinstance(snapshots, list)
@@ -1532,39 +1523,6 @@ def build_historical_backfill_complete_corpus(
         **unsigned,
         "complete_corpus_id": sha256_bytes(canonical_json_bytes(unsigned)),
     }
-
-
-def build_historical_backfill_complete_corpus_plan(
-    *,
-    backfill_plan: Mapping[str, object] | None = None,
-    repo_root: Path | None = None,
-) -> dict[str, object]:
-    """Build the production completeness identity without network or writes."""
-
-    root = (repo_root or _repo_root()).resolve(strict=True)
-    current = build_historical_backfill_plan(repo_root=root)
-    if backfill_plan is not None and backfill_plan.get("backfill_plan_id") != current[
-        "backfill_plan_id"
-    ]:
-        raise IntegrityError("supplied historical backfill plan is stale")
-    policy, _ = load_historical_backfill_policy(root)
-    accepted_root = (root / "data/vault/accepted").resolve(strict=True)
-    registry = NetworkAcquisitionRegistry.load(
-        root / policy["network_registry"],
-        allowed_root=root,
-    )
-    snapshot_store = AsReceivedSnapshotStore(
-        (root / policy["outputs"]["snapshot_store"]).resolve(strict=True),
-        allowed_root=(root / "data").resolve(strict=True),
-        acquisition_registry=registry,
-    )
-    return build_historical_backfill_complete_corpus(
-        backfill_plan=current,
-        snapshot_store=snapshot_store,
-        calendar_sessions=_calendar_sessions(root, policy, accepted_root),
-        registry=registry,
-        synthetic=False,
-    )
 
 
 def _validated_continuation_plan(

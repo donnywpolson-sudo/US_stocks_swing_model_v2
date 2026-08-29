@@ -13,13 +13,9 @@ from .errors import ContractError
 
 PACKAGE_DISTRIBUTIONS = {
     "exchange-calendars": "exchange-calendars",
-    "joblib": "joblib",
     "numpy": "numpy",
-    "pandas": "pandas",
     "pyarrow": "pyarrow",
-    "PyYAML": "PyYAML",
     "pytest": "pytest",
-    "scikit-learn": "scikit-learn",
     "scipy": "scipy",
     "setuptools": "setuptools",
 }

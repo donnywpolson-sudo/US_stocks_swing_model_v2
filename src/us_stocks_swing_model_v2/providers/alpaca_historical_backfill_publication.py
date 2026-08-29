@@ -14,6 +14,7 @@ from ..common import (
     assert_exact_tree,
     atomic_write_new,
     canonical_json_bytes,
+    load_independent_json_object,
     parse_utc_z,
     reject_link,
     require_contained_path,
@@ -123,19 +124,6 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    reject_link(path)
-    if not path.is_file() or path.stat().st_nlink != 1:
-        raise IntegrityError(f"{label} must be an independent plain file")
-    try:
-        value = json.loads(path.read_bytes())
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if type(value) is not dict:
-        raise IntegrityError(f"{label} must be one object")
-    return value
-
-
 def _closure(root: Path, paths: Iterable[str]) -> dict[str, object]:
     entries: list[dict[str, str]] = []
     for relative in sorted(paths):
@@ -155,7 +143,7 @@ def load_historical_backfill_publication_policy(
     repo_root: Path | None = None,
 ) -> tuple[dict[str, Any], str]:
     root = (repo_root or _repo_root()).resolve(strict=True)
-    policy = _json_object(root / POLICY_PATH, label="backfill publication policy")
+    policy = load_independent_json_object(root / POLICY_PATH, label="backfill publication policy")
     policy_id = sha256_bytes(canonical_json_bytes(policy))
     release_contract = {
         "dataset": DATASET,

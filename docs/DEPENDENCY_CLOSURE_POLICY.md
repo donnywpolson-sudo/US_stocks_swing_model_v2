@@ -2,7 +2,7 @@
 
 The supported runtime is the repository-pinned Windows CPython 3.11.9
 environment. Its executable project dependency closure is the complete set of
-22 distributions listed identically in:
+18 distributions listed identically in:
 
 - `requirements.lock`, which pins normalized distribution names and versions;
 - `requirements.sha256.lock`, which pins the same names and versions to exact

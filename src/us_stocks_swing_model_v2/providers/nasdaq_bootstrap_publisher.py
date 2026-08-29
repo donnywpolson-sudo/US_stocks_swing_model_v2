@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from ..common import (
     assert_exact_tree,
     atomic_write,
     canonical_json_bytes,
+    load_independent_json_object,
     parse_utc_z,
     reject_link,
     require_contained_path,
@@ -100,19 +100,6 @@ CONFIG_CLOSURE_PATHS = (
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    reject_link(path)
-    if not path.is_file() or path.stat().st_nlink != 1:
-        raise IntegrityError(f"{label} must be an independent plain file")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if type(payload) is not dict:
-        raise IntegrityError(f"{label} must be one JSON object")
-    return payload
 
 
 def _validate_publication_policy_shape(payload: Mapping[str, Any]) -> None:
@@ -242,7 +229,7 @@ def load_nasdaq_bootstrap_publication_policy(
     root = Path(repo_root or _repo_root()).resolve(strict=True)
     path = root / PUBLICATION_POLICY_PATH
     require_contained_path(path, root)
-    payload = _json_object(path, label="Nasdaq bootstrap publication policy")
+    payload = load_independent_json_object(path, label="Nasdaq bootstrap publication policy")
     _validate_publication_policy_shape(payload)
     unsigned = {key: value for key, value in payload.items() if key != "plan_id"}
     if payload["plan_id"] != sha256_bytes(canonical_json_bytes(unsigned)):
@@ -331,7 +318,7 @@ def _validated_assessment(
     *,
     policy: Mapping[str, Any],
 ) -> dict[str, Any]:
-    source_config = _json_object(
+    source_config = load_independent_json_object(
         root / "config" / "sources.json",
         label="source configuration",
     )
@@ -512,7 +499,7 @@ def _load_or_create_local_record(
     if path.exists():
         try:
             record = LocalIntegrityRecord.from_dict(
-                _json_object(path, label="Nasdaq publication local integrity record")
+                load_independent_json_object(path, label="Nasdaq publication local integrity record")
             )
         except EvaluationAuthorizationError as exc:
             raise IntegrityError("Nasdaq publication local record is invalid") from exc
@@ -864,7 +851,7 @@ def verify_nasdaq_bootstrap_baseline_release(
         or [entry.path for entry in manifest.files] != [PAYLOAD_FILENAME]
     ):
         raise IntegrityError("Nasdaq bootstrap release manifest differs")
-    receipt = _json_object(
+    receipt = load_independent_json_object(
         Path(release_directory) / PAYLOAD_FILENAME,
         label="Nasdaq bootstrap baseline receipt",
     )

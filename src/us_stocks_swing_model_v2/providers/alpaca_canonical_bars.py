@@ -17,6 +17,7 @@ from ..common import (
     atomic_write_new,
     canonical_json_bytes,
     iso_z,
+    load_independent_json_object,
     parse_utc_z,
     require_contained_path,
     require_sha256,
@@ -129,16 +130,6 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if not isinstance(value, dict):
-        raise ContractError(f"{label} root must be an object")
-    return value
-
-
 def _run_git(root: Path, *arguments: str) -> str:
     try:
         completed = subprocess.run(
@@ -185,7 +176,7 @@ def _closure(root: Path, paths: tuple[str, ...]) -> dict[str, object]:
 
 
 def _load_policy(root: Path) -> dict[str, Any]:
-    policy = _json_object(root / POLICY_PATH, label="canonical bars policy")
+    policy = load_independent_json_object(root / POLICY_PATH, label="canonical bars policy")
     if (
         policy.get("schema_version") != 1
         or policy.get("project") != PROJECT
@@ -230,7 +221,7 @@ def _active_source_binding(root: Path, policy: Mapping[str, Any]) -> dict[str, s
     path = root / source_config["path"]
     if sha256_file(path) != source_config["sha256"]:
         raise IntegrityError("active source configuration hash differs")
-    value = _json_object(path, label="source configuration")
+    value = load_independent_json_object(path, label="source configuration")
     source = value.get("sources", {}).get(policy["source_key"])
     if (
         not isinstance(source, dict)
@@ -276,7 +267,7 @@ def _identity_bindings(
         or manifest.quality_state != "PASS"
     ):
         raise IntegrityError("identity release binding differs")
-    payload = _json_object(directory / "identity_snapshots.json", label="identity release")
+    payload = load_independent_json_object(directory / "identity_snapshots.json", label="identity release")
     snapshots = payload.get("snapshots")
     if not isinstance(snapshots, list) or len(snapshots) != 1:
         raise IntegrityError("identity release snapshot census differs")
@@ -1027,7 +1018,7 @@ def verify_canonical_bars_release(
         or (expected_release_id is not None and manifest.release_id != expected_release_id)
     ):
         raise IntegrityError("canonical bars release manifest differs")
-    receipt = _json_object(
+    receipt = load_independent_json_object(
         Path(release_directory) / RECEIPT_FILENAME,
         label="canonical bar receipt",
     )

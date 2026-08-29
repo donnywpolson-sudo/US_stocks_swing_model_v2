@@ -9,18 +9,14 @@
     "platform_tag": "win_amd64",
     "machine": "AMD64"
   },
-  "requirements_lock_sha256": "0084afba3df9a8dafe75b37ed5a4510bec477bf49c341979af1ebf98233068f9",
-  "requirements_sha256_lock_sha256": "e240f5fc90cc43586b38ab7ccb68703764eeb8343f6c7b368ef7976347e348a9",
-  "binary_closure_package_count": 22,
+  "requirements_lock_sha256": "56d22f8d53bc3be6abeae6f787d215e4e679ab2cce66298c24f1b16a97e26975",
+  "requirements_sha256_lock_sha256": "06b1c4a2653a7ea9f8a0cd7738ae82883487214eb3f13342ae5946d8cbba4d69",
+  "binary_closure_package_count": 18,
   "packages": {
     "exchange-calendars": "4.13.2",
-    "joblib": "1.5.3",
     "numpy": "2.4.4",
-    "pandas": "3.0.3",
     "pyarrow": "24.0.0",
-    "PyYAML": "6.0.3",
     "pytest": "9.0.3",
-    "scikit-learn": "1.8.0",
     "scipy": "1.17.1",
     "setuptools": "82.0.1"
   }

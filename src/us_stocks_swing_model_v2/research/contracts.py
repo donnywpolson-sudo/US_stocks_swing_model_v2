@@ -24,6 +24,16 @@ class ResearchContractError(ValueError):
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def canonical_bytes(payload: object) -> bytes:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("ascii")
+
+
 def explicit_real(value: object, *, name: str) -> float:
     """Accept a finite scalar real while rejecting bool and coercible strings."""
 

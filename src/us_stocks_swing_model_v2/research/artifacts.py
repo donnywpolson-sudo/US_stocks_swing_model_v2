@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 import math
 from typing import Any, Iterable
 
-from .contracts import ResearchContractError, explicit_int, explicit_real, require_unique_ascii_ids
+from .contracts import ResearchContractError, canonical_bytes, explicit_int, explicit_real, require_unique_ascii_ids
 
 
 MODEL_KIND = "linear_distribution_v1"
@@ -18,18 +17,8 @@ DIRECTION_SEMANTICS = (
 PREDICTION_ROLE = "FROZEN_OUTER_PREDICTIONS_SYNTHETIC_MECHANICS_ONLY"
 
 
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("ascii")
-
-
 def _sha256(payload: object) -> str:
-    return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+    return hashlib.sha256(canonical_bytes(payload)).hexdigest()
 
 
 @dataclass(frozen=True)

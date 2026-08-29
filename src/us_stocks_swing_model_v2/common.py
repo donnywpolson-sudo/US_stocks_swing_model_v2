@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .errors import ContractError
+from .errors import ContractError, IntegrityError
 
 
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -32,6 +32,19 @@ def canonical_json_bytes(value: Any) -> bytes:
     except (TypeError, ValueError) as exc:
         raise ContractError(f"value is not canonical-JSON serializable: {exc}") from exc
     return encoded.encode("utf-8") + b"\n"
+
+
+def load_independent_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    reject_link(path)
+    if not path.is_file() or path.stat().st_nlink != 1:
+        raise IntegrityError(f"{label} must be an independent plain file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise IntegrityError(f"{label} is unreadable") from exc
+    if type(payload) is not dict:
+        raise IntegrityError(f"{label} must be one JSON object")
+    return payload
 
 
 def sha256_bytes(value: bytes) -> str:

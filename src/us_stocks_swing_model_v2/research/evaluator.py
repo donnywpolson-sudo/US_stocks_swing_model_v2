@@ -4,23 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import json
 import math
 
 import numpy as np
 
 from .artifacts import FrozenPredictionArtifact
-from .contracts import ResearchContractError, finite_float64, require_unique_ascii_ids
-
-
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("ascii")
+from .contracts import ResearchContractError, canonical_bytes, finite_float64, require_unique_ascii_ids
 
 
 @dataclass(frozen=True)
@@ -70,7 +59,7 @@ class FoldEvaluation:
             or self.candidate_eligible is not False
         ):
             raise ResearchContractError("evaluation loses its fit-free synthetic-only role")
-        expected = hashlib.sha256(_canonical_bytes(self.unsigned_dict())).hexdigest()
+        expected = hashlib.sha256(canonical_bytes(self.unsigned_dict())).hexdigest()
         if self.evaluation_id != expected:
             raise ResearchContractError("evaluation ID differs from its content")
 
@@ -130,7 +119,7 @@ def evaluate_frozen_predictions(
         mean_squared_error=mse,
         multiclass_log_loss=unsigned["multiclass_log_loss"],
         evaluated_sample_count=len(ids),
-        evaluation_id=hashlib.sha256(_canonical_bytes(unsigned)).hexdigest(),
+        evaluation_id=hashlib.sha256(canonical_bytes(unsigned)).hexdigest(),
     )
     evaluation.validate()
     return evaluation

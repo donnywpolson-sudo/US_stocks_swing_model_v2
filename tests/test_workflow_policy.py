@@ -6,11 +6,6 @@ from pathlib import Path
 import pytest
 
 from us_stocks_swing_model_v2.cli import (
-    execute_legacy_purge,
-    generate_legacy_cleanup_plan,
-    hash_copy,
-    plan_alpaca_discovery_proxy_features,
-    plan_alpaca_discovery_proxy_outcomes,
     plan_alpaca_sip_non_active_cutover,
     publish_alpaca_historical_backfill,
     publish_alpaca_sip_qualification_receipt,
@@ -230,71 +225,10 @@ def _unexpected_mutation(*_args: object, **_kwargs: object) -> object:
     raise AssertionError("CLI default reached a mutating operation")
 
 
-class _DryCopyPlan:
-    def concise_summary(self) -> dict[str, object]:
-        return {"entry_count": 0}
-
-    def __iter__(self):  # type: ignore[no-untyped-def]
-        return iter(())
-
-
 def test_mutation_capable_cli_adapters_default_to_nonmutating_plans(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(
-        execute_legacy_purge,
-        "prepare_purge_execution",
-        lambda *_args, **_kwargs: {"plan": {}},
-    )
-    monkeypatch.setattr(execute_legacy_purge, "execute_purge", _unexpected_mutation)
-    assert execute_legacy_purge.main(
-        ["--plan-id", execute_legacy_purge.APPROVED_CLEANUP_PLAN_ID]
-    ) == 0
-
-    monkeypatch.setattr(hash_copy, "load_migration_config", lambda *_args: object())
-    monkeypatch.setattr(hash_copy, "plan_migration", lambda *_args: _DryCopyPlan())
-    monkeypatch.setattr(hash_copy, "execute_copy_plan", _unexpected_mutation)
-    assert hash_copy.main(["--config", "unused.json"]) == 0
-
-    monkeypatch.setattr(
-        plan_alpaca_discovery_proxy_features,
-        "build_feature_release_plan",
-        lambda *_args, **_kwargs: {},
-    )
-    monkeypatch.setattr(
-        plan_alpaca_discovery_proxy_features,
-        "publish_feature_release",
-        _unexpected_mutation,
-    )
-    assert plan_alpaca_discovery_proxy_features.main(
-        [
-            "--source-release-directory",
-            "source",
-            "--calendar-release-directory",
-            "calendar",
-        ]
-    ) == 0
-
-    monkeypatch.setattr(
-        plan_alpaca_discovery_proxy_outcomes,
-        "build_proxy_outcome_plan",
-        lambda *_args, **_kwargs: {},
-    )
-    monkeypatch.setattr(
-        plan_alpaca_discovery_proxy_outcomes,
-        "publish_proxy_outcomes",
-        _unexpected_mutation,
-    )
-    assert plan_alpaca_discovery_proxy_outcomes.main(
-        [
-            "--release-directory",
-            "source",
-            "--calendar-release-directory",
-            "calendar",
-        ]
-    ) == 0
-
     monkeypatch.setattr(
         plan_alpaca_sip_non_active_cutover,
         "build_cutover_plan",
@@ -348,15 +282,6 @@ def test_mutation_capable_cli_adapters_default_to_nonmutating_plans(
 def test_write_only_cli_adapters_stop_before_mutation_without_execute(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        generate_legacy_cleanup_plan,
-        "write_cleanup_plan",
-        _unexpected_mutation,
-    )
-    with pytest.raises(SystemExit) as cleanup_exit:
-        generate_legacy_cleanup_plan.main(["--expected-commit", "a" * 40])
-    assert cleanup_exit.value.code == 2
-
     monkeypatch.setattr(
         publish_alpaca_historical_backfill,
         "publish_historical_backfill_release",

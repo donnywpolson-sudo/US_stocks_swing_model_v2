@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from ..common import (
     assert_exact_tree,
     atomic_write,
     canonical_json_bytes,
+    load_independent_json_object,
     iso_z,
     parse_utc_z,
     reject_link,
@@ -120,19 +120,6 @@ CONFIG_CLOSURE_PATHS = (
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _json_object(path: Path, *, label: str) -> dict[str, Any]:
-    reject_link(path)
-    if not path.is_file() or path.stat().st_nlink != 1:
-        raise IntegrityError(f"{label} must be an independent plain file")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"{label} is unreadable") from exc
-    if type(payload) is not dict:
-        raise IntegrityError(f"{label} must be one JSON object")
-    return payload
 
 
 def _run_git(root: Path, *arguments: str) -> str:
@@ -396,7 +383,7 @@ def _load_or_create_local_record(
     if path.exists():
         try:
             record = LocalIntegrityRecord.from_dict(
-                _json_object(path, label="identity publication local record")
+                load_independent_json_object(path, label="identity publication local record")
             )
         except EvaluationAuthorizationError as exc:
             raise IntegrityError("identity publication local record is invalid") from exc
@@ -787,7 +774,7 @@ def verify_identity_release(
         != sorted((PAYLOAD_FILENAME, RECEIPT_FILENAME))
     ):
         raise IntegrityError("identity release manifest differs")
-    receipt = _json_object(
+    receipt = load_independent_json_object(
         Path(release_directory) / RECEIPT_FILENAME,
         label="identity publication receipt",
     )

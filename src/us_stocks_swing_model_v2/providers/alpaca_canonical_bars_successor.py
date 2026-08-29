@@ -17,6 +17,7 @@ from ..common import (
     atomic_write_new,
     canonical_json_bytes,
     iso_z,
+    load_independent_json_object,
     parse_utc_z,
     require_sha256,
     sha256_bytes,
@@ -40,7 +41,6 @@ from .alpaca_canonical_bars import (
     _active_source_binding,
     _closure,
     _identity_bindings,
-    _json_object,
     _prepare_publication_stage,
     _qualification_binding,
     _repository_binding,
@@ -112,7 +112,7 @@ def _repo_root() -> Path:
 
 
 def _load_policy(root: Path) -> dict[str, Any]:
-    policy = _json_object(root / POLICY_PATH, label="successor bars policy")
+    policy = load_independent_json_object(root / POLICY_PATH, label="successor bars policy")
     expected_window = {
         "start": "2026-07-31T04:00:00Z",
         "end": "2026-08-01T03:59:59Z",
@@ -957,7 +957,7 @@ def verify_successor_bars_release(
         )
     ):
         raise IntegrityError("successor release manifest differs")
-    receipt = _json_object(
+    receipt = load_independent_json_object(
         Path(release_directory) / RECEIPT_FILENAME,
         label="successor canonical bar receipt",
     )

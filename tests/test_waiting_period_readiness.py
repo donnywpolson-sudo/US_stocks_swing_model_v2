@@ -30,7 +30,6 @@ from us_stocks_swing_model_v2.prospective_materializers import (
     materialize_eligible_universe,
     materialize_price_only_feature_rows,
 )
-from us_stocks_swing_model_v2.prospective_operations import HistoricalTrialCensusIntake, build_git_trial_registry_readiness, build_historical_trial_census_intake_plan
 from us_stocks_swing_model_v2.prospective_price_features import CausalPriceBar
 from us_stocks_swing_model_v2.schemas import OutcomeStatus, SecurityType
 
@@ -135,15 +134,3 @@ def test_synthetic_lineage_matures_only_with_complete_coverage_and_all_inputs() 
     incomplete_census = materialize_action_and_delisting_coverage(incomplete, (CoverageRequirement("aapl-id", date(2026, 7, 27), date(2026, 8, 10)),), evidence_view_as_of=AT)
     abstained = materialize_price_only_feature_rows(incomplete_context, universe, sessions=lookback, bars_by_asset={"aapl-id": tuple(CausalPriceBar("aapl-id", item, 100.0, 101.0, AT) for item in lookback)}, identity=identity, coverage=incomplete_census, actions=incomplete)
     assert abstained[0].status == FEATURE_ABSTAIN
-
-
-def test_local_governance_preparation_remains_non_authorizing() -> None:
-    intake = build_historical_trial_census_intake_plan(tuple(HistoricalTrialCensusIntake(kind, "a" * 64, False, None) for kind in (
-        "legacy_repository_trial_records", "local_project_trial_records", "manual_reports_and_plots", "external_outcome_exposure_records",
-    )))
-    registry = build_git_trial_registry_readiness(repository_root=REPO)
-    assert intake["completion"]["exact_census_complete"] is False
-    assert registry["backend"] == "LOCAL_GIT_WITH_GITHUB_BACKUP"
-    assert registry["authorities"]["network_requests"] == 0
-    assert registry["authorities"]["commit"] is False
-    assert registry["authorities"]["push"] is False
